@@ -40,6 +40,8 @@
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#include <time.h>
+#include <curl/curl.h>
 #include "NR_DRB-ToAddMod.h"
 #include "NR_DRB-ToAddModList.h"
 #include "NR_MAC_COMMON/nr_mac.h"
@@ -109,16 +111,82 @@ void clear_mac_stats(gNB_MAC_INST *gNB) {
   }
 }
 
-size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset_rsrp)
+void executeClickHouseQuery(const char *query) {
+  CURL *curl;
+  CURLcode res;
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  curl = curl_easy_init();
+  if(curl) {
+    /* Build query */
+    const char *url = RC.nrmac[0]->radio_config.metrics_db_url;
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, query);
+
+    /* Execute query */
+    res = curl_easy_perform(curl);
+
+    /* Check for errors */
+    if(res != CURLE_OK)
+      LOG_E(MAC, "[MAIN] curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+
+    /* Clean up */
+    curl_easy_cleanup(curl);
+  }
+  curl_global_cleanup();
+}
+
+void* executeClickHouseQueryThread(void *query) {
+  CURL *curl;
+  CURLcode res;
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+  curl = curl_easy_init();
+  if(curl) {
+    /* Build query */
+    const char *url = RC.nrmac[0]->radio_config.metrics_db_url;
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, query);
+
+    /* Execute query */
+    res = curl_easy_perform(curl);
+
+    /* Check for errors */
+    if(res != CURLE_OK)
+      LOG_E(MAC, "[MAIN] curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+
+    /* Clean up */
+    curl_easy_cleanup(curl);
+  }
+  curl_global_cleanup();
+  free(query);
+  return NULL;
+}
+
+size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t output_len, bool reset_rsrp)
 {
   const char *begin = output;
-  const char *end = output + strlen;
+  const char *end = output + output_len;
 
   /* this function is called from gNB_dlsch_ulsch_scheduler(), so assumes the
    * scheduler to be locked*/
   NR_SCHED_ENSURE_LOCKED(&gNB->sched_lock);
 
   NR_SCHED_LOCK(&gNB->UE_info.mutex);
+
+  char timestamp_ns[64];
+  if (strlen(gNB->radio_config.metrics_db_url) > 0) {
+      /* Prepare timestamp value */
+      struct timeval cur_time;
+      gettimeofday(&cur_time, NULL);
+      size_t tns_size = sizeof(timestamp_ns);
+      struct tm *tm_info = gmtime(&cur_time.tv_sec);
+      strftime(timestamp_ns, tns_size, "%Y-%m-%d %H:%M:%S", tm_info);
+      char nanoseconds[32];
+      snprintf(nanoseconds, sizeof(nanoseconds), ".%03ld000000", cur_time.tv_usec / 1000);
+      strncat(timestamp_ns, nanoseconds, tns_size - strlen(timestamp_ns) - 1);
+  }
+
   UE_iterator(gNB->UE_info.connected_ue_list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_mac_stats_t *stats = &UE->mac_stats;
@@ -209,6 +277,57 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset
                          c->lcid,
                          stats->dl.lc_bytes[c->lcid],
                          stats->ul.lc_bytes[c->lcid]);
+    }
+
+    if (strlen(gNB->radio_config.metrics_db_url) > 0)
+    {
+      /* Insert UE values in Clickhouse DB */
+      char *insert_values_query = malloc(2048);
+      snprintf(insert_values_query, 2048,"INSERT INTO oai.mac_stats (\
+      TsTaiNs, gNB_ID, RNTI, Sync, PH_dB, PCMAX_dB, RSRP_dBm, \
+      CQI, RI, PMI_1, PMI_2, \
+      DLSCH_R1, DLSCH_R2, DLSCH_R3, DLSCH_R4, DLSCH_ERRORS, PUCCH0_DTX, DL_BLER, DL_MCS_TABLE, DL_MCS, \
+      ULSCH_R1, ULSCH_R2, ULSCH_R3, ULSCH_R4, ULSCH_ERRORS, ULSCH_DTX, UL_BLER, UL_MCS_TABLE, UL_MCS, UL_MOD, NPRB, SNR_dB, \
+      MAC_TX_bytes_total, MAC_RX_bytes_total, \
+      MAC_TX_bytes_curr, MAC_RX_bytes_curr, \
+      LCID1_TX_bytes, LCID1_RX_bytes, \
+      LCID2_TX_bytes, LCID2_RX_bytes, \
+      LCID4_TX_bytes, LCID4_RX_bytes, \
+      LCID5_TX_bytes, LCID5_RX_bytes \
+      ) VALUES (\
+      '%s', %d, %d, '%s', %d, %d, %d, \
+      %d, %d, %d, %d, \
+      %"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", %d, %.5f, %d, %d, \
+      %"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", %d, %.5f, %d, %d, %d, %d, %f, \
+      %14"PRIu64", %14"PRIu64", \
+      %14"PRIu64", %14"PRIu64", \
+      %14"PRIu64", %14"PRIu64", \
+      %14"PRIu64", %14"PRIu64", \
+      %14"PRIu64", %14"PRIu64")",
+      timestamp_ns, (int)gNB->f1_config.setup_req->gNB_DU_id, UE->rnti,
+      in_sync ? "in-sync" : "out-of-sync", sched_ctrl->ph, sched_ctrl->pcmax, avg_rsrp,
+      sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.wb_cqi_1tb,
+      sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.ri+1,
+      sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.pmi_x1,
+      sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.pmi_x2,
+      stats->dl.rounds[0], stats->dl.rounds[1], stats->dl.rounds[2], stats->dl.rounds[3],
+      stats->dl.errors, stats->pucch0_DTX,
+      sched_ctrl->dl_bler_stats.bler, UE->current_DL_BWP.mcsTableIdx, sched_ctrl->dl_bler_stats.mcs,
+      stats->ul.rounds[0], stats->ul.rounds[1], stats->ul.rounds[2], stats->ul.rounds[3],
+      stats->ul.errors, stats->ulsch_DTX, sched_ctrl->ul_bler_stats.bler,
+      UE->current_UL_BWP.mcs_table, sched_ctrl->ul_bler_stats.mcs,
+      nr_get_Qm_ul(sched_ctrl->ul_bler_stats.mcs,UE->current_UL_BWP.mcs_table),
+      UE->mac_stats.NPRB, (sched_ctrl->pusch_snrx10 / 10) + (sched_ctrl->pusch_snrx10 % 10) / 10.0f,
+      stats->dl.total_bytes, stats->ul.total_bytes,
+      stats->dl.current_bytes, stats->ul.current_bytes,
+      stats->dl.lc_bytes[1], stats->ul.lc_bytes[1],
+      stats->dl.lc_bytes[2], stats->ul.lc_bytes[2],
+      stats->dl.lc_bytes[4], stats->ul.lc_bytes[4],
+      stats->dl.lc_bytes[5], stats->ul.lc_bytes[5]);
+
+      // executeClickHouseQuery(insert_values_query);
+      pthread_t query_insert_thread;
+      pthread_create(&query_insert_thread, NULL, executeClickHouseQueryThread, (void*)insert_values_query);
     }
   }
   NR_SCHED_UNLOCK(&gNB->UE_info.mutex);

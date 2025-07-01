@@ -1620,6 +1620,8 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   config.disable_harq = *GNBParamList.paramarray[0][GNB_DISABLE_HARQ_IDX].iptr;
   config.num_dlharq = *GNBParamList.paramarray[0][GNB_NUM_DL_HARQ_IDX].iptr;
   config.num_ulharq =  *GNBParamList.paramarray[0][GNB_NUM_UL_HARQ_IDX].iptr;
+  config.metrics_db_url = strdup(*(GNBParamList.paramarray[0][GNB_METRICS_DB_URL_IDX].strptr));
+
   if (config.disable_harq)
     LOG_W(GNB_APP, "\"disable_harq\" is a REL17 feature and is incompatible with REL15 and REL16 UEs!\n");
   LOG_I(GNB_APP,
