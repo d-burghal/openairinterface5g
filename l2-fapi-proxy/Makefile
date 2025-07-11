@@ -14,6 +14,7 @@ LIB_DIR = .
 SRC_DIR = ./src
 INC_DIRS = \
   $(SRC_DIR) \
+  $(LIB_DIR)/nfapi/oai_integration \
   $(LIB_DIR)/open-nFAPI/nfapi/public_inc \
   $(LIB_DIR)/open-nFAPI/pnf_sim/inc \
   $(LIB_DIR)/open-nFAPI/nfapi/inc \
@@ -27,6 +28,7 @@ INC_DIRS = \
   $(LIB_DIR)/common/utils/LOG \
 
 LIB_SOURCES = \
+  $(LIB_DIR)/nfapi/oai_integration/nfapi.c \
   $(LIB_DIR)/open-nFAPI/nfapi/src/nfapi_p4.c \
   $(LIB_DIR)/open-nFAPI/nfapi/src/nfapi_p5.c \
   $(LIB_DIR)/open-nFAPI/nfapi/src/nfapi_p7.c \
@@ -45,7 +47,6 @@ SRCS = \
 	$(SRC_DIR)/proxy.cc \
 	$(SRC_DIR)/nr_proxy.cc \
 	$(SRC_DIR)/nfapiutils.c \
-  $(SRC_DIR)/nfapi.c \
 	$(SRC_DIR)/nfapi_pnf.c \
 	$(SRC_DIR)/queue.c \
 	$(LIB_SOURCES)
