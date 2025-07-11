@@ -24,10 +24,15 @@ extern "C" {
 
 #include "nfapi_interface.h"
 #include "debug.h"
-#include <pthread.h>
+// #include <openair2/PHY_INTERFACE/IF_Module.h>
 #include "nfapi_nr_interface.h"
 #include "nfapi_nr_interface_scf.h"
+
 #include <sys/types.h>
+// #include "openair1/PHY/defs_gNB.h"
+
+
+
 
 /*! This enum is used to describe the states of the pnf 
  */
@@ -83,10 +88,18 @@ typedef struct nfapi_pnf_config
 	 */
 	void (*free)(void* ptr);
 
+	/*! A user define callback to handle trace from the pnf 
+	 * \param level The trace level 
+	 * \param message The trace string
+	 * 
+	 * This is a vardic function.
+	 */
+	void (*trace)(nfapi_trace_level_t  level, const char* message, ...);
+
 	/*! The ip address of the VNF 
 	 *
 	 */
-	const char* vnf_ip_addr;
+	char* vnf_ip_addr;
 
 	/*! The ip port of the VNF 
 	 */
@@ -128,7 +141,7 @@ typedef struct nfapi_pnf_config
 	 */
 	int (*pnf_config_req)(nfapi_pnf_config_t* config, nfapi_pnf_config_request_t* req);
 	int (*pnf_nr_config_req)(nfapi_pnf_config_t* config, nfapi_nr_pnf_config_request_t* req);
-	
+
 	/*! A callback for the PNF_START.request
 	 *  \param config A pointer to the pnf configuration
 	 *  \param req A data structure for the decoded PNF_CONFIG.request. This will have
@@ -140,7 +153,7 @@ typedef struct nfapi_pnf_config
 	 */
 	int (*pnf_start_req)(nfapi_pnf_config_t* config, nfapi_pnf_start_request_t* req);
 	int (*pnf_nr_start_req)(nfapi_pnf_config_t* config, nfapi_nr_pnf_start_request_t* req);
-	
+
 	/*! A callback for the PNF_STOP.request
 	 *  \param config A pointer to the pnf configuration
 	 *  \param req A data structure for the decoded PNF_STOP.request. This will have
@@ -164,7 +177,7 @@ typedef struct nfapi_pnf_config
 	 */
 	int (*param_req)(nfapi_pnf_config_t* config, nfapi_pnf_phy_config_t* phy, nfapi_param_request_t* req);
 	int (*nr_param_req)(nfapi_pnf_config_t* config, nfapi_pnf_phy_config_t* phy, nfapi_nr_param_request_scf_t* req);
-	
+
 	/*! A callback for the CONFIG.request
 	 *  \param config A pointer to the pnf configuration
 	 *  \param phy A pointer to the pnf phy configuration
@@ -188,9 +201,8 @@ typedef struct nfapi_pnf_config
 	 * 	The client is expected to send the START.response after the client has received the
 	 *  first subframe indication from FAPI.
 	 */
-	int (*start_req)(nfapi_pnf_config_t* config, nfapi_pnf_phy_config_t* phy, nfapi_start_request_t* req);
+	int (*start_req)(nfapi_pnf_config_t* config, nfapi_pnf_phy_config_t* phy,  nfapi_start_request_t* req);
 	int (*nr_start_req)(nfapi_pnf_config_t* config, nfapi_pnf_phy_config_t* phy,  nfapi_nr_start_request_scf_t* req);
-	
 	/*! A callback for the STOP.request
 	 *  \param config A pointer to the pnf configuration
 	 *  \param phy A pointer to the pnf phy configuration
@@ -202,21 +214,21 @@ typedef struct nfapi_pnf_config
 	 *  STOP.request. This can be done in the call back. 
 	 */
 	int (*stop_req)(nfapi_pnf_config_t* config, nfapi_pnf_phy_config_t* phy, nfapi_stop_request_t* req);
-	int (*nr_stop_req)(nfapi_pnf_config_t* config, nfapi_pnf_phy_config_t* phy, nfapi_nr_stop_request_t* req);
-	
-	/*! A callback for the MEASUREMENT.request
-	 *  \param config A pointer to the pnf configuration
-	 *  \param phy A pointer to the pnf phy configuration
-	 *  \param req A data structure for the decoded MEASUREMENT.request. This will have
-	 *             been allocated on the stack
-	 *  \return not currently used
-	 * 
-	 * 	The client is expected to send the MEASUREMENT.response after receiving the
-	 *  MEASUREMENT.request. This can be done in the call back. 
-	 */
-	int (*measurement_req)(nfapi_pnf_config_t* config, nfapi_pnf_phy_config_t* phy, nfapi_measurement_request_t* req);
-	
-	/*! A callback for the RSSI.request
+  int (*nr_stop_req)(nfapi_pnf_config_t* config, nfapi_pnf_phy_config_t* phy, nfapi_nr_stop_request_scf_t* req);
+
+  /*! A callback for the MEASUREMENT.request
+   *  \param config A pointer to the pnf configuration
+   *  \param phy A pointer to the pnf phy configuration
+   *  \param req A data structure for the decoded MEASUREMENT.request. This will have
+   *             been allocated on the stack
+   *  \return not currently used
+   *
+   * 	The client is expected to send the MEASUREMENT.response after receiving the
+   *  MEASUREMENT.request. This can be done in the call back.
+   */
+  int (*measurement_req)(nfapi_pnf_config_t* config, nfapi_pnf_phy_config_t* phy, nfapi_measurement_request_t* req);
+
+  /*! A callback for the RSSI.request
 	 *  \param config A pointer to the pnf configuration
 	 *  \param phy A pointer to the pnf phy configuration
 	 *  \param req A data structure for the decoded RSSI.request. This will have
@@ -293,19 +305,19 @@ typedef struct nfapi_pnf_config
 	 *  \param msg A pointer to the decode P4/P5 message
 	 *  \return not current used
 	 */
-	int (*vendor_ext)(nfapi_pnf_config_t* config, nfapi_p4_p5_message_header_t* msg);
+	int (*vendor_ext)(nfapi_pnf_config_t* config, void* msg);
 	
 	/*! A callback to allocate vendor extension message
 	 * \param message_id The message id from the decode P4/P5 message header
 	 * \param msg_size A pointer a the size of the allocated message structure. The callee should set this
 	 * \return A pointer to a allocated P4/P5 message structure
 	 */
-	nfapi_p4_p5_message_header_t* (*allocate_p4_p5_vendor_ext)(uint16_t message_id, uint16_t* msg_size);
+	void* (*allocate_p4_p5_vendor_ext)(uint16_t message_id, uint16_t* msg_size);
 	
 	/*! A callback to deallocate vendor extension message 
 	 * \param header A pointer to an P4/P5 message structure
 	 */
-	void (*deallocate_p4_p5_vendor_ext)(nfapi_p4_p5_message_header_t* header);
+	void (*deallocate_p4_p5_vendor_ext)(void* header);
 
 
 
@@ -392,7 +404,6 @@ int nfapi_nr_pnf_pnf_config_resp(nfapi_pnf_config_t* config, nfapi_nr_pnf_config
  */
 int nfapi_pnf_pnf_start_resp(nfapi_pnf_config_t* config, nfapi_pnf_start_response_t* resp);
 int nfapi_nr_pnf_pnf_start_resp(nfapi_pnf_config_t* config, nfapi_nr_pnf_start_response_t* resp);
-
 /*! Send the PNF_STOP.response
  * \param config A pointer to a pnf configuraiton
  * \param resp A pointer to the message structure
@@ -418,7 +429,6 @@ int nfapi_nr_pnf_param_resp(nfapi_pnf_config_t* config, nfapi_nr_param_response_
  */
 int nfapi_pnf_config_resp(nfapi_pnf_config_t* config, nfapi_config_response_t* resp);
 int nfapi_nr_pnf_config_resp(nfapi_pnf_config_t* config, nfapi_nr_config_response_scf_t* resp);
-
 /*! Send the START.response
  * \param config A pointer to a pnf configuraiton
  * \param resp A pointer to the message structure
@@ -561,21 +571,18 @@ typedef struct
 typedef struct 
 {
 	//uint16_t sfn_slot
-	int16_t sfn;
-	int16_t slot;
-	//TODO: Change P7 structs to NR
-	nfapi_nr_dl_tti_request_t* dl_tti_req;//nfapi_dl_config_request_t* dl_config_req; 
-	nfapi_nr_ul_tti_request_t* ul_tti_req;//nfapi_ul_config_request_t* ul_config_req;
-	nfapi_nr_ul_dci_request_t* ul_dci_req;//nfapi_hi_dci0_request_t* hi_dci0_req;
-	nfapi_nr_tx_data_request_t* tx_data_req;//nfapi_tx_request_t* tx_req;
+	uint16_t sfn;
+	uint16_t slot;
+	nfapi_nr_dl_tti_request_t*  dl_tti_req;
+	nfapi_nr_ul_tti_request_t*  ul_tti_req;
+	nfapi_nr_ul_dci_request_t*  ul_dci_req;
+	nfapi_nr_tx_data_request_t* tx_data_req;
 
 	//TODO: check these two later
 	//nfapi_lbt_dl_config_request_t* lbt_dl_config_req;
 	//nfapi_ue_release_request_t* ue_release_req;
 } nfapi_pnf_p7_slot_buffer_t;
 
-
-typedef int64_t openair0_timestamp;
 typedef struct L1_rxtx_proc_t L1_rxtx_proc_t;
 
 /// Context data structure for RX/TX portion of slot processing
@@ -602,6 +609,12 @@ typedef struct nfapi_pnf_p7_config
 	 */
 	void (*free)(void* ptr);
 
+	/*! A user define callback to handle trace from the pnf
+	 * \param level The trace level
+	 * \param message The message string
+	 */
+	void (*trace)(nfapi_trace_level_t  level, const char* message, ...);
+
 	/*! The PHY id*/
 	uint16_t phy_id;
 
@@ -621,12 +634,13 @@ typedef struct nfapi_pnf_p7_config
 	uint8_t checksum_enabled;
 
 	/*! The maxium size of a P7 segement. If a message is large that this it
-	 * will be segemented */
-	uint16_t segment_size;
+	 * will be segmented. Note: u32 to cover 4G and 5G */
+	uint32_t segment_size;
 
 	/*! The dummy subframe buffer structure that should be used in case there
 	 * are no 'valid' subframe messages */
 	nfapi_pnf_p7_subframe_buffer_t dummy_subframe;
+
 	nfapi_pnf_p7_slot_buffer_t dummy_slot; // defining a slot equivalent for now
 	
 	/*! Configuration options for the p7 pack unpack functions*/
@@ -648,7 +662,7 @@ typedef struct nfapi_pnf_p7_config
 	 * \return not currently used
 	 */
 	int (*dl_tti_req_fn)(gNB_L1_rxtx_proc_t *proc,nfapi_pnf_p7_config_t* config, nfapi_nr_dl_tti_request_t* req);
-	int (*dl_config_req)(nfapi_pnf_p7_config_t* config, nfapi_dl_config_request_t* req);
+	int (*dl_config_req)(L1_rxtx_proc_t *proc,nfapi_pnf_p7_config_t* config, nfapi_dl_config_request_t* req);
 	
 	/*! A callback for the UL_CONFIG.request
 	 * \param config A poiner to the PNF P7 config
@@ -656,7 +670,7 @@ typedef struct nfapi_pnf_p7_config
 	 * \return not currently used	
 	 */
 	int (*ul_tti_req_fn)(gNB_L1_rxtx_proc_t *proc,nfapi_pnf_p7_config_t* config, nfapi_nr_ul_tti_request_t* req);
-	int (*ul_config_req)(nfapi_pnf_p7_config_t* config, nfapi_ul_config_request_t* req);
+	int (*ul_config_req)(L1_rxtx_proc_t *proc,nfapi_pnf_p7_config_t* config, nfapi_ul_config_request_t* req);
 	
 	/*! A callback for the HI_DCI0.request
 	 * \param config A poiner to the PNF P7 config
@@ -664,8 +678,8 @@ typedef struct nfapi_pnf_p7_config
 	 * \return not currently used
 	 */
 	int (*ul_dci_req_fn)(gNB_L1_rxtx_proc_t *proc,nfapi_pnf_p7_config_t* config, nfapi_nr_ul_dci_request_t* req);
-	int (*hi_dci0_req)(nfapi_pnf_p7_config_t* config, nfapi_hi_dci0_request_t* req);
-	
+	int (*hi_dci0_req)(L1_rxtx_proc_t *proc,nfapi_pnf_p7_config_t* config, nfapi_hi_dci0_request_t* req);
+
 	/*! A callback for the TX_REQ.request
 	 * \param config A poiner to the PNF P7 config
 	 * \param req A pointer to the tx request message structure
@@ -701,7 +715,7 @@ typedef struct nfapi_pnf_p7_config
 	 * \param msg A pointer to a decode vendor extention message
 	 * \return not currently used
 	 */
-	int (*vendor_ext)(nfapi_pnf_p7_config_t* config, nfapi_p7_message_header_t* msg);
+	int (*vendor_ext)(nfapi_pnf_p7_config_t* config, void* msg);
 
 	/*! A callback to allocate vendor extension message
 	 * \param message_id The vendor extention message id from the decode message header
@@ -710,12 +724,12 @@ typedef struct nfapi_pnf_p7_config
 	 * 
 	 * 
 	 */
-	nfapi_p7_message_header_t* (*allocate_p7_vendor_ext)(uint16_t message_id, uint16_t* msg_size);
+	void* (*allocate_p7_vendor_ext)(uint16_t message_id, uint16_t* msg_size);
 	
 	/*! A callback to deallocate vendor extension message
 	 * \param header A pointer to a p7 vendor extention message
 	 */
-	void (*deallocate_p7_vendor_ext)(nfapi_p7_message_header_t* header);
+	void (*deallocate_p7_vendor_ext)(void* header);
 
 
 
@@ -763,6 +777,7 @@ int nfapi_pnf_p7_stop(nfapi_pnf_p7_config_t* config);
  */
 int nfapi_pnf_p7_slot_ind(nfapi_pnf_p7_config_t* config, uint16_t phy_id, uint16_t sfn, uint16_t slot);
 
+
 /*! Subframe indication
  * \param config A pointer to a PNF P7 config
  * \param phy_id The phy_id for the phy instance
@@ -789,6 +804,7 @@ int nfapi_pnf_p7_harq_ind(nfapi_pnf_p7_config_t* config, nfapi_harq_indication_t
  * \return 0 means success, -1 means failure
  */
 int nfapi_pnf_p7_crc_ind(nfapi_pnf_p7_config_t* config, nfapi_crc_indication_t* ind);
+int nfapi_pnf_p7_nr_crc_ind(nfapi_pnf_p7_config_t* config, nfapi_nr_crc_indication_t* ind);
 
 /*! Send the RX.indication
  * \param config A pointer to a PNF P7 config
@@ -796,6 +812,7 @@ int nfapi_pnf_p7_crc_ind(nfapi_pnf_p7_config_t* config, nfapi_crc_indication_t* 
  * \return 0 means success, -1 means failure
  */
 int nfapi_pnf_p7_rx_ind(nfapi_pnf_p7_config_t* config, nfapi_rx_indication_t* ind);
+int nfapi_pnf_p7_nr_rx_data_ind(nfapi_pnf_p7_config_t* config, nfapi_nr_rx_data_indication_t* ind);
 
 /*! Send the RACH.indication
  * \param config A pointer to a PNF P7 config
@@ -810,6 +827,7 @@ int nfapi_pnf_p7_rach_ind(nfapi_pnf_p7_config_t* config, nfapi_rach_indication_t
  * \return 0 means success, -1 means failure
  */
 int nfapi_pnf_p7_srs_ind(nfapi_pnf_p7_config_t* config, nfapi_srs_indication_t* ind);
+int nfapi_pnf_p7_nr_srs_ind(nfapi_pnf_p7_config_t* config, nfapi_nr_srs_indication_t* ind);
 
 /*! Send the SR.indication
  * \param config A pointer to a PNF P7 config
@@ -831,6 +849,7 @@ int nfapi_pnf_p7_cqi_ind(nfapi_pnf_p7_config_t* config, nfapi_cqi_indication_t* 
  * \return 0 means success, -1 means failure
  */
 int nfapi_pnf_p7_lbt_dl_ind(nfapi_pnf_p7_config_t* config, nfapi_lbt_dl_indication_t* ind);
+int nfapi_pnf_p7_nr_uci_ind(nfapi_pnf_p7_config_t* config, nfapi_nr_uci_indication_t* ind);
 
 /*! Send the NB_HARQ.indication
  * \param config A pointer to a PNF P7 config
@@ -845,47 +864,6 @@ int nfapi_pnf_p7_nb_harq_ind(nfapi_pnf_p7_config_t* config, nfapi_nb_harq_indica
  * \return 0 means success, -1 means failure
  */
 int nfapi_pnf_p7_nrach_ind(nfapi_pnf_p7_config_t* config, nfapi_nrach_indication_t* ind);
-
-/*! Send the NR_SLOT.indication
- * \param config A pointer to a PNF P7 config
- * \param ind A pointer to the nr slot indication message structure
- * \return 0 means success, -1 means failure
- */
-int nfapi_pnf_p7_nr_slot_ind(nfapi_pnf_p7_config_t* config, nfapi_nr_slot_indication_scf_t* ind);
-
-/*! Send the NR_RX_DATA.indication
- * \param config A pointer to a PNF P7 config
- * \param ind A pointer to the nr rx data indication message structure
- * \return 0 means success, -1 means failure
- */
-int nfapi_pnf_p7_nr_rx_data_ind(nfapi_pnf_p7_config_t* config, nfapi_nr_rx_data_indication_t* ind);
-
-/*! Send the NR_CRC.indication
- * \param config A pointer to a PNF P7 config
- * \param ind A pointer to the nr crc indication message structure
- * \return 0 means success, -1 means failure
- */
-int nfapi_pnf_p7_nr_crc_ind(nfapi_pnf_p7_config_t* config, nfapi_nr_crc_indication_t* ind);
-
-/*! Send the NR_SRS.indication
- * \param config A pointer to a PNF P7 config
- * \param ind A pointer to the nr srs indication message structure
- * \return 0 means success, -1 means failure
- */
-int nfapi_pnf_p7_nr_srs_ind(nfapi_pnf_p7_config_t* config, nfapi_nr_srs_indication_t* ind);
-
-/*! Send the NR_UCI.indication
- * \param config A pointer to a PNF P7 config
- * \param ind A pointer to the nr uci indication message structure
- * \return 0 means success, -1 means failure
- */
-int nfapi_pnf_p7_nr_uci_ind(nfapi_pnf_p7_config_t* config, nfapi_nr_uci_indication_t* ind);
-
-/*! Send the NR_RACH.indication
- * \param config A pointer to a PNF P7 config
- * \param ind A pointer to the nr rach indication message structure
- * \return 0 means success, -1 means failure
- */
 int nfapi_pnf_p7_nr_rach_ind(nfapi_pnf_p7_config_t* config, nfapi_nr_rach_indication_t* ind);
 
 

@@ -25,6 +25,8 @@ extern "C" {
 
 #include "nfapi_pnf.h"
 #include "nfapi.h"
+#include "pnf_p7.h"
+#include "vendor_ext.h"
 #include "queue.h"
 #include "proxy.h"
 #include <inttypes.h>
@@ -33,6 +35,9 @@ extern "C" {
 #ifdef NDEBUG
 #  warning assert is disabled
 #endif
+
+#define MU 1 // RDF Hardcode 
+#define DISABLE_UE 1
 
 /*
 #include "common/ran_context.h"
@@ -97,6 +102,7 @@ void pnf_set_thread_priority(int priority)
     if (sched_setscheduler(0, SCHED_RR, &schedParam) != 0)
     {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "failed to set SCHED_RR %s\n", strerror(errno));
+        printf("failed to set SCHED_RR %s\n", strerror(errno));
         abort();
     }
 }
@@ -127,7 +133,7 @@ void pnf_set_thread_priority(int priority) {
 void *pnf_p7_thread_start(void *ptr)
 {
     NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] P7 THREAD %s\n", __FUNCTION__);
-    pnf_set_thread_priority(79);
+    // pnf_set_thread_priority(79);
     log_scheduler(__func__);
     nfapi_pnf_p7_config_t *config = (nfapi_pnf_p7_config_t *)ptr;
     nfapi_pnf_p7_start(config);
@@ -137,7 +143,7 @@ void *pnf_p7_thread_start(void *ptr)
 
 void *pnf_nr_p7_thread_start(void *ptr) {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] P7 THREAD %s\n", __FUNCTION__);
-  pnf_set_thread_priority(79);
+//   pnf_set_thread_priority(79);
   nfapi_pnf_p7_config_t *config = (nfapi_pnf_p7_config_t *)ptr;
   nfapi_nr_pnf_p7_start(config);
   return 0;
@@ -1149,7 +1155,9 @@ int nr_config_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, n
   if(req->carrier_config.dl_bandwidth.tl.tag == NFAPI_NR_CONFIG_DL_BANDWIDTH_TAG) {
     phy_info->dl_channel_bw_support = req->carrier_config.dl_bandwidth.value; //rf_config.dl_channel_bandwidth.value;
     num_tlv++;
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s() NFAPI_NR_CONFIG_DL_BANDWIDTH_TAG N_RB_DL:%u\n", __FUNCTION__, phy_info->dl_channel_bw_support);
   } else {            
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s() Missing NFAPI_NR_CONFIG_DL_BANDWIDTH_TAG\n", __FUNCTION__);
   }
 
   if(req->carrier_config.uplink_bandwidth.tl.tag == NFAPI_NR_CONFIG_UPLINK_BANDWIDTH_TAG) {
@@ -1162,26 +1170,36 @@ int nr_config_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, n
   }
 
   NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] CONFIG_REQUEST[num_tlv:%d] TLVs processed:%d\n", req->num_tlv, num_tlv); // make this an assert
-  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] Simulating PHY CONFIG - DJP\n");
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] Simulating PHY CONFIG\n");
 
   phy_info->remote_port = req->nfapi_config.p7_vnf_port.value;
   struct sockaddr_in vnf_p7_sockaddr;
   memcpy(&vnf_p7_sockaddr.sin_addr.s_addr, &(req->nfapi_config.p7_vnf_address_ipv4.address[0]), 4);
   phy_info->remote_addr = inet_ntoa(vnf_p7_sockaddr.sin_addr);
-  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] %d vnf p7 %s:%d timing %d %d %d\n", phy_info->id, phy_info->remote_addr, phy_info->remote_port,
-         phy_info->timing_window, phy_info->timing_info_mode, phy_info->timing_info_period);
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+              "[PNF] %d vnf p7 %s:%d timing %d %d %d\n",
+              phy_info->id,
+              phy_info->remote_addr,
+              phy_info->remote_port,
+              phy_info->timing_window,
+              phy_info->timing_info_mode,
+              phy_info->timing_info_period);
   nfapi_nr_config_response_scf_t nfapi_resp;
   memset(&nfapi_resp, 0, sizeof(nfapi_resp));
   nfapi_resp.header.message_id = NFAPI_NR_PHY_MSG_TYPE_CONFIG_RESPONSE;
   nfapi_resp.header.phy_id = phy_info->id;
-  nfapi_resp.error_code = 0; // DJP - some value resp->error_code;
+  nfapi_resp.error_code = 0;
+  nfapi_resp.num_invalid_tlvs = 0;
+  nfapi_resp.num_invalid_tlvs_configured_in_idle = 0;
+  nfapi_resp.num_invalid_tlvs_configured_in_running = 0;
+  nfapi_resp.num_missing_tlvs = 0;
   nfapi_nr_pnf_config_resp(config, &nfapi_resp);
   NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] Sent NFAPI_PNF_CONFIG_RESPONSE phy_id:%d\n", phy_info->id);
 
   return 0;
 }
 
-/*
+
 nfapi_p7_message_header_t *pnf_phy_allocate_p7_vendor_ext(uint16_t message_id, uint16_t *msg_size) {
   if(message_id == P7_VENDOR_EXT_REQ) {
     (*msg_size) = sizeof(vendor_ext_p7_req);
@@ -1191,10 +1209,23 @@ nfapi_p7_message_header_t *pnf_phy_allocate_p7_vendor_ext(uint16_t message_id, u
   return 0;
 }
 
+void *pnf_nr_phy_allocate_p7_vendor_ext(uint16_t message_id, uint16_t *msg_size)
+{
+  if (message_id == P7_VENDOR_EXT_REQ) {
+    (*msg_size) = sizeof(vendor_ext_p7_req);
+    return (nfapi_nr_p7_message_header_t *)malloc(sizeof(vendor_ext_p7_req));
+  }
+
+  return 0;
+}
+
 void pnf_phy_deallocate_p7_vendor_ext(nfapi_p7_message_header_t *header) {
   free(header);
 }
-*/
+void pnf_nr_phy_deallocate_p7_vendor_ext(void *header)
+{
+  free(header);
+}
 
 /*
 int pnf_phy_ul_dci_req(gNB_L1_rxtx_proc_t *proc, nfapi_pnf_p7_config_t *pnf_p7, nfapi_nr_ul_dci_request_t *req) {
@@ -1648,22 +1679,21 @@ int pnf_phy_ue_release_req(nfapi_pnf_p7_config_t *config, nfapi_ue_release_reque
     return 0;
 }
 
-/*
-// No in Lte code
-int pnf_phy_vendor_ext(nfapi_pnf_p7_config_t *config, nfapi_p7_message_header_t *msg) {
-  if(msg->message_id == P7_VENDOR_EXT_REQ) {
-    //vendor_ext_p7_req* req = (vendor_ext_p7_req*)msg;
-    //NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] vendor request (1:%d 2:%d)\n", req->dummy1, req->dummy2);
+int pnf_nr_phy_vendor_ext(nfapi_pnf_p7_config_t *config, void *msg)
+{
+  if (((nfapi_nr_p7_message_header_t *)msg)->message_id == P7_VENDOR_EXT_REQ) {
+    // vendor_ext_p7_req* req = (vendor_ext_p7_req*)msg;
+    // printf("[PNF] vendor request (1:%d 2:%d)\n", req->dummy1, req->dummy2);
   } else {
-    NFAPI_TRACE(NFAPI_TRACE_WARN, "[PNF] unknown vendor ext\n");
+    printf("[PNF] unknown vendor ext\n");
   }
 
   return 0;
 }
 
-int pnf_phy_pack_p7_vendor_extension(nfapi_p7_message_header_t *header, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p7_codec_config_t *codex) {
+int pnf_phy_pack_p7_vendor_extension(void *header, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p7_codec_config_t *codex) {
   //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
-  if(header->message_id == P7_VENDOR_EXT_IND) {
+  if(((nfapi_p7_message_header_t*)header)->message_id == P7_VENDOR_EXT_IND) {
     vendor_ext_p7_ind *ind = (vendor_ext_p7_ind *)(header);
 
     if(!push16(ind->error_code, ppWritePackedMsg, end))
@@ -1675,13 +1705,28 @@ int pnf_phy_pack_p7_vendor_extension(nfapi_p7_message_header_t *header, uint8_t 
   return -1;
 }
 
-int pnf_phy_unpack_p7_vendor_extension(nfapi_p7_message_header_t *header, uint8_t **ppReadPackedMessage, uint8_t *end, nfapi_p7_codec_config_t *codec) {
-  if(header->message_id == P7_VENDOR_EXT_REQ) {
-    //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
+int pnf_phy_unpack_p7_vendor_extension(void *header, uint8_t **ppReadPackedMessage, uint8_t *end, nfapi_p7_codec_config_t *codec)
+{
+  if (((nfapi_p7_message_header_t *)header)->message_id == P7_VENDOR_EXT_REQ) {
+    // NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
     vendor_ext_p7_req *req = (vendor_ext_p7_req *)(header);
 
-    if(!(pull16(ppReadPackedMessage, &req->dummy1, end) &&
-         pull16(ppReadPackedMessage, &req->dummy2, end)))
+    if (!(pull16(ppReadPackedMessage, &req->dummy1, end) && pull16(ppReadPackedMessage, &req->dummy2, end)))
+      return 0;
+
+    return 1;
+  }
+
+  return -1;
+}
+
+int pnf_nr_phy_unpack_p7_vendor_extension(void *header, uint8_t **ppReadPackedMessage, uint8_t *end, nfapi_p7_codec_config_t *codec)
+{
+  if (((nfapi_nr_p7_message_header_t *)header)->message_id == P7_VENDOR_EXT_REQ) {
+    // NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
+    vendor_ext_p7_req *req = (vendor_ext_p7_req *)(header);
+
+    if (!(pull16(ppReadPackedMessage, &req->dummy1, end) &&          pull16(ppReadPackedMessage, &req->dummy2, end)))
       return 0;
 
     return 1;
@@ -1713,6 +1758,34 @@ int pnf_phy_pack_vendor_extention_tlv(void *ve, uint8_t **ppWritePackedMsg, uint
   return -1;
 }
 
+int pnf_nr_phy_unpack_vendor_extension_tlv(nfapi_tl_t *tl,
+                                           uint8_t **ppReadPackedMessage,
+                                           uint8_t *end,
+                                           void **ve,
+                                           nfapi_p7_codec_config_t *config)
+{
+  // NFAPI_TRACE(NFAPI_TRACE_INFO, "pnf_phy_unpack_vendor_extension_tlv\n");
+  switch (tl->tag) {
+    case VENDOR_EXT_TLV_1_TAG:
+      *ve = malloc(sizeof(vendor_ext_tlv_1));
+
+      if (!pull32(ppReadPackedMessage, &((vendor_ext_tlv_1 *)(*ve))->dummy, end))
+        return 0;
+
+      return 1;
+      break;
+  }
+
+  return -1;
+}
+
+int pnf_nr_phy_pack_vendor_extention_tlv(void *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p7_codec_config_t *config)
+{
+  // printf("%s\n", __FUNCTION__);
+  (void)ve;
+  (void)ppWritePackedMsg;
+  return -1;
+}
 int pnf_sim_unpack_vendor_extension_tlv(nfapi_tl_t *tl, uint8_t **ppReadPackedMessage, uint8_t *end, void **ve, nfapi_p4_p5_codec_config_t *config) {
   //NFAPI_TRACE(NFAPI_TRACE_INFO, "pnf_sim_unpack_vendor_extension_tlv\n");
   switch(tl->tag) {
@@ -1729,6 +1802,27 @@ int pnf_sim_unpack_vendor_extension_tlv(nfapi_tl_t *tl, uint8_t **ppReadPackedMe
   return -1;
 }
 
+int pnf_nr_sim_unpack_vendor_extension_tlv(nfapi_tl_t *tl,
+                                           uint8_t **ppReadPackedMessage,
+                                           uint8_t *end,
+                                           void **ve,
+                                           nfapi_p4_p5_codec_config_t *config)
+{
+  // NFAPI_TRACE(NFAPI_TRACE_INFO, "pnf_sim_unpack_vendor_extension_tlv\n");
+  switch (tl->tag) {
+    case VENDOR_EXT_TLV_2_TAG:
+      *ve = malloc(sizeof(vendor_ext_tlv_2));
+
+      if (!pull32(ppReadPackedMessage, &((vendor_ext_tlv_2 *)(*ve))->dummy, end))
+        return 0;
+
+      return 1;
+      break;
+  }
+
+  return -1;
+}
+
 int pnf_sim_pack_vendor_extention_tlv(void *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config) {
   //NFAPI_TRACE(NFAPI_TRACE_DEBUG, "%s\n", __FUNCTION__);
   (void)ve;
@@ -1736,7 +1830,16 @@ int pnf_sim_pack_vendor_extention_tlv(void *ve, uint8_t **ppWritePackedMsg, uint
 
   return -1;
 }
-*/
+
+int pnf_nr_sim_pack_vendor_extention_tlv(void *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config)
+{
+  // printf("%s\n", __FUNCTION__);
+  (void)ve;
+  (void)ppWritePackedMsg;
+
+  return -1;
+}
+
 
 nfapi_dl_config_request_t dummy_dl_config_req;
 nfapi_tx_request_t dummy_tx_req;
@@ -2172,11 +2275,11 @@ int nmm_stop_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
     return 0;
 }
 
-/*
-int vendor_ext(nfapi_pnf_config_t *config, nfapi_p4_p5_message_header_t *msg) {
+int vendor_ext(nfapi_pnf_config_t *config, void *msg)
+{
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] P5 %s %p\n", __FUNCTION__, msg);
 
-  switch(msg->message_id) {
+  switch (((nfapi_p4_p5_message_header_t *)msg)->message_id) {
     case P5_VENDOR_EXT_REQ: {
       vendor_ext_p5_req *req = (vendor_ext_p5_req *)msg;
       NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] P5 Vendor Ext Req (%d %d)\n", req->dummy1, req->dummy2);
@@ -2186,15 +2289,35 @@ int vendor_ext(nfapi_pnf_config_t *config, nfapi_p4_p5_message_header_t *msg) {
       rsp.header.message_id = P5_VENDOR_EXT_RSP;
       rsp.error_code = NFAPI_MSG_OK;
       nfapi_pnf_vendor_extension(config, &rsp.header, sizeof(vendor_ext_p5_rsp));
-    }
-    break;
+    } break;
   }
 
   return 0;
 }
 
-nfapi_p4_p5_message_header_t *pnf_sim_allocate_p4_p5_vendor_ext(uint16_t message_id, uint16_t *msg_size) {
-  if(message_id == P5_VENDOR_EXT_REQ) {
+int nr_vendor_ext(nfapi_pnf_config_t *config, void *msg)
+{
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] P5 %s %p\n", __FUNCTION__, msg);
+
+  switch (((nfapi_nr_p4_p5_message_header_t *)msg)->message_id) {
+    case P5_VENDOR_EXT_REQ: {
+      vendor_ext_p5_req *req = (vendor_ext_p5_req *)msg;
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] P5 Vendor Ext Req (%d %d)\n", req->dummy1, req->dummy2);
+      // send back the P5_VENDOR_EXT_RSP
+      vendor_ext_p5_rsp rsp;
+      memset(&rsp, 0, sizeof(rsp));
+      rsp.header.message_id = P5_VENDOR_EXT_RSP;
+      rsp.error_code = NFAPI_MSG_OK;
+      nfapi_pnf_vendor_extension(config, &rsp.header, sizeof(vendor_ext_p5_rsp));
+    } break;
+  }
+
+  return 0;
+}
+
+void *pnf_sim_allocate_p4_p5_vendor_ext(uint16_t message_id, uint16_t *msg_size)
+{
+  if (message_id == P5_VENDOR_EXT_REQ) {
     (*msg_size) = sizeof(vendor_ext_p5_req);
     return (nfapi_p4_p5_message_header_t *)malloc(sizeof(vendor_ext_p5_req));
   }
@@ -2202,13 +2325,30 @@ nfapi_p4_p5_message_header_t *pnf_sim_allocate_p4_p5_vendor_ext(uint16_t message
   return 0;
 }
 
-void pnf_sim_deallocate_p4_p5_vendor_ext(nfapi_p4_p5_message_header_t *header) {
+void *pnf_nr_sim_allocate_p4_p5_vendor_ext(uint16_t message_id, uint16_t *msg_size)
+{
+  if (message_id == P5_VENDOR_EXT_REQ) {
+    (*msg_size) = sizeof(vendor_ext_p5_req);
+    return (nfapi_p4_p5_message_header_t *)malloc(sizeof(vendor_ext_p5_req));
+  }
+
+  return 0;
+}
+
+void pnf_sim_deallocate_p4_p5_vendor_ext(void *header)
+{
   free(header);
 }
 
-int pnf_sim_pack_p4_p5_vendor_extension(nfapi_p4_p5_message_header_t *header, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config) {
-  //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
-  if(header->message_id == P5_VENDOR_EXT_RSP) {
+void pnf_nr_sim_deallocate_p4_p5_vendor_ext(void *header)
+{
+  free(header);
+}
+
+int pnf_sim_pack_p4_p5_vendor_extension(void *header, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config)
+{
+  // NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
+  if (((nfapi_p4_p5_message_header_t *)header)->message_id == P5_VENDOR_EXT_RSP) {
     vendor_ext_p5_rsp *rsp = (vendor_ext_p5_rsp *)(header);
     return (!push16(rsp->error_code, ppWritePackedMsg, end));
   }
@@ -2216,18 +2356,49 @@ int pnf_sim_pack_p4_p5_vendor_extension(nfapi_p4_p5_message_header_t *header, ui
   return 0;
 }
 
-int pnf_sim_unpack_p4_p5_vendor_extension(nfapi_p4_p5_message_header_t *header, uint8_t **ppReadPackedMessage, uint8_t *end, nfapi_p4_p5_codec_config_t *codec) {
-  //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
-  if(header->message_id == P5_VENDOR_EXT_REQ) {
-    vendor_ext_p5_req *req = (vendor_ext_p5_req *)(header);
-    return (!(pull16(ppReadPackedMessage, &req->dummy1, end) &&
-              pull16(ppReadPackedMessage, &req->dummy2, end)));
-    //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s (%d %d)\n", __FUNCTION__, req->dummy1, req->dummy2);
+int pnf_nr_sim_pack_p4_p5_vendor_extension(void *header,
+                                           uint8_t **ppWritePackedMsg,
+                                           uint8_t *end,
+                                           nfapi_p4_p5_codec_config_t *config)
+{
+  // NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
+  if (((nfapi_nr_p4_p5_message_header_t *)header)->message_id == P5_VENDOR_EXT_RSP) {
+    vendor_ext_p5_rsp *rsp = (vendor_ext_p5_rsp *)(header);
+    return (!push16(rsp->error_code, ppWritePackedMsg, end));
   }
 
   return 0;
 }
-*/
+
+int pnf_sim_unpack_p4_p5_vendor_extension(void *header,
+                                          uint8_t **ppReadPackedMessage,
+                                          uint8_t *end,
+                                          nfapi_p4_p5_codec_config_t *codec)
+{
+  // NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
+  if (((nfapi_p4_p5_message_header_t *)header)->message_id == P5_VENDOR_EXT_REQ) {
+    vendor_ext_p5_req *req = (vendor_ext_p5_req *)(header);
+    return (!(pull16(ppReadPackedMessage, &req->dummy1, end) && pull16(ppReadPackedMessage, &req->dummy2, end)));
+    // NFAPI_TRACE(NFAPI_TRACE_INFO, "%s (%d %d)\n", __FUNCTION__, req->dummy1, req->dummy2);
+  }
+
+  return 0;
+}
+
+int pnf_nr_sim_unpack_p4_p5_vendor_extension(void *header,
+                                             uint8_t **ppReadPackedMessage,
+                                             uint8_t *end,
+                                             nfapi_p4_p5_codec_config_t *codec)
+{
+  // NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
+  if (((nfapi_nr_p4_p5_message_header_t *)header)->message_id == P5_VENDOR_EXT_REQ) {
+    vendor_ext_p5_req *req = (vendor_ext_p5_req *)(header);
+    return (!(pull16(ppReadPackedMessage, &req->dummy1, end) && pull16(ppReadPackedMessage, &req->dummy2, end)));
+    // NFAPI_TRACE(NFAPI_TRACE_INFO, "%s (%d %d)\n", __FUNCTION__, req->dummy1, req->dummy2);
+  }
+
+  return 0;
+}
 
 void *pnf_start_thread(void *ptr)
 {
@@ -2268,7 +2439,7 @@ void *pnf_nr_start_thread(void *ptr) {
   return (void *)0;
 }
 
-void configure_nr_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port) {
+void configure_nr_nfapi_pnf(char *vnf_ip_addr, int vnf_p5_port, char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port) {
   nfapi_pnf_config_t *config = nfapi_pnf_config_create();
   config->vnf_ip_addr = vnf_ip_addr;
   config->vnf_p5_port = vnf_p5_port;
@@ -2299,22 +2470,22 @@ void configure_nr_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char
   config->system_information_schedule_req = &system_information_schedule_request;
   config->system_information_req = &system_information_request;
   config->nmm_stop_req = &nmm_stop_request;
-  //config->vendor_ext = &vendor_ext;
+  config->vendor_ext = &vendor_ext;
   config->user_data = &pnf_nr;
   // To allow custom vendor extentions to be added to nfapi
-  //config->codec_config.unpack_vendor_extension_tlv = &pnf_sim_unpack_vendor_extension_tlv;
-  //config->codec_config.pack_vendor_extension_tlv = &pnf_sim_pack_vendor_extention_tlv;
-  //config->allocate_p4_p5_vendor_ext = &pnf_sim_allocate_p4_p5_vendor_ext;
-  //config->deallocate_p4_p5_vendor_ext = &pnf_sim_deallocate_p4_p5_vendor_ext;
-  //config->codec_config.unpack_p4_p5_vendor_extension = &pnf_sim_unpack_p4_p5_vendor_extension;
-  //config->codec_config.pack_p4_p5_vendor_extension = &pnf_sim_pack_p4_p5_vendor_extension;
-  //NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] Creating PNF NFAPI start thread %s\n", __FUNCTION__);
+  config->codec_config.unpack_vendor_extension_tlv = &pnf_sim_unpack_vendor_extension_tlv;
+  config->codec_config.pack_vendor_extension_tlv = &pnf_sim_pack_vendor_extention_tlv;
+  config->allocate_p4_p5_vendor_ext = &pnf_sim_allocate_p4_p5_vendor_ext;
+  config->deallocate_p4_p5_vendor_ext = &pnf_sim_deallocate_p4_p5_vendor_ext;
+  config->codec_config.unpack_p4_p5_vendor_extension = &pnf_sim_unpack_p4_p5_vendor_extension;
+  config->codec_config.pack_p4_p5_vendor_extension = &pnf_sim_pack_p4_p5_vendor_extension;
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] Creating PNF NFAPI start thread %s\n", __FUNCTION__);
   pthread_create(&pnf_nr_start_pthread, NULL, &pnf_nr_start_thread, config);
   pthread_setname_np(pnf_nr_start_pthread, "NFAPI_PNF");
 
 }
 
-void configure_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char *pnf_ip_addr, int pnf_p7_port,
+void configure_nfapi_pnf(char *vnf_ip_addr, int vnf_p5_port, char *pnf_ip_addr, int pnf_p7_port,
                          int vnf_p7_port)
 {
     nfapi_pnf_config_t *config = nfapi_pnf_config_create();
@@ -2345,9 +2516,19 @@ void configure_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char *p
     config->system_information_schedule_req = &system_information_schedule_request;
     config->system_information_req = &system_information_request;
     config->nmm_stop_req = &nmm_stop_request;
+    config->vendor_ext = &vendor_ext;
+  // config->trace = &pnf_nfapi_trace;
     config->user_data = &pnf;
     // To allow custom vendor extentions to be added to nfapi
+    config->codec_config.unpack_vendor_extension_tlv = &pnf_sim_unpack_vendor_extension_tlv;
+    config->codec_config.pack_vendor_extension_tlv = &pnf_sim_pack_vendor_extention_tlv;
+    config->allocate_p4_p5_vendor_ext = &pnf_sim_allocate_p4_p5_vendor_ext;
+    config->deallocate_p4_p5_vendor_ext = &pnf_sim_deallocate_p4_p5_vendor_ext;
+    config->codec_config.unpack_p4_p5_vendor_extension = &pnf_sim_unpack_p4_p5_vendor_extension;
+    config->codec_config.pack_p4_p5_vendor_extension = &pnf_sim_pack_p4_p5_vendor_extension;
     NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] Creating PNF NFAPI start thread %s\n", __FUNCTION__);
+    // pthread_create(&pnf_start_pthread, NULL, &pnf_start_thread, config);
+    // pthread_setname_np(pnf_start_pthread, "NFAPI_PNF");
     if (pthread_create(&pnf_start_pthread, NULL, &pnf_start_thread, config) != 0)
     {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "pthread_create: %s\n", strerror(errno));
@@ -2356,18 +2537,6 @@ void configure_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char *p
     {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "pthread_setname_np: %s\n", strerror(errno));
     }
-    // The followins are removed in LTE
-    /*
-    config->codec_config.unpack_vendor_extension_tlv = &pnf_sim_unpack_vendor_extension_tlv;
-    config->codec_config.pack_vendor_extension_tlv = &pnf_sim_pack_vendor_extention_tlv;
-    config->allocate_p4_p5_vendor_ext = &pnf_sim_allocate_p4_p5_vendor_ext;
-    config->deallocate_p4_p5_vendor_ext = &pnf_sim_deallocate_p4_p5_vendor_ext;
-    config->codec_config.unpack_p4_p5_vendor_extension = &pnf_sim_unpack_p4_p5_vendor_extension;
-    config->codec_config.pack_p4_p5_vendor_extension = &pnf_sim_pack_p4_p5_vendor_extension;
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] Creating PNF NFAPI start thread %s\n", __FUNCTION__);
-    pthread_create(&pnf_start_pthread, NULL, &pnf_start_thread, config);
-    pthread_setname_np(pnf_start_pthread, "NFAPI_PNF");
-    */
 }
 
 void oai_subframe_ind(uint16_t sfn, uint16_t sf)
@@ -2412,8 +2581,8 @@ void oai_slot_ind(uint16_t sfn, uint16_t slot)
         {
             struct timespec ts;
             clock_gettime(CLOCK_MONOTONIC, &ts);
-            NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] %ld.%ld (sfn:%u slot:%u) SFN/SLOT(TX):%u\n", 
-                        ts.tv_sec, ts.tv_nsec, sfn, slot, NFAPI_SFNSLOT2DEC(sfn, slot));
+            // NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] %ld.%ld (sfn:%u slot:%u) SFN/SLOT(TX):%u\n", 
+            //             ts.tv_sec, ts.tv_nsec, sfn, slot, NFAPI_SFNSLOT2DEC(sfn, slot));
         }
 
         nfapi_nr_slot_indication_scf_t ind;
@@ -2545,32 +2714,33 @@ static bool get_sfnslot(message_buffer_t *msg, uint16_t *sfnslot)
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "could not retrieve sfn and slot");
         return false;
     }
-    *sfnslot = NFAPI_SFNSLOT2HEX(sfn, slot);
+    // *sfnslot = NFAPI_SFNSLOT2HEX(sfn, slot);
+    *sfnslot = NFAPI_SFNSLOT2DEC(MU, sfn, slot);
     return true;
 }
 
-static void warn_if_different(const char *label,
-                              const nfapi_p7_message_header_t *agg_header,
-                              const nfapi_p7_message_header_t *ind_header,
-                              uint16_t agg_sfn_sf,
-                              uint16_t ind_sfn_sf)
-{
-    if (agg_header->phy_id != ind_header->phy_id ||
-        agg_header->message_id != ind_header->message_id ||
-        agg_header->m_segment_sequence != ind_header->m_segment_sequence ||
-        agg_sfn_sf != ind_sfn_sf)
-    {
-        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Mismatch phy_id %u,%u message_id %u,%u m_seg_sequence %u,%u sfn_sf %u,%u (%s)",
-                    agg_header->phy_id, ind_header->phy_id,
-                    agg_header->message_id, ind_header->message_id,
-                    agg_header->m_segment_sequence, ind_header->m_segment_sequence,
-                    agg_sfn_sf, ind_sfn_sf, label);
-    }
-}
+// static void warn_if_different(const char *label,
+//                               const nfapi_p7_message_header_t *agg_header,
+//                               const nfapi_p7_message_header_t *ind_header,
+//                               uint16_t agg_sfn_sf,
+//                               uint16_t ind_sfn_sf)
+// {
+//     if (agg_header->phy_id != ind_header->phy_id ||
+//         agg_header->message_id != ind_header->message_id ||
+//         agg_header->m_segment_sequence != ind_header->m_segment_sequence ||
+//         agg_sfn_sf != ind_sfn_sf)
+//     {
+//         NFAPI_TRACE(NFAPI_TRACE_ERROR, "Mismatch phy_id %u,%u message_id %u,%u m_seg_sequence %u,%u sfn_sf %u,%u (%s)",
+//                     agg_header->phy_id, ind_header->phy_id,
+//                     agg_header->message_id, ind_header->message_id,
+//                     agg_header->m_segment_sequence, ind_header->m_segment_sequence,
+//                     agg_sfn_sf, ind_sfn_sf, label);
+//     }
+// }
 
 static void warn_if_different_slots(const char *label,
-                              const nfapi_p7_message_header_t *agg_header,
-                              const nfapi_p7_message_header_t *ind_header,
+                              nfapi_nr_p7_message_header_t *agg_header,
+                              nfapi_nr_p7_message_header_t *ind_header,
                               uint16_t agg_sfn,
                               uint16_t ind_sfn,
                               uint16_t agg_slot,
@@ -2622,27 +2792,27 @@ static void warn_if_different_slots(const char *label,
     nfapi_vendor_extension_tlv_t vendor_extension (typedef nfapi_tl_t*)
 */
 
-static void oai_subframe_aggregate_rach_ind(subframe_msgs_t *msgs)
-{
-    /* Currently we select the first RACH and ignore others.
-       We could have various policies to select one RACH over
-       the others (e.g., strongest signal) */
-    assert(msgs->num_msgs > 0);
-    for (int i = 0; i < msgs->num_msgs; ++i)
-    {
-        message_buffer_t *msg = msgs->msgs[i];
-        nfapi_rach_indication_t ind;
-        assert(msg->length <= sizeof(msg->data));
+// static void oai_subframe_aggregate_rach_ind(subframe_msgs_t *msgs)
+// {
+//     /* Currently we select the first RACH and ignore others.
+//        We could have various policies to select one RACH over
+//        the others (e.g., strongest signal) */
+//     assert(msgs->num_msgs > 0);
+//     for (int i = 0; i < msgs->num_msgs; ++i)
+//     {
+//         message_buffer_t *msg = msgs->msgs[i];
+//         nfapi_rach_indication_t ind;
+//         assert(msg->length <= sizeof(msg->data));
 
-        if (nfapi_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "rach unpack failed");
-            continue;
-        }
-        ind.sfn_sf = sfn_sf_add(ind.sfn_sf, 5);
-        oai_nfapi_rach_ind(&ind);
-    }
-}
+//         if (nfapi_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
+//         {
+//             NFAPI_TRACE(NFAPI_TRACE_ERROR, "rach unpack failed");
+//             continue;
+//         }
+//         ind.sfn_sf = sfn_sf_add(ind.sfn_sf, 5);
+//         oai_nfapi_rach_ind(&ind);
+//     }
+// }
 
 /*
 //3.4.11 rach_indication
@@ -2725,58 +2895,58 @@ static void oai_slot_aggregate_rach_ind(slot_msgs_t *msgs)
         nfapi_vendor_extension_tlv_t vendor_extension (typedef nfapi_tl_t*)
 */
 
-static void oai_subframe_aggregate_crc_ind(subframe_msgs_t *msgs)
-{
-    assert(msgs->num_msgs > 0);
-    nfapi_crc_indication_t agg;
-    memset(&agg, 0, sizeof(agg));
-    agg.crc_indication_body.crc_pdu_list = calloc(NFAPI_CRC_IND_MAX_PDU, sizeof(nfapi_crc_indication_pdu_t));
-    assert(agg.crc_indication_body.crc_pdu_list);
+// static void oai_subframe_aggregate_crc_ind(subframe_msgs_t *msgs)
+// {
+//     assert(msgs->num_msgs > 0);
+//     nfapi_crc_indication_t agg;
+//     memset(&agg, 0, sizeof(agg));
+//     agg.crc_indication_body.crc_pdu_list = calloc(NFAPI_CRC_IND_MAX_PDU, sizeof(nfapi_crc_indication_pdu_t));
+//     assert(agg.crc_indication_body.crc_pdu_list);
 
-    size_t pduIndex = 0;
-    for (size_t n = 0; n < msgs->num_msgs; ++n)
-    {
-        nfapi_crc_indication_t ind;
-        message_buffer_t *msg = msgs->msgs[n];
-        assert(msg->length <= sizeof(msg->data));
-        if (nfapi_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "crc indication unpack failed, msg[%zu]", n);
-            free(agg.crc_indication_body.crc_pdu_list);
-            return;
-        }
+//     size_t pduIndex = 0;
+//     for (size_t n = 0; n < msgs->num_msgs; ++n)
+//     {
+//         nfapi_crc_indication_t ind;
+//         message_buffer_t *msg = msgs->msgs[n];
+//         assert(msg->length <= sizeof(msg->data));
+//         if (nfapi_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
+//         {
+//             NFAPI_TRACE(NFAPI_TRACE_ERROR, "crc indication unpack failed, msg[%zu]", n);
+//             free(agg.crc_indication_body.crc_pdu_list);
+//             return;
+//         }
 
-        // Header, sfn_sf, and tl assumed to be same across msgs
-        if (n != 0)
-        {
-            warn_if_different(__func__, &agg.header, &ind.header, agg.sfn_sf, ind.sfn_sf);
-        }
-        agg.header = ind.header;
-        agg.sfn_sf = ind.sfn_sf;
-        assert(!ind.vendor_extension); // TODO ignoring vendor_extension for now
-        agg.crc_indication_body.tl = ind.crc_indication_body.tl;
-        agg.crc_indication_body.number_of_crcs += ind.crc_indication_body.number_of_crcs;
+//         // Header, sfn_sf, and tl assumed to be same across msgs
+//         if (n != 0)
+//         {
+//             warn_if_different(__func__, &agg.header, &ind.header, agg.sfn_sf, ind.sfn_sf);
+//         }
+//         agg.header = ind.header;
+//         agg.sfn_sf = ind.sfn_sf;
+//         assert(!ind.vendor_extension); // TODO ignoring vendor_extension for now
+//         agg.crc_indication_body.tl = ind.crc_indication_body.tl;
+//         agg.crc_indication_body.number_of_crcs += ind.crc_indication_body.number_of_crcs;
 
-        for (size_t i = 0; i < ind.crc_indication_body.number_of_crcs; ++i)
-        {
-            if (pduIndex == NFAPI_CRC_IND_MAX_PDU)
-            {
-                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
-                break;
-            }
-            agg.crc_indication_body.crc_pdu_list[pduIndex] = ind.crc_indication_body.crc_pdu_list[i];
-            pduIndex++;
-        }
-        free(ind.crc_indication_body.crc_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
-        if (pduIndex == NFAPI_CRC_IND_MAX_PDU)
-        {
-            break;
-        }
-    }
+//         for (size_t i = 0; i < ind.crc_indication_body.number_of_crcs; ++i)
+//         {
+//             if (pduIndex == NFAPI_CRC_IND_MAX_PDU)
+//             {
+//                 NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
+//                 break;
+//             }
+//             agg.crc_indication_body.crc_pdu_list[pduIndex] = ind.crc_indication_body.crc_pdu_list[i];
+//             pduIndex++;
+//         }
+//         free(ind.crc_indication_body.crc_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
+//         if (pduIndex == NFAPI_CRC_IND_MAX_PDU)
+//         {
+//             break;
+//         }
+//     }
 
-    oai_nfapi_crc_indication(&agg);
-    free(agg.crc_indication_body.crc_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
-}
+//     oai_nfapi_crc_indication(&agg);
+//     free(agg.crc_indication_body.crc_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
+// }
 
 /*
 typedef struct
@@ -2928,99 +3098,99 @@ static void oai_slot_aggregate_crc_ind(slot_msgs_t *msgs)
 // }
 
 
-static void oai_subframe_aggregate_rx_ind(subframe_msgs_t *msgs)
-{
-    assert(msgs->num_msgs > 0);
-    nfapi_rx_indication_t agg;
-    memset(&agg, 0, sizeof(agg));
-    agg.rx_indication_body.rx_pdu_list = calloc(NFAPI_RX_IND_MAX_PDU, sizeof(nfapi_rx_indication_pdu_t));
-    assert(agg.rx_indication_body.rx_pdu_list);
+// static void oai_subframe_aggregate_rx_ind(subframe_msgs_t *msgs)
+// {
+//     assert(msgs->num_msgs > 0);
+//     nfapi_rx_indication_t agg;
+//     memset(&agg, 0, sizeof(agg));
+//     agg.rx_indication_body.rx_pdu_list = calloc(NFAPI_RX_IND_MAX_PDU, sizeof(nfapi_rx_indication_pdu_t));
+//     assert(agg.rx_indication_body.rx_pdu_list);
 
-    size_t pduIndex = 0;
+//     size_t pduIndex = 0;
 
-    if (msgs->num_msgs > 1)
-    {
-        uint16_t sfn_sf_val;
-        message_buffer_t *first_msg = msgs->msgs[0];
-        if (!get_sfnsf(first_msg, &sfn_sf_val))
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "Something went very wrong");
-            abort();
-        }
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "We are aggregating %zu rx_ind's for SFN.SF %u.%u "
-                    "trying to aggregate",
-                    msgs->num_msgs, sfn_sf_val >> 4,
-                    sfn_sf_val & 15);
-    }
+//     if (msgs->num_msgs > 1)
+//     {
+//         uint16_t sfn_sf_val;
+//         message_buffer_t *first_msg = msgs->msgs[0];
+//         if (!get_sfnsf(first_msg, &sfn_sf_val))
+//         {
+//             NFAPI_TRACE(NFAPI_TRACE_ERROR, "Something went very wrong");
+//             abort();
+//         }
+//         NFAPI_TRACE(NFAPI_TRACE_INFO, "We are aggregating %zu rx_ind's for SFN.SF %u.%u "
+//                     "trying to aggregate",
+//                     msgs->num_msgs, sfn_sf_val >> 4,
+//                     sfn_sf_val & 15);
+//     }
 
-    for (size_t n = 0; n < msgs->num_msgs; ++n)
-    {
-        nfapi_rx_indication_t ind;
-        message_buffer_t *msg = msgs->msgs[n];
-        assert(msg->length <= sizeof(msg->data));
-        if (nfapi_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "rx indication unpack failed, msg[%zu]", n);
-            free(agg.rx_indication_body.rx_pdu_list);
-            return;
-        }
+//     for (size_t n = 0; n < msgs->num_msgs; ++n)
+//     {
+//         nfapi_rx_indication_t ind;
+//         message_buffer_t *msg = msgs->msgs[n];
+//         assert(msg->length <= sizeof(msg->data));
+//         if (nfapi_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
+//         {
+//             NFAPI_TRACE(NFAPI_TRACE_ERROR, "rx indication unpack failed, msg[%zu]", n);
+//             free(agg.rx_indication_body.rx_pdu_list);
+//             return;
+//         }
 
-        if (ind.rx_indication_body.number_of_pdus == 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "empty rx message");
-            abort();
-        }
+//         if (ind.rx_indication_body.number_of_pdus == 0)
+//         {
+//             NFAPI_TRACE(NFAPI_TRACE_ERROR, "empty rx message");
+//             abort();
+//         }
 
-        int rnti = ind.rx_indication_body.rx_pdu_list[0].rx_ue_information.rnti;
-        bool found = false;
-        for (int i = 0; i < agg.rx_indication_body.number_of_pdus; ++i)
-        {
-            int rnti_i = agg.rx_indication_body.rx_pdu_list[i].rx_ue_information.rnti;
-            if (rnti == rnti_i)
-            {
-                found = true;
-                break;
-            }
-        }
-        if (found)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "two rx for single UE rnti: %x", rnti);
-        }
+//         int rnti = ind.rx_indication_body.rx_pdu_list[0].rx_ue_information.rnti;
+//         bool found = false;
+//         for (int i = 0; i < agg.rx_indication_body.number_of_pdus; ++i)
+//         {
+//             int rnti_i = agg.rx_indication_body.rx_pdu_list[i].rx_ue_information.rnti;
+//             if (rnti == rnti_i)
+//             {
+//                 found = true;
+//                 break;
+//             }
+//         }
+//         if (found)
+//         {
+//             NFAPI_TRACE(NFAPI_TRACE_ERROR, "two rx for single UE rnti: %x", rnti);
+//         }
 
-        // Header, sfn_sf, and tl assumed to be same across msgs
-        if (n != 0)
-        {
-            warn_if_different(__func__, &agg.header, &ind.header, agg.sfn_sf, ind.sfn_sf);
-        }
-        agg.header = ind.header;
-        agg.sfn_sf = ind.sfn_sf;
-        assert(!ind.vendor_extension); // TODO ignoring vendor_extension for now
-        agg.rx_indication_body.tl = ind.rx_indication_body.tl;
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "agg.tl.tag: %x agg.tl.length: %d ind.tl.tag: %x ind.tl.length: %u",
-                    agg.rx_indication_body.tl.tag,agg.rx_indication_body.tl.length,
-                    ind.rx_indication_body.tl.tag, ind.rx_indication_body.tl.length);
-        agg.rx_indication_body.number_of_pdus += ind.rx_indication_body.number_of_pdus;
+//         // Header, sfn_sf, and tl assumed to be same across msgs
+//         if (n != 0)
+//         {
+//             warn_if_different(__func__, &agg.header, &ind.header, agg.sfn_sf, ind.sfn_sf);
+//         }
+//         agg.header = ind.header;
+//         agg.sfn_sf = ind.sfn_sf;
+//         assert(!ind.vendor_extension); // TODO ignoring vendor_extension for now
+//         agg.rx_indication_body.tl = ind.rx_indication_body.tl;
+//         NFAPI_TRACE(NFAPI_TRACE_INFO, "agg.tl.tag: %x agg.tl.length: %d ind.tl.tag: %x ind.tl.length: %u",
+//                     agg.rx_indication_body.tl.tag,agg.rx_indication_body.tl.length,
+//                     ind.rx_indication_body.tl.tag, ind.rx_indication_body.tl.length);
+//         agg.rx_indication_body.number_of_pdus += ind.rx_indication_body.number_of_pdus;
 
-        for (size_t i = 0; i < ind.rx_indication_body.number_of_pdus; ++i)
-        {
-            if (pduIndex == NFAPI_RX_IND_MAX_PDU)
-            {
-                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
-                break;
-            }
-            agg.rx_indication_body.rx_pdu_list[pduIndex] = ind.rx_indication_body.rx_pdu_list[i];
-            pduIndex++;
-        }
-        free(ind.rx_indication_body.rx_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
-        if (pduIndex == NFAPI_RX_IND_MAX_PDU)
-        {
-            break;
-        }
-    }
+//         for (size_t i = 0; i < ind.rx_indication_body.number_of_pdus; ++i)
+//         {
+//             if (pduIndex == NFAPI_RX_IND_MAX_PDU)
+//             {
+//                 NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
+//                 break;
+//             }
+//             agg.rx_indication_body.rx_pdu_list[pduIndex] = ind.rx_indication_body.rx_pdu_list[i];
+//             pduIndex++;
+//         }
+//         free(ind.rx_indication_body.rx_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
+//         if (pduIndex == NFAPI_RX_IND_MAX_PDU)
+//         {
+//             break;
+//         }
+//     }
 
-    oai_nfapi_rx_ind(&agg);
-    free(agg.rx_indication_body.rx_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
-}
+//     oai_nfapi_rx_ind(&agg);
+//     free(agg.rx_indication_body.rx_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
+// }
 
 /*
 typedef struct 
@@ -3183,87 +3353,87 @@ static void oai_slot_aggregate_rx_data_ind(slot_msgs_t *msgs)
     nfapi_vendor_extension_tlv_t vendor_extension (typedef nfapi_tl_t*)
 */
 
-static void oai_subframe_aggregate_cqi_ind(subframe_msgs_t *msgs)
-{
-    assert(msgs->num_msgs > 0);
-    nfapi_cqi_indication_t agg;
-    memset(&agg, 0, sizeof(agg));
-    agg.cqi_indication_body.cqi_pdu_list = calloc(NFAPI_CQI_IND_MAX_PDU, sizeof(nfapi_cqi_indication_pdu_t));
-    assert(agg.cqi_indication_body.cqi_pdu_list);
-    agg.cqi_indication_body.cqi_raw_pdu_list = calloc(NFAPI_CQI_IND_MAX_PDU, sizeof(nfapi_cqi_indication_raw_pdu_t));
-    assert(agg.cqi_indication_body.cqi_raw_pdu_list);
-    size_t pduIndex = 0;
+// static void oai_subframe_aggregate_cqi_ind(subframe_msgs_t *msgs)
+// {
+//     assert(msgs->num_msgs > 0);
+//     nfapi_cqi_indication_t agg;
+//     memset(&agg, 0, sizeof(agg));
+//     agg.cqi_indication_body.cqi_pdu_list = calloc(NFAPI_CQI_IND_MAX_PDU, sizeof(nfapi_cqi_indication_pdu_t));
+//     assert(agg.cqi_indication_body.cqi_pdu_list);
+//     agg.cqi_indication_body.cqi_raw_pdu_list = calloc(NFAPI_CQI_IND_MAX_PDU, sizeof(nfapi_cqi_indication_raw_pdu_t));
+//     assert(agg.cqi_indication_body.cqi_raw_pdu_list);
+//     size_t pduIndex = 0;
 
-    for (size_t n = 0; n < msgs->num_msgs; ++n)
-    {
-        nfapi_cqi_indication_t ind;
-        message_buffer_t *msg = msgs->msgs[n];
-        assert(msg->length <= sizeof(msg->data));
-        if (nfapi_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "cqi indication unpack failed, msg[%zu]", n);
-            free(agg.cqi_indication_body.cqi_pdu_list);
-            free(agg.cqi_indication_body.cqi_raw_pdu_list);
-            return;
-        }
+//     for (size_t n = 0; n < msgs->num_msgs; ++n)
+//     {
+//         nfapi_cqi_indication_t ind;
+//         message_buffer_t *msg = msgs->msgs[n];
+//         assert(msg->length <= sizeof(msg->data));
+//         if (nfapi_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
+//         {
+//             NFAPI_TRACE(NFAPI_TRACE_ERROR, "cqi indication unpack failed, msg[%zu]", n);
+//             free(agg.cqi_indication_body.cqi_pdu_list);
+//             free(agg.cqi_indication_body.cqi_raw_pdu_list);
+//             return;
+//         }
 
-        if (ind.cqi_indication_body.number_of_cqis == 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "empty cqi message");
-            abort();
-        }
+//         if (ind.cqi_indication_body.number_of_cqis == 0)
+//         {
+//             NFAPI_TRACE(NFAPI_TRACE_ERROR, "empty cqi message");
+//             abort();
+//         }
 
-        int rnti = ind.cqi_indication_body.cqi_pdu_list[0].rx_ue_information.rnti;
-        bool found = false;
-        for (int i = 1; i < agg.cqi_indication_body.number_of_cqis; ++i)
-        {
-            int rnti_i = agg.cqi_indication_body.cqi_pdu_list[i].rx_ue_information.rnti;
-            if (rnti == rnti_i)
-            {
-                found = true;
-                break;
-            }
-        }
-        if (found)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "two cqis for single UE rnti: %x", rnti);
-        }
+//         int rnti = ind.cqi_indication_body.cqi_pdu_list[0].rx_ue_information.rnti;
+//         bool found = false;
+//         for (int i = 1; i < agg.cqi_indication_body.number_of_cqis; ++i)
+//         {
+//             int rnti_i = agg.cqi_indication_body.cqi_pdu_list[i].rx_ue_information.rnti;
+//             if (rnti == rnti_i)
+//             {
+//                 found = true;
+//                 break;
+//             }
+//         }
+//         if (found)
+//         {
+//             NFAPI_TRACE(NFAPI_TRACE_ERROR, "two cqis for single UE rnti: %x", rnti);
+//         }
 
-        // Header, sfn_sf, and tl assumed to be same across msgs
-        if (n != 0)
-        {
-            warn_if_different(__func__, &agg.header, &ind.header, agg.sfn_sf, ind.sfn_sf);
-        }
-        agg.header = ind.header;
-        agg.sfn_sf = ind.sfn_sf;
-        assert(!ind.vendor_extension); // TODO ignoring vendor_extension for now
-        agg.cqi_indication_body.tl = ind.cqi_indication_body.tl;
-        agg.cqi_indication_body.number_of_cqis += ind.cqi_indication_body.number_of_cqis;
+//         // Header, sfn_sf, and tl assumed to be same across msgs
+//         if (n != 0)
+//         {
+//             warn_if_different(__func__, &agg.header, &ind.header, agg.sfn_sf, ind.sfn_sf);
+//         }
+//         agg.header = ind.header;
+//         agg.sfn_sf = ind.sfn_sf;
+//         assert(!ind.vendor_extension); // TODO ignoring vendor_extension for now
+//         agg.cqi_indication_body.tl = ind.cqi_indication_body.tl;
+//         agg.cqi_indication_body.number_of_cqis += ind.cqi_indication_body.number_of_cqis;
 
-        for (size_t i = 0; i < ind.cqi_indication_body.number_of_cqis; ++i)
-        {
-            if (pduIndex == NFAPI_CQI_IND_MAX_PDU)
-            {
-                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
-                break;
-            }
+//         for (size_t i = 0; i < ind.cqi_indication_body.number_of_cqis; ++i)
+//         {
+//             if (pduIndex == NFAPI_CQI_IND_MAX_PDU)
+//             {
+//                 NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
+//                 break;
+//             }
 
-            agg.cqi_indication_body.cqi_pdu_list[pduIndex] = ind.cqi_indication_body.cqi_pdu_list[i];
-            agg.cqi_indication_body.cqi_raw_pdu_list[pduIndex] = ind.cqi_indication_body.cqi_raw_pdu_list[i];
-            pduIndex++;
-        }
-        free(ind.cqi_indication_body.cqi_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
-        free(ind.cqi_indication_body.cqi_raw_pdu_list);
-        if (pduIndex == NFAPI_CQI_IND_MAX_PDU)
-        {
-            break;
-        }
-    }
+//             agg.cqi_indication_body.cqi_pdu_list[pduIndex] = ind.cqi_indication_body.cqi_pdu_list[i];
+//             agg.cqi_indication_body.cqi_raw_pdu_list[pduIndex] = ind.cqi_indication_body.cqi_raw_pdu_list[i];
+//             pduIndex++;
+//         }
+//         free(ind.cqi_indication_body.cqi_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
+//         free(ind.cqi_indication_body.cqi_raw_pdu_list);
+//         if (pduIndex == NFAPI_CQI_IND_MAX_PDU)
+//         {
+//             break;
+//         }
+//     }
 
-    oai_nfapi_cqi_indication(&agg);
-    free(agg.cqi_indication_body.cqi_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
-    free(agg.cqi_indication_body.cqi_raw_pdu_list);
-}
+//     oai_nfapi_cqi_indication(&agg);
+//     free(agg.cqi_indication_body.cqi_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
+//     free(agg.cqi_indication_body.cqi_raw_pdu_list);
+// }
 
 /*
 typedef struct
@@ -3537,58 +3707,58 @@ static void oai_slot_aggregate_uci_ind(slot_msgs_t *msgs)
     nfapi_vendor_extension_tlv_t vendor_extension (typedef nfapi_tl_t*)
 */
 
-static void oai_subframe_aggregate_harq_ind(subframe_msgs_t *msgs)
-{
-    assert(msgs->num_msgs > 0);
-    nfapi_harq_indication_t agg;
-    memset(&agg, 0, sizeof(agg));
-    agg.harq_indication_body.harq_pdu_list = calloc(NFAPI_HARQ_IND_MAX_PDU, sizeof(nfapi_harq_indication_pdu_t));
-    assert(agg.harq_indication_body.harq_pdu_list);
+// static void oai_subframe_aggregate_harq_ind(subframe_msgs_t *msgs)
+// {
+//     assert(msgs->num_msgs > 0);
+//     nfapi_harq_indication_t agg;
+//     memset(&agg, 0, sizeof(agg));
+//     agg.harq_indication_body.harq_pdu_list = calloc(NFAPI_HARQ_IND_MAX_PDU, sizeof(nfapi_harq_indication_pdu_t));
+//     assert(agg.harq_indication_body.harq_pdu_list);
 
-    size_t pduIndex = 0;
-    for (size_t n = 0; n < msgs->num_msgs; ++n)
-    {
-        nfapi_harq_indication_t ind;
-        message_buffer_t *msg = msgs->msgs[n];
-        assert(msg->length <= sizeof(msg->data));
-        if (nfapi_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "harq indication unpack failed, msg[%zu]", n);
-            free(agg.harq_indication_body.harq_pdu_list);
-            return;
-        }
+//     size_t pduIndex = 0;
+//     for (size_t n = 0; n < msgs->num_msgs; ++n)
+//     {
+//         nfapi_harq_indication_t ind;
+//         message_buffer_t *msg = msgs->msgs[n];
+//         assert(msg->length <= sizeof(msg->data));
+//         if (nfapi_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
+//         {
+//             NFAPI_TRACE(NFAPI_TRACE_ERROR, "harq indication unpack failed, msg[%zu]", n);
+//             free(agg.harq_indication_body.harq_pdu_list);
+//             return;
+//         }
 
-        // Header, sfn_sf, and tl assumed to be same across msgs
-        if (n != 0)
-        {
-            warn_if_different(__func__, &agg.header, &ind.header, agg.sfn_sf, ind.sfn_sf);
-        }
-        agg.header = ind.header;
-        agg.sfn_sf = ind.sfn_sf;
-        assert(!ind.vendor_extension); // TODO ignoring vendor_extension for now
-        agg.harq_indication_body.tl = ind.harq_indication_body.tl;
-        agg.harq_indication_body.number_of_harqs += ind.harq_indication_body.number_of_harqs;
+//         // Header, sfn_sf, and tl assumed to be same across msgs
+//         if (n != 0)
+//         {
+//             warn_if_different(__func__, &agg.header, &ind.header, agg.sfn_sf, ind.sfn_sf);
+//         }
+//         agg.header = ind.header;
+//         agg.sfn_sf = ind.sfn_sf;
+//         assert(!ind.vendor_extension); // TODO ignoring vendor_extension for now
+//         agg.harq_indication_body.tl = ind.harq_indication_body.tl;
+//         agg.harq_indication_body.number_of_harqs += ind.harq_indication_body.number_of_harqs;
 
-        for (size_t i = 0; i < ind.harq_indication_body.number_of_harqs; ++i)
-        {
-            if (pduIndex == NFAPI_HARQ_IND_MAX_PDU)
-            {
-                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
-                break;
-            }
-            agg.harq_indication_body.harq_pdu_list[pduIndex] = ind.harq_indication_body.harq_pdu_list[i];
-            pduIndex++;
-        }
-        free(ind.harq_indication_body.harq_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
-        if (pduIndex == NFAPI_HARQ_IND_MAX_PDU)
-        {
-            break;
-        }
-    }
+//         for (size_t i = 0; i < ind.harq_indication_body.number_of_harqs; ++i)
+//         {
+//             if (pduIndex == NFAPI_HARQ_IND_MAX_PDU)
+//             {
+//                 NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
+//                 break;
+//             }
+//             agg.harq_indication_body.harq_pdu_list[pduIndex] = ind.harq_indication_body.harq_pdu_list[i];
+//             pduIndex++;
+//         }
+//         free(ind.harq_indication_body.harq_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
+//         if (pduIndex == NFAPI_HARQ_IND_MAX_PDU)
+//         {
+//             break;
+//         }
+//     }
 
-    oai_nfapi_harq_indication(&agg);
-    free(agg.harq_indication_body.harq_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
-}
+//     oai_nfapi_harq_indication(&agg);
+//     free(agg.harq_indication_body.harq_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
+// }
 
 /*
   nfapi_sr_indication_t
@@ -3616,58 +3786,58 @@ static void oai_subframe_aggregate_harq_ind(subframe_msgs_t *msgs)
     nfapi_vendor_extension_tlv_t vendor_extension (typedef nfapi_tl_t*)
 */
 
-static void oai_subframe_aggregate_sr_ind(subframe_msgs_t *msgs)
-{
-    assert(msgs->num_msgs > 0);
-    nfapi_sr_indication_t agg;
-    memset(&agg, 0, sizeof(agg));
-    agg.sr_indication_body.sr_pdu_list = calloc(NFAPI_SR_IND_MAX_PDU, sizeof(nfapi_sr_indication_pdu_t));
-    assert(agg.sr_indication_body.sr_pdu_list);
+// static void oai_subframe_aggregate_sr_ind(subframe_msgs_t *msgs)
+// {
+//     assert(msgs->num_msgs > 0);
+//     nfapi_sr_indication_t agg;
+//     memset(&agg, 0, sizeof(agg));
+//     agg.sr_indication_body.sr_pdu_list = calloc(NFAPI_SR_IND_MAX_PDU, sizeof(nfapi_sr_indication_pdu_t));
+//     assert(agg.sr_indication_body.sr_pdu_list);
 
-    size_t pduIndex = 0;
-    for (size_t n = 0; n < msgs->num_msgs; ++n)
-    {
-        nfapi_sr_indication_t ind;
-        message_buffer_t *msg = msgs->msgs[n];
-        assert(msg->length <= sizeof(msg->data));
-        if (nfapi_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "sr indication unpack failed, msg[%zu]", n);
-            free(agg.sr_indication_body.sr_pdu_list);
-            return;
-        }
+//     size_t pduIndex = 0;
+//     for (size_t n = 0; n < msgs->num_msgs; ++n)
+//     {
+//         nfapi_sr_indication_t ind;
+//         message_buffer_t *msg = msgs->msgs[n];
+//         assert(msg->length <= sizeof(msg->data));
+//         if (nfapi_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
+//         {
+//             NFAPI_TRACE(NFAPI_TRACE_ERROR, "sr indication unpack failed, msg[%zu]", n);
+//             free(agg.sr_indication_body.sr_pdu_list);
+//             return;
+//         }
 
-        // Header, sfn_sf, and tl assumed to be same across msgs
-        if (n != 0)
-        {
-            warn_if_different(__func__, &agg.header, &ind.header, agg.sfn_sf, ind.sfn_sf);
-        }
-        agg.header = ind.header;
-        agg.sfn_sf = ind.sfn_sf;
-        assert(!ind.vendor_extension); // TODO ignoring vendor_extension for now
-        agg.sr_indication_body.tl = ind.sr_indication_body.tl;
-        agg.sr_indication_body.number_of_srs += ind.sr_indication_body.number_of_srs;
+//         // Header, sfn_sf, and tl assumed to be same across msgs
+//         if (n != 0)
+//         {
+//             warn_if_different(__func__, &agg.header, &ind.header, agg.sfn_sf, ind.sfn_sf);
+//         }
+//         agg.header = ind.header;
+//         agg.sfn_sf = ind.sfn_sf;
+//         assert(!ind.vendor_extension); // TODO ignoring vendor_extension for now
+//         agg.sr_indication_body.tl = ind.sr_indication_body.tl;
+//         agg.sr_indication_body.number_of_srs += ind.sr_indication_body.number_of_srs;
 
-        for (size_t i = 0; i < ind.sr_indication_body.number_of_srs; ++i)
-        {
-            if (pduIndex == NFAPI_SR_IND_MAX_PDU)
-            {
-                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
-                break;
-            }
-            agg.sr_indication_body.sr_pdu_list[pduIndex] = ind.sr_indication_body.sr_pdu_list[i];
-            pduIndex++;
-        }
-        free(ind.sr_indication_body.sr_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
-        if (pduIndex == NFAPI_SR_IND_MAX_PDU)
-        {
-            break;
-        }
-    }
+//         for (size_t i = 0; i < ind.sr_indication_body.number_of_srs; ++i)
+//         {
+//             if (pduIndex == NFAPI_SR_IND_MAX_PDU)
+//             {
+//                 NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
+//                 break;
+//             }
+//             agg.sr_indication_body.sr_pdu_list[pduIndex] = ind.sr_indication_body.sr_pdu_list[i];
+//             pduIndex++;
+//         }
+//         free(ind.sr_indication_body.sr_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
+//         if (pduIndex == NFAPI_SR_IND_MAX_PDU)
+//         {
+//             break;
+//         }
+//     }
 
-    oai_nfapi_sr_indication(&agg);
-    free(agg.sr_indication_body.sr_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
-}
+//     oai_nfapi_sr_indication(&agg);
+//     free(agg.sr_indication_body.sr_pdu_list); // Should actually be nfapi_vnf_p7_release_msg
+// }
 
 /*
 typedef struct
@@ -3745,96 +3915,96 @@ static void oai_slot_aggregate_srs_ind(slot_msgs_t *msgs)
     free(agg.pdu_list); // Should actually be nfapi_vnf_p7_release_msg
 }
 
-static void oai_subframe_aggregate_message_id(uint16_t msg_id, subframe_msgs_t *msgs)
-{
-    assert(msgs->num_msgs > 0);
-    assert(msgs->msgs[0] != NULL);
-    assert(msgs->msgs[0]->length <= sizeof(msgs->msgs[0]->data));
-    uint16_t sfn_sf = nfapi_get_sfnsf(msgs->msgs[0]->data, msgs->msgs[0]->length);
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "(Proxy eNB) Aggregating collection of %s uplink messages prior to sending to eNB. Frame: %d, Subframe: %d",
-                nfapi_get_message_id(msgs->msgs[0]->data, msgs->msgs[0]->length), NFAPI_SFNSF2SFN(sfn_sf), NFAPI_SFNSF2SF(sfn_sf));
-    // Aggregate these messages and send the resulting message to the eNB
-    switch (msg_id)
-    {
-    case NFAPI_RACH_INDICATION:
-        oai_subframe_aggregate_rach_ind(msgs);
-        break;
-    case NFAPI_CRC_INDICATION:
-        oai_subframe_aggregate_crc_ind(msgs);
-        break;
-    case NFAPI_RX_ULSCH_INDICATION:
-        oai_subframe_aggregate_rx_ind(msgs);
-        break;
-    case NFAPI_RX_CQI_INDICATION:
-        oai_subframe_aggregate_cqi_ind(msgs);
-        break;
-    case NFAPI_HARQ_INDICATION:
-        oai_subframe_aggregate_harq_ind(msgs);
-        break;
-    case NFAPI_RX_SR_INDICATION:
-        oai_subframe_aggregate_sr_ind(msgs);
-        break;
-    default:
-        return;
-    }
-}
+// static void oai_subframe_aggregate_message_id(uint16_t msg_id, subframe_msgs_t *msgs)
+// {
+//     assert(msgs->num_msgs > 0);
+//     assert(msgs->msgs[0] != NULL);
+//     assert(msgs->msgs[0]->length <= sizeof(msgs->msgs[0]->data));
+//     uint16_t sfn_sf = nfapi_get_sfnsf(msgs->msgs[0]->data, msgs->msgs[0]->length);
+//     NFAPI_TRACE(NFAPI_TRACE_INFO, "(Proxy eNB) Aggregating collection of %s uplink messages prior to sending to eNB. Frame: %d, Subframe: %d",
+//                 nfapi_get_message_id(msgs->msgs[0]->data, msgs->msgs[0]->length), NFAPI_SFNSF2SFN(sfn_sf), NFAPI_SFNSF2SF(sfn_sf));
+//     // Aggregate these messages and send the resulting message to the eNB
+//     switch (msg_id)
+//     {
+//     case NFAPI_RACH_INDICATION:
+//         oai_subframe_aggregate_rach_ind(msgs);
+//         break;
+//     case NFAPI_CRC_INDICATION:
+//         oai_subframe_aggregate_crc_ind(msgs);
+//         break;
+//     case NFAPI_RX_ULSCH_INDICATION:
+//         oai_subframe_aggregate_rx_ind(msgs);
+//         break;
+//     case NFAPI_RX_CQI_INDICATION:
+//         oai_subframe_aggregate_cqi_ind(msgs);
+//         break;
+//     case NFAPI_HARQ_INDICATION:
+//         oai_subframe_aggregate_harq_ind(msgs);
+//         break;
+//     case NFAPI_RX_SR_INDICATION:
+//         oai_subframe_aggregate_sr_ind(msgs);
+//         break;
+//     default:
+//         return;
+//     }
+// }
 
 /*
     subframe_msgs is a pointer to an array of num_ues
 */
-static void oai_subframe_aggregate_messages(subframe_msgs_t *subframe_msgs)
-{
-    for (;;)
-    {
-        subframe_msgs_t msgs_by_id;
-        memset(&msgs_by_id, 0, sizeof(msgs_by_id));
-        uint16_t found_msg_id = 0;
-        for (int i = 0; i < num_ues; i++)
-        {
-            for (int j = 0; j < subframe_msgs[i].num_msgs; j++)
-            {
-                message_buffer_t *msg = subframe_msgs[i].msgs[j];
-                if (!msg)
-                {
-                    // already processed this message
-                    continue;
-                }
-                assert(msg->magic == MESSAGE_BUFFER_MAGIC);
+// static void oai_subframe_aggregate_messages(subframe_msgs_t *subframe_msgs)
+// {
+//     for (;;)
+//     {
+//         subframe_msgs_t msgs_by_id;
+//         memset(&msgs_by_id, 0, sizeof(msgs_by_id));
+//         uint16_t found_msg_id = 0;
+//         for (int i = 0; i < num_ues; i++)
+//         {
+//             for (int j = 0; j < subframe_msgs[i].num_msgs; j++)
+//             {
+//                 message_buffer_t *msg = subframe_msgs[i].msgs[j];
+//                 if (!msg)
+//                 {
+//                     // already processed this message
+//                     continue;
+//                 }
+//                 assert(msg->magic == MESSAGE_BUFFER_MAGIC);
 
-                uint16_t id = get_message_id(msg);
-                if (found_msg_id == 0)
-                {
-                    found_msg_id = id;
-                }
-                if (found_msg_id == id)
-                {
-                    subframe_msgs[i].msgs[j] = NULL;
-                    if (msgs_by_id.num_msgs == MAX_SUBFRAME_MSGS)
-                    {
-                        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many msgs");
-                        msg->magic = 0;
-                        free(msg);
-                        continue;
-                    }
-                    msgs_by_id.msgs[msgs_by_id.num_msgs++] = msg;
-                }
-            }
-        }
-        if (found_msg_id == 0)
-        {
-            break;
-        }
-        oai_subframe_aggregate_message_id(found_msg_id, &msgs_by_id);
+//                 uint16_t id = get_message_id(msg);
+//                 if (found_msg_id == 0)
+//                 {
+//                     found_msg_id = id;
+//                 }
+//                 if (found_msg_id == id)
+//                 {
+//                     subframe_msgs[i].msgs[j] = NULL;
+//                     if (msgs_by_id.num_msgs == MAX_SUBFRAME_MSGS)
+//                     {
+//                         NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many msgs");
+//                         msg->magic = 0;
+//                         free(msg);
+//                         continue;
+//                     }
+//                     msgs_by_id.msgs[msgs_by_id.num_msgs++] = msg;
+//                 }
+//             }
+//         }
+//         if (found_msg_id == 0)
+//         {
+//             break;
+//         }
+//         oai_subframe_aggregate_message_id(found_msg_id, &msgs_by_id);
 
-        for (int k = 0; k < msgs_by_id.num_msgs; k++)
-        {
-            message_buffer_t *msg = msgs_by_id.msgs[k];
-            assert(msg->magic == MESSAGE_BUFFER_MAGIC);
-            msg->magic = 0;
-            free(msg);
-        }
-    }
-}
+//         for (int k = 0; k < msgs_by_id.num_msgs; k++)
+//         {
+//             message_buffer_t *msg = msgs_by_id.msgs[k];
+//             assert(msg->magic == MESSAGE_BUFFER_MAGIC);
+//             msg->magic = 0;
+//             free(msg);
+//         }
+//     }
+// }
 
 int get_sf_delta(uint16_t a, uint16_t b)
 {
@@ -3882,7 +4052,7 @@ static void oai_slot_aggregate_message_id(uint16_t msg_id, slot_msgs_t *msgs)
     uint16_t sfn_slot = nfapi_get_sfnslot(msgs->msgs[0]->data, msgs->msgs[0]->length);
 
     NFAPI_TRACE(NFAPI_TRACE_INFO, "(Proxy gNB) Aggregating collection of %s uplink messages prior to sending to gNB. Frame: %d, Slot: %d",
-                nfapi_nr_get_message_id(msgs->msgs[0]->data, msgs->msgs[0]->length), NFAPI_SFNSLOT2SFN(sfn_slot), NFAPI_SFNSLOT2SLOT(sfn_slot));
+                nfapi_nr_get_message_id(msgs->msgs[0]->data, msgs->msgs[0]->length), NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot), NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot));
     // Aggregate these messages and send the resulting message to the gNB
     switch (msg_id)
     {
@@ -4192,18 +4362,19 @@ void add_nr_sleep_time(uint64_t start, uint64_t poll, uint64_t send, uint64_t ag
     }
 }
 
-static uint16_t sfn_sf_counter(uint16_t *sfn, uint16_t *sf)
-{
-    if (++*sf == 10)
-    {
-        *sf = 0;
-        if (++*sfn == 1024)
-        {
-            *sfn = 0;
-        }
-    }
-    return (*sfn << 4) | *sf;
-}
+// static uint16_t sfn_sf_counter(uint16_t *sfn, uint16_t *sf)
+// {
+//     if (++*sf == 10)
+//     {
+//         *sf = 0;
+//         if (++*sfn == 1024)
+//         {
+//             *sfn = 0;
+//         }
+//     }
+//     return (*sfn << 4) | *sf;
+// }
+
 
 static uint16_t sfn_slot_counter(uint16_t *sfn, uint16_t *slot)
 {
@@ -4230,92 +4401,96 @@ pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond_sf_slot = PTHREAD_COND_INITIALIZER;
 
 
-void *oai_subframe_task(void *context)
-{
-    pnf_set_thread_priority(79);
-    uint16_t sfn = 0;
-    uint16_t sf = 0;
-    bool are_queues_empty = true;
-    softmodem_mode_t softmodem_mode = (softmodem_mode_t) context;
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "Subframe Task thread");
-    while (true)
-    {
+// void *oai_subframe_task(void *context)
+// {
+//     // pnf_set_thread_priority(79);
+//     uint16_t sfn = 0;
+//     uint16_t sf = 0;
+//     bool are_queues_empty = true;
+//     softmodem_mode_t softmodem_mode = (softmodem_mode_t) context;
+//     NFAPI_TRACE(NFAPI_TRACE_INFO, "Subframe Task thread");
+//     while (true)
+//     {
 
-        uint16_t sfn_sf_tx = sfn_sf_counter(&sfn, &sf);
+//         uint16_t sfn_sf_tx = sfn_sf_counter(&sfn, &sf);
 
-        uint64_t iteration_start = clock_usec();
+//         uint64_t iteration_start = clock_usec();
 
-        transfer_downstream_sfn_sf_to_proxy(sfn_sf_tx); // send to oai UE
-        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Frame %u Subframe %u sent to OAI ue", sfn_sf_tx >> 4,
-                    sfn_sf_tx & 0XF);
+//         transfer_downstream_sfn_sf_to_proxy(sfn_sf_tx); // send to oai UE
+//         NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Frame %u Subframe %u sent to OAI ue", sfn_sf_tx >> 4,
+//                     sfn_sf_tx & 0XF);
 
-        if (are_queues_empty)
-        {
-            usleep(825);
-        }
+//         if (are_queues_empty)
+//         {
+//             usleep(825);
+//         }
 
-        uint64_t poll_end = clock_usec();
-        oai_subframe_ind(sfn, sf);
-        uint64_t subframe_sent = clock_usec();
+//         uint64_t poll_end = clock_usec();
+//         oai_subframe_ind(sfn, sf);
+//         uint64_t subframe_sent = clock_usec();
 
-        /*
-            Dequeue, collect and aggregate the messages with the same message ID.
-        */
-        subframe_msgs_t subframe_msgs[MAX_UES];
-        memset(subframe_msgs, 0, sizeof(subframe_msgs));
-        are_queues_empty = dequeue_ue_msgs(subframe_msgs, sfn_sf_tx);
+//         /*
+//             Dequeue, collect and aggregate the messages with the same message ID.
+//         */
+//         subframe_msgs_t subframe_msgs[MAX_UES];
+//         memset(subframe_msgs, 0, sizeof(subframe_msgs));
+//         are_queues_empty = dequeue_ue_msgs(subframe_msgs, sfn_sf_tx);
 
-        oai_subframe_aggregate_messages(subframe_msgs);
+//         oai_subframe_aggregate_messages(subframe_msgs);
 
-        if (softmodem_mode == SOFTMODEM_NSA)
-        {
-            if (pthread_mutex_lock(&lock) != 0)
-                errExit("failed to lock mutex");
+//         if (softmodem_mode == SOFTMODEM_NSA)
+//         {
+//             if (pthread_mutex_lock(&lock) != 0)
+//                 errExit("failed to lock mutex");
 
-            sf_slot_tick |= LTE_PROXY_DONE;
-            if (sf_slot_tick == BOTH_LTE_NR_DONE)
-            {
-                if (pthread_cond_broadcast(&cond_sf_slot) != 0)
-                    errExit("failed to broadcast on the condition");
-            }
-            else
-            {
-                while ( sf_slot_tick != BOTH_LTE_NR_DONE)
-                {
-                    if (pthread_cond_wait(&cond_sf_slot, &lock) != 0)
-                        errExit("failed to wait on the condition");
-                }
-                sf_slot_tick = 0;
-            }
+//             sf_slot_tick |= LTE_PROXY_DONE;
+//             if (sf_slot_tick == BOTH_LTE_NR_DONE)
+//             {
+//                 if (pthread_cond_broadcast(&cond_sf_slot) != 0)
+//                     errExit("failed to broadcast on the condition");
+//             }
+//             else
+//             {
+//                 while ( sf_slot_tick != BOTH_LTE_NR_DONE)
+//                 {
+//                     if (pthread_cond_wait(&cond_sf_slot, &lock) != 0)
+//                         errExit("failed to wait on the condition");
+//                 }
+//                 sf_slot_tick = 0;
+//             }
 
-            if (pthread_mutex_unlock(&lock) != 0)
-                errExit("failed to unlock mutex");
-        }
+//             if (pthread_mutex_unlock(&lock) != 0)
+//                 errExit("failed to unlock mutex");
+//         }
 
-        uint64_t aggregation_done = clock_usec();
+//         uint64_t aggregation_done = clock_usec();
 
-        if (are_queues_empty)
-        {
-            add_sleep_time(iteration_start, poll_end, subframe_sent, aggregation_done);
-        }
-    }
-}
+//         if (are_queues_empty)
+//         {
+//             add_sleep_time(iteration_start, poll_end, subframe_sent, aggregation_done);
+//         }
+//     }
+// }
 
 void *oai_slot_task(void *context)
 {
-    pnf_set_thread_priority(79);
+    // pnf_set_thread_priority(79);
     uint16_t sfn = 0;
     uint16_t slot = 0;
+    #ifndef DISABLE_UE
     bool are_queues_empty = true;
+    #endif
     softmodem_mode_t softmodem_mode = (softmodem_mode_t) context;
     NFAPI_TRACE(NFAPI_TRACE_INFO, "Slot Task thread");
     uint16_t slot_tick = 0;
 
     while (true)
     {
+        #ifndef DISABLE_UE
         uint16_t sfn_slot_tx = sfn_slot_counter(&sfn, &slot);//Need to update it.
 
         uint64_t iteration_start = clock_usec();
+        #endif
         /* Previously we would sleep to ensure that the 500us contraint (per slot)
            was met, although the sleep time was 312us, which is pretty arbitrary.
            As we push higher throughputs, we see that the PNF (proxy) is
@@ -4326,15 +4501,16 @@ void *oai_slot_task(void *context)
            arrive to the OAI UE, that the slot will arrive AFTER the TX_DATA_REQ. The relationship
            between slot indications and TX_DATA_REQs are critical to the ACK/nACK procedure.
            This is a temporary fix until will can concretely sync the PNF and VNF. */
-        usleep(1000);
-        transfer_downstream_sfn_slot_to_proxy(sfn_slot_tx); // send to oai UE
-        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Frame %u Slot %u sent to OAI ue", NFAPI_SFNSLOT2SFN(sfn_slot_tx),
-                   NFAPI_SFNSLOT2SLOT(sfn_slot_tx));
+        usleep(1000);  // RDF: Do we need to sleep?
+        // transfer_downstream_sfn_slot_to_proxy(sfn_slot_tx); // send to oai UE
+        // NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Frame %u Slot %u sent to OAI ue", NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot_tx),
+        //            NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot_tx));
 
+        #ifndef DISABLE_UE
         uint64_t poll_end = clock_usec();
         oai_slot_ind(sfn, slot);
         uint64_t slot_sent = clock_usec();
-
+        
         /*
             Dequeue, collect and aggregate the messages with the same message ID.
         */
@@ -4343,6 +4519,9 @@ void *oai_slot_task(void *context)
         are_queues_empty = dequeue_ue_slot_msgs(slot_msgs, sfn_slot_tx);
 
         oai_slot_aggregate_messages(slot_msgs);
+        #else
+        oai_slot_ind(sfn, slot);
+        #endif
 
         if (++slot_tick == NR_PROXY_DONE && softmodem_mode == SOFTMODEM_NSA)
         {
@@ -4370,12 +4549,14 @@ void *oai_slot_task(void *context)
             slot_tick = 0;
         }
 
+        #ifndef DISABLE_UE
         uint64_t aggregation_done = clock_usec();
 
         if (are_queues_empty)
         {
             add_nr_sleep_time(iteration_start, poll_end, slot_sent, aggregation_done);
         }
+        #endif
     }
 }
 
@@ -4418,7 +4599,7 @@ void oai_slot_handle_msg_from_ue(const void *msg, size_t len, uint16_t nem_id)
     }
     uint16_t sfn_slot = nfapi_get_sfnslot(msg, len);
     NFAPI_TRACE(NFAPI_TRACE_INFO, "(Proxy) Adding %s uplink message to queue prior to sending to gNB. Frame: %d, Slot: %d",
-                nfapi_nr_get_message_id(msg, len), NFAPI_SFNSLOT2SFN(sfn_slot), NFAPI_SFNSLOT2SLOT(sfn_slot));
+                nfapi_nr_get_message_id(msg, len), NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot), NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot));
 
     int i = (int)nem_id - MIN_UE_NEM_ID;
     if (i < 0 || i >= num_ues)

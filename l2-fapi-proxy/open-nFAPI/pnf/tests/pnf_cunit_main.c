@@ -51,6 +51,7 @@ typedef struct phy_info
 	uint16_t sfn;
 	uint16_t slot;
 	
+
 	pthread_t thread;
 
 	int pnf_p7_port;

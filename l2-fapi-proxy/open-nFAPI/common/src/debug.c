@@ -22,11 +22,9 @@
 #include <pthread.h>
 #include <stdbool.h>
 
-static const char log_name[] = "nfapi.log";
-
 static nfapi_trace_level_t trace_level = NFAPI_TRACE_WARN;
 
-static void nfapi_trace_init()
+static void nfapi_trace_init(void)
 {
     static bool initialized;
     if (initialized)
@@ -66,30 +64,24 @@ void nfapi_trace(nfapi_trace_level_t level,
                  char const *caller,
                  char const *format, ...)
 {
-    FILE *fp = fopen(log_name, "a");
-    if (fp == NULL)
-    {
-        fprintf(stderr, "open %s: %s\n", log_name, ERR);
-        abort();
-    }
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    fprintf(fp, "%ld%06ld [%c] %10u: %s: ",
-            ts.tv_sec,
-            ts.tv_nsec / 1000,
-            "XEWNID"[level], // NFAPI_TRACE_NONE, NFAPI_TRACE_ERROR, ...
-            (unsigned) pthread_self(),
-            caller);
+    printf("%ld.%06ld [%c] %10u: %s: ",
+           ts.tv_sec,
+           ts.tv_nsec / 1000,
+           "XEWNID"[level], // NFAPI_TRACE_NONE, NFAPI_TRACE_ERROR, ...
+           (unsigned) pthread_self(),
+           caller);
 
     va_list ap;
     va_start(ap, format);
-    vfprintf(fp, format, ap);
+    vprintf(format, ap);
     va_end(ap);
 
     // Add a newline if the format string didn't have one
     int len = strlen(format);
     if (len == 0 || format[len - 1] != '\n')
-        putc('\n', fp);
+        putchar('\n');
 
-    fclose(fp);
+    fflush(stdout);
 }

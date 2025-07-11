@@ -1,12 +1,12 @@
 /*
  * Copyright 2017 Cisco Systems, Inc.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,11 +32,11 @@ nfapi_pnf_config_t* nfapi_pnf_config_create()
 	memset(_this, 0, sizeof(pnf_t));
 
 	_this->sctp = 1;	// enable sctp
-	
+
 	_this->_public.vnf_p5_port = NFAPI_P5_SCTP_PORT;
-	
+
 	_this->_public.malloc = &malloc;
-	_this->_public.free = &free;	
+	_this->_public.free = &free;
 
 	_this->_public.codec_config.allocate = &malloc;
 	_this->_public.codec_config.deallocate = &free;
@@ -124,6 +124,7 @@ int nfapi_pnf_stop(nfapi_pnf_config_t* config)
 	return 0;
 }
 
+
 int nfapi_nr_pnf_pnf_param_resp(nfapi_pnf_config_t* config, nfapi_nr_pnf_param_response_t* resp)
 {
 	// ensure it's valid
@@ -171,6 +172,7 @@ int nfapi_pnf_pnf_config_resp(nfapi_pnf_config_t* config, nfapi_pnf_config_respo
 	return pnf_pack_and_send_p5_message(_this, &(resp->header), sizeof(nfapi_pnf_config_response_t));
 }
 
+
 int nfapi_nr_pnf_pnf_config_resp(nfapi_pnf_config_t* config, nfapi_nr_pnf_config_response_t* resp)
 {
 	// ensure it's valid
@@ -189,6 +191,7 @@ int nfapi_nr_pnf_pnf_config_resp(nfapi_pnf_config_t* config, nfapi_nr_pnf_config
 
 	return pnf_nr_pack_and_send_p5_message(_this, &(resp->header), sizeof(nfapi_nr_pnf_config_response_t));
 }
+
 
 int nfapi_pnf_pnf_start_resp(nfapi_pnf_config_t* config, nfapi_pnf_start_response_t* resp)
 {
@@ -228,6 +231,7 @@ int nfapi_nr_pnf_pnf_start_resp(nfapi_pnf_config_t* config, nfapi_nr_pnf_start_r
 	return pnf_nr_pack_and_send_p5_message(_this, &(resp->header), sizeof(nfapi_nr_pnf_start_response_t));
 }
 
+
 int nfapi_pnf_pnf_stop_resp(nfapi_pnf_config_t* config, nfapi_pnf_stop_response_t* resp)
 {
 	// ensure it's valid
@@ -246,7 +250,6 @@ int nfapi_pnf_pnf_stop_resp(nfapi_pnf_config_t* config, nfapi_pnf_stop_response_
 
 	return pnf_pack_and_send_p5_message(_this, &(resp->header), sizeof(nfapi_pnf_stop_response_t));
 }
-
 int nfapi_pnf_param_resp(nfapi_pnf_config_t* config, nfapi_param_response_t* resp)
 {
 	if (config == NULL || resp == NULL)
@@ -254,11 +257,12 @@ int nfapi_pnf_param_resp(nfapi_pnf_config_t* config, nfapi_param_response_t* res
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: NULL parameters\n", __FUNCTION__);
 		return -1;
 	}
-	
+
 	pnf_t* _this = (pnf_t*)(config);
 
 	return pnf_pack_and_send_p5_message(_this, &(resp->header), sizeof(nfapi_param_response_t));
 }
+
 
 int nfapi_nr_pnf_param_resp(nfapi_pnf_config_t* config, nfapi_nr_param_response_scf_t* resp)
 {
@@ -267,7 +271,7 @@ int nfapi_nr_pnf_param_resp(nfapi_pnf_config_t* config, nfapi_nr_param_response_
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: NULL parameters\n", __FUNCTION__);
 		return -1;
 	}
-	
+
 	pnf_t* _this = (pnf_t*)(config);
 
 	return pnf_nr_pack_and_send_p5_message(_this, &(resp->header), sizeof(nfapi_nr_param_response_scf_t));
@@ -329,6 +333,7 @@ int nfapi_nr_pnf_config_resp(nfapi_pnf_config_t* config, nfapi_nr_config_respons
 	return pnf_nr_pack_and_send_p5_message(_this, &(resp->header), sizeof(nfapi_nr_config_response_scf_t));
 }
 
+
 int nfapi_pnf_start_resp(nfapi_pnf_config_t* config, nfapi_start_response_t* resp)
 {
 	if (config == NULL || resp == NULL)
@@ -382,6 +387,7 @@ int nfapi_nr_pnf_start_resp(nfapi_pnf_config_t* config, nfapi_nr_start_response_
 
 	return pnf_nr_pack_and_send_p5_message(_this, &(resp->header), sizeof(nfapi_nr_start_response_scf_t));
 }
+
 
 int nfapi_pnf_stop_resp(nfapi_pnf_config_t* config, nfapi_stop_response_t* resp)
 {
@@ -577,4 +583,3 @@ int nfapi_pnf_vendor_extension(nfapi_pnf_config_t* config, nfapi_p4_p5_message_h
 
 	return pnf_pack_and_send_p5_message(_this, msg, msg_len);
 }
-

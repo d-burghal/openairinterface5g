@@ -31,6 +31,28 @@ typedef enum softmodem_mode_t
     SOFTMODEM_NSA,
 } softmodem_mode_t;
 
+typedef struct {
+  char *remote_addr;
+  //! remote port number for Ethernet interface (control)
+  uint16_t remote_portc;
+  //! remote port number for Ethernet interface (user)
+  uint16_t remote_portd;
+  //! local IP/MAC addr for Ethernet interface (eNB/RAU, UE)
+  char *my_addr;
+  //! local port number (control) for Ethernet interface (eNB/RAU, UE)
+  uint16_t  my_portc;
+  //! local port number (user) for Ethernet interface (eNB/RAU, UE)
+  uint16_t  my_portd;
+  //! local Ethernet interface (eNB/RAU, UE)
+  char *local_if_name;
+  //! transport type preference  (RAW/UDP)
+  uint8_t transp_preference;
+  //! compression enable (0: No comp/ 1: A-LAW)
+  uint8_t if_compress;
+} eth_params_t;
+
+void exit_function(const char *file, const char *function, const int line, const char *s, const int assert);
+
 #ifdef __cplusplus
 }
 #endif

@@ -23,6 +23,8 @@
 #include "nr_proxy.h"
 #include "nfapi_pnf.h"
 
+#define MU 1 // RDF Hardcode
+
 namespace
 {
     Multi_UE_NR_Proxy *instance;
@@ -43,7 +45,9 @@ void Multi_UE_NR_Proxy::start(softmodem_mode_t softmodem_mode)
 {
     pthread_t thread;
 
-    configure_nr_nfapi_pnf(vnf_ipaddr.c_str(), vnf_p5port, pnf_ipaddr.c_str(), pnf_p7port, vnf_p7port);
+    // configure_nr_nfapi_pnf(vnf_ipaddr.c_str(), vnf_p5port, pnf_ipaddr.c_str(), pnf_p7port, vnf_p7port);
+
+    configure_nr_nfapi_pnf(gnb_conn_info.remote_addr, vnf_p5port, proxy_conn_info.my_addr, pnf_p7port, vnf_p7port);
 
     if (pthread_create(&thread, NULL, &oai_slot_task, (void *)softmodem_mode) != 0)
     {
@@ -65,6 +69,13 @@ void Multi_UE_NR_Proxy::start(softmodem_mode_t softmodem_mode)
 
 void Multi_UE_NR_Proxy::configure(std::string gnb_ip, std::string proxy_ip, std::vector<std::string> ue_ip)
 {
+    gnb_conn_info.remote_addr = strdup(gnb_ip.c_str());
+    gnb_conn_info.remote_portc = 50601;
+    gnb_conn_info.remote_portd = 50611;
+
+    proxy_conn_info.my_addr = strdup(proxy_ip.c_str());
+    proxy_conn_info.my_portd = 50610;
+ 
     oai_ue_ipaddr = ue_ip;
     vnf_ipaddr = gnb_ip;
     pnf_ipaddr = proxy_ip;
@@ -75,11 +86,16 @@ void Multi_UE_NR_Proxy::configure(std::string gnb_ip, std::string proxy_ip, std:
     std::cout<<"VNF is on IP Address "<<vnf_ipaddr<<std::endl;
     std::cout<<"PNF is on IP Address "<<pnf_ipaddr<<std::endl;
     
+    ue_conn_info.resize(ue_ip.size());
+
     for (int ue_idx = 0; ue_idx < num_ues; ue_idx++)
     {
         std::cout<<"OAI-UE "<<ue_idx<<" is on IP Address "<<oai_ue_ipaddr[ue_idx]<<std::endl;
         int oai_rx_ue_port = 3611 + ue_idx * port_delta;
         int oai_tx_ue_port = 3612 + ue_idx * port_delta;
+
+        // ue_conn_info[ue_idx].remote_addr = oai_ue_ipaddr[ue_idx].c_str();
+
         init_oai_socket(oai_ue_ipaddr[ue_idx].c_str(), oai_tx_ue_port, oai_rx_ue_port, ue_idx);
     }
 }
@@ -167,7 +183,7 @@ void Multi_UE_NR_Proxy::receive_message_from_nr_ue(int ue_idx)
             }
             uint16_t sfn_slot = nfapi_get_sfnslot(buffer, buflen);
             NFAPI_TRACE(NFAPI_TRACE_INFO , "(Proxy) Proxy has received %d uplink message from OAI UE at socket. Frame: %d, Slot: %d",
-                    header.message_id, NFAPI_SFNSLOT2SFN(sfn_slot), NFAPI_SFNSLOT2SLOT(sfn_slot));
+                    header.message_id, NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot), NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot));
         }
         oai_slot_handle_msg_from_ue(buffer, buflen, ue_idx + 2);
     }
@@ -281,8 +297,8 @@ void Multi_UE_NR_Proxy::pack_and_send_downlink_sfn_slot_msg(uint16_t sfn_slot)
         assert(ue_tx_socket[ue_idx] > 2);
         if (sendto(ue_tx_socket[ue_idx], &sfn_slot, sizeof(sfn_slot), 0, (const struct sockaddr *) &address_tx_, sizeof(address_tx_)) < 0)
         {
-            int sfn = NFAPI_SFNSLOT2SFN(sfn_slot);
-            int slot = NFAPI_SFNSLOT2SLOT(sfn_slot);
+            int sfn = NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot);
+            int slot = NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot);
             NFAPI_TRACE(NFAPI_TRACE_ERROR, "Send sfn_slot to OAI UE FAIL Frame: %d,Slot: %d", sfn, slot);
         }
     }

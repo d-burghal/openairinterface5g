@@ -205,9 +205,9 @@ int oai_nfapi_nr_uci_indication(nfapi_nr_uci_indication_t *ind);
 void oai_subframe_ind(uint16_t sfn, uint16_t sf);
 void oai_slot_ind(uint16_t sfn, uint16_t slot);
 
-void configure_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char *pnf_ip_addr, int pnf_p7_port,
+void configure_nfapi_pnf(char *vnf_ip_addr, int vnf_p5_port, char *pnf_ip_addr, int pnf_p7_port,
                          int vnf_p7_port);
-void configure_nr_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port);
+void configure_nr_nfapi_pnf(char *vnf_ip_addr, int vnf_p5_port, char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port);
 
 void init_eNB_afterRU(void);
 void init_UE_stub(int nb_inst, int, int);
@@ -237,7 +237,7 @@ void handle_nr_nfapi_pdsch_pdu(PHY_VARS_gNB *gNB,int frame,int slot,
 void handle_nr_nfapi_ssb_pdu(PHY_VARS_gNB *gNB,int frame,int slot,
                              nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdu);
 
-void *oai_subframe_task(void *context);
+// void *oai_subframe_task(void *context);
 void *oai_slot_task(void *context);
 void oai_subframe_init();
 void oai_slot_init();

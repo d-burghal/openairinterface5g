@@ -154,7 +154,8 @@ uint16_t nfapi_get_sfnslot(const void *msg, size_t length)
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "could not retrieve sfn and slot");
         return ~0;
     }
-    return NFAPI_SFNSLOT2HEX(sfn, slot);
+    // return NFAPI_SFNSLOT2HEX(sfn, slot);
+    return NFAPI_SFNSLOTDEC2SFN(sfn, slot);
 }
 
 pnf_config_phy_t *find_pnf_phy_config(pnf_config_t *config,

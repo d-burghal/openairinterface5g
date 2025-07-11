@@ -66,6 +66,10 @@ private:
     int vnf_p7port = -1;
     int pnf_p7port = -1;
 
+    eth_params_t gnb_conn_info;
+    eth_params_t proxy_conn_info;
+    std::vector<eth_params_t> ue_conn_info;
+
     std::uint16_t u16SequenceNumber_ = 0;
     struct sockaddr_in address_tx_;
     struct sockaddr_in address_rx_;

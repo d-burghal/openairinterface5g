@@ -50,6 +50,19 @@ static void try_help(const std::string& msg)
     die(msg + " (try --help)");
 }
 
+void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
+{
+  if (s != NULL) {
+    printf("%s:%d %s() Exiting proxy: %s \n", file, line, function, s);
+  }
+  if (assert) {
+    abort();
+  } else {
+    sleep(1); // allow nr-softmodem threads to exit first
+    exit(EXIT_SUCCESS);
+  }
+}
+
 int main(int argc, char *argv[])
 {
     program_name = basename(argv[0]);
@@ -185,30 +198,30 @@ int main(int argc, char *argv[])
 
     switch (softmodem_mode)
     {
-    case SOFTMODEM_LTE:
-        {
-            Multi_UE_Proxy lte_proxy(ues, enb_ipaddr, proxy_ipaddr, ue_ipaddr);
-            lte_proxy.start(softmodem_mode);
-        }
-        break;
+    // case SOFTMODEM_LTE:
+    //     {
+    //         Multi_UE_Proxy lte_proxy(ues, enb_ipaddr, proxy_ipaddr, ue_ipaddr);
+    //         lte_proxy.start(softmodem_mode);
+    //     }
+    //     break;
     case SOFTMODEM_NR:
         {
             Multi_UE_NR_Proxy nr_proxy(ues, gnb_ipaddr, proxy_ipaddr, ue_ipaddr);
             nr_proxy.start(softmodem_mode);
         }
         break;
-    case SOFTMODEM_NSA:
-        {
-            Multi_UE_Proxy lte_proxy(ues, enb_ipaddr, proxy_ipaddr, ue_ipaddr);
-            Multi_UE_NR_Proxy nr_proxy(ues, gnb_ipaddr, proxy_ipaddr, ue_ipaddr);
+    // case SOFTMODEM_NSA:
+    //     {
+    //         Multi_UE_Proxy lte_proxy(ues, enb_ipaddr, proxy_ipaddr, ue_ipaddr);
+    //         Multi_UE_NR_Proxy nr_proxy(ues, gnb_ipaddr, proxy_ipaddr, ue_ipaddr);
 
-            std::thread lte_th( &Multi_UE_Proxy::start, &lte_proxy, softmodem_mode);
-            std::thread nr_th( &Multi_UE_NR_Proxy::start, &nr_proxy, softmodem_mode);
+    //         std::thread lte_th( &Multi_UE_Proxy::start, &lte_proxy, softmodem_mode);
+    //         std::thread nr_th( &Multi_UE_NR_Proxy::start, &nr_proxy, softmodem_mode);
 
-            lte_th.join();
-            nr_th.join();
-        }
-        break;
+    //         lte_th.join();
+    //         nr_th.join();
+    //     }
+    //     break;
     default:
         abort();
     }

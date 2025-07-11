@@ -41,3 +41,4 @@ nfapi_trace_level_t nfapi_trace_level(void);
     if (nfapi_trace_level() >= (LEVEL))                                 \
         nfapi_trace(LEVEL, __func__, FORMAT, ##__VA_ARGS__);            \
 } while (0)
+
