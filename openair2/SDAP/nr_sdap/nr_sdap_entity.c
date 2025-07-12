@@ -390,7 +390,8 @@ void nr_sdap_ue_qfi2drb_config(nr_sdap_entity_t *existing_sdap_entity, rb_id_t p
 
   for (int i = 0; i < mappedQFIs2AddCount; i++) {
     qfi = (uint8_t)mapped_qfi_2_add[i];
-    set_qfi_pduid(qfi, 0);
+    int pdusession_id = 10;
+    set_qfi_pduid(qfi, pdusession_id);
     if (existing_sdap_entity->default_drb && existing_sdap_entity->qfi2drb_table[qfi].drb_id == SDAP_NO_MAPPING_RULE) {
       nr_sdap_ul_hdr_t sdap_ctrl_pdu = existing_sdap_entity->sdap_construct_ctrl_pdu(qfi);
       rb_id_t sdap_ctrl_pdu_drb = existing_sdap_entity->sdap_map_ctrl_pdu(existing_sdap_entity, pdcp_entity, SDAP_CTRL_PDU_MAP_DEF_DRB, qfi);
@@ -446,7 +447,8 @@ nr_sdap_entity_t *new_nr_sdap_entity(int is_gnb, bool has_sdap_rx, bool has_sdap
     uint8_t qfi = 0;
     for (int i = 0; i < mappedQFIs2AddCount; i++) {
       qfi = (uint8_t)mapped_qfi_2_add[i];
-      set_qfi_pduid(qfi, 0);
+      int pdusession_id = 10;
+      set_qfi_pduid(qfi, pdusession_id);
       sdap_entity->qfi2drb_map_update(sdap_entity, qfi, sdap_entity->default_drb, has_sdap_rx, has_sdap_tx);
     }
   }

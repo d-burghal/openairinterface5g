@@ -687,7 +687,8 @@ uint64_t nr_pdcp_module_init(uint64_t _pdcp_optmask, int id)
       //Add --nr-ip-over-lte option check for next line
       if (IS_SOFTMODEM_NOS1){
         nas_config(1, 1, !get_softmodem_params()->nsa ? 2 : 3, ifsuffix_ue);
-        set_qfi_pduid(7, 10);
+        int pdusession_id = 10;
+        set_qfi_pduid(7, pdusession_id);
       }
       LOG_I(PDCP, "UE pdcp will use tun interface\n");
       start_pdcp_tun_ue();
@@ -1040,7 +1041,8 @@ void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, int ciphering_a
   if (ue->drb[slrb_id-1] != NULL) {
     LOG_W(PDCP, "%s:%d:%s: warning DRB %d already exist for UE ID/RNTI %ld, do nothing\n", __FILE__, __LINE__, __FUNCTION__, slrb_id, srcid);
   } else {
-    pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM, 0, slrb_id, 0,
+    int pdusession_id = 10;
+    pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM, 0, slrb_id, pdusession_id,
                                   has_sdap, has_sdap,
                                   deliver_sdu_drb, ue, deliver_pdu_drb, ue,
                                   sn_size, t_reordering, discard_timer,
@@ -1052,7 +1054,7 @@ void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, int ciphering_a
 
     LOG_I(PDCP, "%s:%d:%s: added slrb %d to UE ID %ld\n", __FILE__, __LINE__, __FUNCTION__, slrb_id, srcid);
     add_srap_entity(srcid);
-    new_nr_sdap_entity(0, has_sdap, has_sdap, srcid, 0, is_sdap_DefaultRB, slrb_id, mappedQFIs2Add, mappedQFIs2AddCount);
+    new_nr_sdap_entity(0, has_sdap, has_sdap, srcid, pdusession_id, is_sdap_DefaultRB, slrb_id, mappedQFIs2Add, mappedQFIs2AddCount);
   }
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
