@@ -361,7 +361,7 @@ static void fill_dl_info_with_pdcch(fapi_nr_dci_indication_t *dci, nfapi_nr_dl_d
     dci->number_of_dcis = idx + 1;
 }
 
-static void fill_mib_in_rx_ind(nfapi_nr_dl_tti_request_pdu_t *pdu_list, fapi_nr_rx_indication_t *rx_ind, int pdu_idx, int pdu_type)
+static void fill_mib_in_rx_ind(NR_UE_MAC_INST_t *mac, nfapi_nr_dl_tti_request_pdu_t *pdu_list, fapi_nr_rx_indication_t *rx_ind, int pdu_idx, int pdu_type)
 {
   AssertFatal(pdu_idx < sizeof(rx_ind->rx_indication_body) / sizeof(rx_ind->rx_indication_body[0]),
               "pdu_index (%d) is greater than rx_indication_body size!\n", pdu_idx);
@@ -377,7 +377,11 @@ static void fill_mib_in_rx_ind(nfapi_nr_dl_tti_request_pdu_t *pdu_list, fapi_nr_
   rx_ind->rx_indication_body[pdu_idx].ssb_pdu.rsrp_dBm = ssb_pdu->ssbRsrp;
   rx_ind->rx_indication_body[pdu_idx].ssb_pdu.ssb_index = ssb_pdu->SsbBlockIndex;
   rx_ind->rx_indication_body[pdu_idx].ssb_pdu.ssb_length = pdu_list->PDUSize;
-  rx_ind->rx_indication_body[pdu_idx].ssb_pdu.ssb_start_subcarrier = ssb_pdu->SsbSubcarrierOffset;
+  // RDF: Erroneous setting: rx_ind->rx_indication_body[pdu_idx].ssb_pdu.ssb_start_subcarrier = ssb_pdu->SsbSubcarrierOffset;
+  // Should be computed as: ssb_start_subcarrier = (12 * prb_offset + sc_offset);
+  const int scs = 1;
+  const int prb_offset = (mac->frequency_range == FR1) ? ssb_pdu->ssbOffsetPointA >> scs : ssb_pdu->ssbOffsetPointA >> (scs - 2);
+  rx_ind->rx_indication_body[pdu_idx].ssb_pdu.ssb_start_subcarrier = (12 * prb_offset + ssb_pdu->SsbSubcarrierOffset);
   rx_ind->rx_indication_body[pdu_idx].ssb_pdu.decoded_pdu = true;
   rx_ind->rx_indication_body[pdu_idx].pdu_type = pdu_type;
   rx_ind->number_pdus = pdu_idx + 1;
@@ -403,8 +407,9 @@ static bool is_my_dci(NR_UE_MAC_INST_t *mac, nfapi_nr_dl_dci_pdu_t *received_pdu
   if (IS_SA_MODE(get_softmodem_params())) {
     if (mac->state == UE_NOT_SYNC)
       return false;
-    if (received_pdu->RNTI == 0xFFFF)
-      return false;
+    // RDF: This results in SIB never being received.
+    // if (received_pdu->RNTI == 0xFFFF)
+    //   return false;
     if (received_pdu->RNTI != mac->crnti && mac->ra.ra_state == nrRA_SUCCEEDED)
       return false;
     if (received_pdu->RNTI != mac->ra.t_crnti && mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION)
@@ -501,7 +506,7 @@ static void copy_dl_tti_req_to_dl_info(nr_downlink_indication_t *dl_info, nfapi_
             fapi_nr_rx_indication_t *rx_ind = dl_info->rx_ind;
             rx_ind->sfn = dl_tti_request->SFN;
             rx_ind->slot = dl_tti_request->Slot;
-            fill_mib_in_rx_ind(pdu_list, rx_ind, 0, FAPI_NR_RX_PDU_TYPE_SSB);
+            fill_mib_in_rx_ind(mac, pdu_list, rx_ind, 0, FAPI_NR_RX_PDU_TYPE_SSB);
             nr_ue_dl_indication(&mac->dl_info);
         }
     }
