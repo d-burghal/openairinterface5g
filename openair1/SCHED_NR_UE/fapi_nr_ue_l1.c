@@ -123,8 +123,9 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
           rach_ind->pdu_list[pdu_index].freq_index = prach_pdu->num_ra;
           rach_ind->pdu_list[pdu_index].avg_rssi = 128;
           rach_ind->pdu_list[pdu_index].avg_snr = 0xff; // invalid for now
-          const int num_p = rach_ind->pdu_list[pdu_index].num_preamble;
-          AssertFatal(num_p == 1, "can handle only one preamble in preamble_list\n");
+          // RDF: The below assertion will always fail.
+          // const int num_p = rach_ind->pdu_list[pdu_index].num_preamble;
+          // AssertFatal(num_p == 1, "can handle only one preamble in preamble_list\n");
           rach_ind->pdu_list[pdu_index].num_preamble = 1;
           rach_ind->pdu_list[pdu_index].preamble_list[0].preamble_index = prach_pdu->ra_PreambleIndex;
           rach_ind->pdu_list[pdu_index].preamble_list[0].timing_advance = 0;
