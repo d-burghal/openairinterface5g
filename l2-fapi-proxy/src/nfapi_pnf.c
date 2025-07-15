@@ -37,7 +37,7 @@ extern "C" {
 #endif
 
 #define MU 1 // RDF Hardcode 
-#define DISABLE_UE 1
+// #define DISABLE_UE 1
 
 /*
 #include "common/ran_context.h"
@@ -171,10 +171,11 @@ int pnf_nr_param_request(nfapi_pnf_config_t *config, nfapi_nr_pnf_param_request_
   resp.pnf_param_general.shared_bands = pnf->shared_bands;
   resp.pnf_param_general.shared_pa = pnf->shared_pa;
   resp.pnf_param_general.maximum_total_power = pnf->max_total_power;
+  resp.num_tlvs = 1;
   resp.pnf_phy.tl.tag = NFAPI_PNF_PHY_TAG;
   resp.pnf_phy.number_of_phys = 1;
 
-  for(int i = 0; i < 1; ++i) {
+  for (int i = 0; i < 1; ++i) {
     resp.pnf_phy.phy[i].phy_config_index = pnf->phys[i].index;
     resp.pnf_phy.phy[i].downlink_channel_bandwidth_supported = pnf->phys[i].dl_channel_bw_support;
     resp.pnf_phy.phy[i].uplink_channel_bandwidth_supported = pnf->phys[i].ul_channel_bw_support;
@@ -184,13 +185,13 @@ int pnf_nr_param_request(nfapi_pnf_config_t *config, nfapi_nr_pnf_param_request_
     resp.pnf_phy.phy[i].nmm_modes_supported = pnf->phys[i].nmm_modes_supported;
     resp.pnf_phy.phy[i].number_of_rfs = 2;
 
-    for(int j = 0; j < 1; ++j) {
+    for (int j = 0; j < 1; ++j) {
       resp.pnf_phy.phy[i].rf_config[j].rf_config_index = pnf->phys[i].rfs[j];
     }
 
     resp.pnf_phy.phy[i].number_of_rf_exclusions = 0;
 
-    for(int j = 0; j < 0; ++j) {
+    for (int j = 0; j < 0; ++j) {
       resp.pnf_phy.phy[i].excluded_rf_config[j].rf_config_index = pnf->phys[i].excluded_rfs[j];
     }
   }
@@ -710,7 +711,7 @@ int nr_param_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   nfapi_resp.num_tlv++;
   }
 
-  nfapi_resp.nfapi_config.p7_pnf_port.value = 50610; //pnf->phys[0].local_port; DJP - hard code alert!!!! FIXME TODO
+  nfapi_resp.nfapi_config.p7_pnf_port.value = htons(pnf->phys[0].udp.rx_port);
   nfapi_resp.num_tlv++;
   pnf_p7_sockaddr.sin_addr.s_addr = inet_addr(pnf->phys[0].local_addr);
   memcpy(nfapi_resp.nfapi_config.p7_pnf_address_ipv4.address, &pnf_p7_sockaddr.sin_addr.s_addr, 4);
@@ -2439,7 +2440,7 @@ void *pnf_nr_start_thread(void *ptr) {
   return (void *)0;
 }
 
-void configure_nr_nfapi_pnf(char *vnf_ip_addr, int vnf_p5_port, char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port) {
+void configure_nr_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port) {
   nfapi_pnf_config_t *config = nfapi_pnf_config_create();
   config->vnf_ip_addr = vnf_ip_addr;
   config->vnf_p5_port = vnf_p5_port;
@@ -4486,8 +4487,9 @@ void *oai_slot_task(void *context)
 
     while (true)
     {
-        #ifndef DISABLE_UE
         uint16_t sfn_slot_tx = sfn_slot_counter(&sfn, &slot);//Need to update it.
+
+        #ifndef DISABLE_UE
 
         uint64_t iteration_start = clock_usec();
         #endif
@@ -4501,10 +4503,10 @@ void *oai_slot_task(void *context)
            arrive to the OAI UE, that the slot will arrive AFTER the TX_DATA_REQ. The relationship
            between slot indications and TX_DATA_REQs are critical to the ACK/nACK procedure.
            This is a temporary fix until will can concretely sync the PNF and VNF. */
-        usleep(1000);  // RDF: Do we need to sleep?
-        // transfer_downstream_sfn_slot_to_proxy(sfn_slot_tx); // send to oai UE
-        // NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Frame %u Slot %u sent to OAI ue", NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot_tx),
-        //            NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot_tx));
+        usleep(1000);
+        transfer_downstream_sfn_slot_to_proxy(sfn_slot_tx); // send to oai UE
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Frame %u Slot %u sent to OAI ue", NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot_tx),
+                   NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot_tx));
 
         #ifndef DISABLE_UE
         uint64_t poll_end = clock_usec();

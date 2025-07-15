@@ -47,7 +47,7 @@ void Multi_UE_NR_Proxy::start(softmodem_mode_t softmodem_mode)
 
     // configure_nr_nfapi_pnf(vnf_ipaddr.c_str(), vnf_p5port, pnf_ipaddr.c_str(), pnf_p7port, vnf_p7port);
 
-    configure_nr_nfapi_pnf(gnb_conn_info.remote_addr, vnf_p5port, proxy_conn_info.my_addr, pnf_p7port, vnf_p7port);
+    configure_nr_nfapi_pnf(vnf_ipaddr.c_str(), vnf_p5port, pnf_ipaddr.c_str(), pnf_p7port, vnf_p7port);
 
     if (pthread_create(&thread, NULL, &oai_slot_task, (void *)softmodem_mode) != 0)
     {
@@ -69,13 +69,7 @@ void Multi_UE_NR_Proxy::start(softmodem_mode_t softmodem_mode)
 
 void Multi_UE_NR_Proxy::configure(std::string gnb_ip, std::string proxy_ip, std::vector<std::string> ue_ip)
 {
-    gnb_conn_info.remote_addr = strdup(gnb_ip.c_str());
-    gnb_conn_info.remote_portc = 50601;
-    gnb_conn_info.remote_portd = 50611;
 
-    proxy_conn_info.my_addr = strdup(proxy_ip.c_str());
-    proxy_conn_info.my_portd = 50610;
- 
     oai_ue_ipaddr = ue_ip;
     vnf_ipaddr = gnb_ip;
     pnf_ipaddr = proxy_ip;

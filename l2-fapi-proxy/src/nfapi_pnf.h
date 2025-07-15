@@ -207,7 +207,7 @@ void oai_slot_ind(uint16_t sfn, uint16_t slot);
 
 void configure_nfapi_pnf(char *vnf_ip_addr, int vnf_p5_port, char *pnf_ip_addr, int pnf_p7_port,
                          int vnf_p7_port);
-void configure_nr_nfapi_pnf(char *vnf_ip_addr, int vnf_p5_port, char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port);
+void configure_nr_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port);
 
 void init_eNB_afterRU(void);
 void init_UE_stub(int nb_inst, int, int);

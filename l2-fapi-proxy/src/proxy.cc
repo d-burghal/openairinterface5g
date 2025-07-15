@@ -68,7 +68,7 @@ int main(int argc, char *argv[])
     program_name = basename(argv[0]);
 
     int ues = 1;
-    int max_seconds = DEFAULT_MAX_SECONDS;
+    // int max_seconds = DEFAULT_MAX_SECONDS;
     softmodem_mode_t softmodem_mode = SOFTMODEM_LTE;
     std::vector<std::string> ipaddrs;
 
@@ -104,15 +104,15 @@ int main(int argc, char *argv[])
             softmodem_mode = SOFTMODEM_NSA;
             continue;
         }
-        if (arg == "--max-seconds")
-        {
-            if (--argc == 0 || !is_numeric(*++argv))
-            {
-                try_help("Expected an integer after --max-seconds");
-            }
-            max_seconds = std::stoi(*argv);
-            continue;
-        }
+        // if (arg == "--max-seconds")
+        // {
+        //     if (--argc == 0 || !is_numeric(*++argv))
+        //     {
+        //         try_help("Expected an integer after --max-seconds");
+        //     }
+        //     max_seconds = std::stoi(*argv);
+        //     continue;
+        // }
         if (is_ipaddress(arg))
         {
             ipaddrs.push_back(arg);
@@ -186,8 +186,8 @@ int main(int argc, char *argv[])
        If (due to bugs) this process were to become run-away (running
        continuously without ever blocking), the alarm will eventually kill the
        process.  Otherwise, the host machine would need to be rebooted */
-    std::clog << "max_seconds: " << max_seconds << std::endl;
-    alarm(max_seconds);
+    // std::clog << "max_seconds: " << max_seconds << std::endl;
+    // alarm(max_seconds);
 
     /* Enable core dumps */
     {
