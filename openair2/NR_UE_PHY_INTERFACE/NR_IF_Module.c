@@ -467,7 +467,9 @@ static void copy_dl_tti_req_to_dl_info(nr_downlink_indication_t *dl_info, nfapi_
                     {
                         continue;
                     }
-                    fill_dl_info_with_pdcch(dl_info->dci_ind, dci_pdu_list, pdu_idx);
+                    if (mac->ra.ra_state > nrRA_UE_IDLE) {
+                      fill_dl_info_with_pdcch(dl_info->dci_ind, dci_pdu_list, pdu_idx);
+                    }
                     if (dci_pdu_list->RNTI == 0xffff)
                     {
                         mac->nr_ue_emul_l1.expected_sib = true;
