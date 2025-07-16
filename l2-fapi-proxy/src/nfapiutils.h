@@ -113,7 +113,7 @@ void log_scheduler(const char* label);
 const char *nfapi_get_message_id(const void *msg, size_t length);
 const char *nfapi_nr_get_message_id(const void *msg, size_t length);
 uint16_t nfapi_get_sfnsf(const void *msg, size_t length);
-uint16_t nfapi_get_sfnslot(const void *msg, size_t length);
+uint16_t nfapi_get_sfnslot(int mu, const void *msg, size_t length);
 
 #ifdef __cplusplus
 }

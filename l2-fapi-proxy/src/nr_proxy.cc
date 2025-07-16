@@ -169,13 +169,13 @@ void Multi_UE_NR_Proxy::receive_message_from_nr_ue(int ue_idx)
         }
         else
         {
-            nfapi_p7_message_header_t header;
-            if (nfapi_p7_message_header_unpack(buffer, buflen, &header, sizeof(header), NULL) < 0)
+            nfapi_nr_p7_message_header_t header;
+            if (nfapi_nr_p7_message_header_unpack(buffer, buflen, &header, sizeof(header), NULL) < 0)
             {
                 NFAPI_TRACE(NFAPI_TRACE_ERROR, "Header unpack failed for standalone pnf");
                 return ;
             }
-            uint16_t sfn_slot = nfapi_get_sfnslot(buffer, buflen);
+            uint16_t sfn_slot = nfapi_get_sfnslot(MU, buffer, buflen);
             NFAPI_TRACE(NFAPI_TRACE_INFO , "(Proxy) Proxy has received %d uplink message from OAI UE at socket. Frame: %d, Slot: %d",
                     header.message_id, NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot), NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot));
         }

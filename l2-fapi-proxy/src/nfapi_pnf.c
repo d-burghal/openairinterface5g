@@ -2707,7 +2707,8 @@ static bool get_sfnslot(message_buffer_t *msg, uint16_t *sfnslot)
         return false;
     }
 
-    in = msg->data + sizeof(nfapi_p7_message_header_t);
+    // in = msg->data + sizeof(nfapi_p7_message_header_t);
+    in = (uint8_t *)msg->data + 18; // RDF: Taking sizeof(nfapi_nr_p7_message_header_t) doesn't work because of padding.
     uint16_t sfn, slot;
     if (!pull16(&in, &sfn, end) ||
         !pull16(&in, &slot, end))
@@ -4050,7 +4051,7 @@ static void oai_slot_aggregate_message_id(uint16_t msg_id, slot_msgs_t *msgs)
     assert(msgs->num_msgs > 0);
     assert(msgs->msgs[0] != NULL);
     assert(msgs->msgs[0]->length <= sizeof(msgs->msgs[0]->data));
-    uint16_t sfn_slot = nfapi_get_sfnslot(msgs->msgs[0]->data, msgs->msgs[0]->length);
+    uint16_t sfn_slot = nfapi_get_sfnslot(MU, msgs->msgs[0]->data, msgs->msgs[0]->length);
 
     NFAPI_TRACE(NFAPI_TRACE_INFO, "(Proxy gNB) Aggregating collection of %s uplink messages prior to sending to gNB. Frame: %d, Slot: %d",
                 nfapi_nr_get_message_id(msgs->msgs[0]->data, msgs->msgs[0]->length), NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot), NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot));
@@ -4599,7 +4600,7 @@ void oai_slot_handle_msg_from_ue(const void *msg, size_t len, uint16_t nem_id)
     {
         return;
     }
-    uint16_t sfn_slot = nfapi_get_sfnslot(msg, len);
+    uint16_t sfn_slot = nfapi_get_sfnslot(MU, msg, len);
     NFAPI_TRACE(NFAPI_TRACE_INFO, "(Proxy) Adding %s uplink message to queue prior to sending to gNB. Frame: %d, Slot: %d",
                 nfapi_nr_get_message_id(msg, len), NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot), NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot));
 

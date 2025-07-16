@@ -119,7 +119,7 @@ uint16_t nfapi_get_sfnsf(const void *msg, size_t length)
     return sfn_sf;
 }
 
-uint16_t nfapi_get_sfnslot(const void *msg, size_t length)
+uint16_t nfapi_get_sfnslot(int mu, const void *msg, size_t length)
 {
     uint8_t *in = (void *)msg;
     uint8_t *end = in + length;
@@ -146,7 +146,9 @@ uint16_t nfapi_get_sfnslot(const void *msg, size_t length)
         return ~0;
     }
 
-    in = (uint8_t *)msg + sizeof(nfapi_p7_message_header_t);
+    // in = (uint8_t *)msg + sizeof(nfapi_p7_message_header_t); nfapi_nr_p7_message_header_t
+    // in = (uint8_t *)msg + sizeof(nfapi_nr_p7_message_header_t);
+    in = (uint8_t *)msg + 18;  // RDF: Taking sizeof(nfapi_nr_p7_message_header_t) doesn't work because of padding.
     uint16_t sfn, slot;
     if (!pull16(&in, &sfn, end) ||
         !pull16(&in, &slot, end))
@@ -155,7 +157,8 @@ uint16_t nfapi_get_sfnslot(const void *msg, size_t length)
         return ~0;
     }
     // return NFAPI_SFNSLOT2HEX(sfn, slot);
-    return NFAPI_SFNSLOTDEC2SFN(sfn, slot);
+    // return NFAPI_SFNSLOTDEC2SFN(sfn, slot);
+    return NFAPI_SFNSLOT2DEC(mu, sfn, slot);
 }
 
 pnf_config_phy_t *find_pnf_phy_config(pnf_config_t *config,
