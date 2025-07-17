@@ -4378,7 +4378,7 @@ void add_nr_sleep_time(uint64_t start, uint64_t poll, uint64_t send, uint64_t ag
 // }
 
 
-static uint16_t sfn_slot_counter(uint16_t *sfn, uint16_t *slot)
+static uint16_t sfn_slot_counter(int mu, uint16_t *sfn, uint16_t *slot)
 {
     if (++*slot == 20)
     {
@@ -4388,7 +4388,8 @@ static uint16_t sfn_slot_counter(uint16_t *sfn, uint16_t *slot)
             *sfn = 0;
         }
     }
-    return (*sfn << 6) | *slot;
+    // return (*sfn << 6) | *slot;
+    return NFAPI_SFNSLOT2DEC(mu, *sfn, *slot);
 }
 
 #define LTE_PROXY_DONE   1
@@ -4488,7 +4489,7 @@ void *oai_slot_task(void *context)
 
     while (true)
     {
-        uint16_t sfn_slot_tx = sfn_slot_counter(&sfn, &slot);//Need to update it.
+        uint16_t sfn_slot_tx = sfn_slot_counter(MU, &sfn, &slot);//Need to update it.
 
         #ifndef DISABLE_UE
 
@@ -4506,7 +4507,7 @@ void *oai_slot_task(void *context)
            This is a temporary fix until will can concretely sync the PNF and VNF. */
         usleep(1000);
         transfer_downstream_sfn_slot_to_proxy(sfn_slot_tx); // send to oai UE
-        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Frame %u Slot %u sent to OAI ue", NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot_tx),
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "Frame %u Slot %u sent to OAI ue", NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot_tx),
                    NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot_tx));
 
         #ifndef DISABLE_UE
