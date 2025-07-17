@@ -253,7 +253,9 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
                     mac->nr_ue_emul_l1.harq[k].active = false;
                     harq_pid = k;
                     AssertFatal(harq_index < pdu_0_1->harq.num_harq, "Invalid harq_index %d\n", harq_index);
-                    pdu_0_1->harq.harq_list[harq_index].harq_value = !mac->dl_harq_info[k].ack;
+                    // RDF: mac->dl_harq_info[k].ack never gets set anywhere, so below will always indicate NACK.
+                    // pdu_0_1->harq.harq_list[harq_index].harq_value = !mac->dl_harq_info[k].ack;
+                    pdu_0_1->harq.harq_list[harq_index].harq_value = 0;
                     harq_index++;
                   }
                 }
