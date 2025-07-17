@@ -380,7 +380,9 @@ static void fill_mib_in_rx_ind(NR_UE_MAC_INST_t *mac, nfapi_nr_dl_tti_request_pd
   // RDF: Erroneous setting: rx_ind->rx_indication_body[pdu_idx].ssb_pdu.ssb_start_subcarrier = ssb_pdu->SsbSubcarrierOffset;
   // Should be computed as: ssb_start_subcarrier = (12 * prb_offset + sc_offset);
   const int scs = 1;
-  const int prb_offset = (mac->frequency_range == FR1) ? ssb_pdu->ssbOffsetPointA >> scs : ssb_pdu->ssbOffsetPointA >> (scs - 2);
+  AssertFatal(mac->frequency_range == FR1, "Only FR1 frequency range supported with emulated L1 mode.");
+  // const int prb_offset = (mac->frequency_range == FR1) ? ssb_pdu->ssbOffsetPointA >> scs : ssb_pdu->ssbOffsetPointA >> (scs - 2);
+  const int prb_offset = ssb_pdu->ssbOffsetPointA >> scs;
   rx_ind->rx_indication_body[pdu_idx].ssb_pdu.ssb_start_subcarrier = (12 * prb_offset + ssb_pdu->SsbSubcarrierOffset);
   rx_ind->rx_indication_body[pdu_idx].ssb_pdu.decoded_pdu = true;
   rx_ind->rx_indication_body[pdu_idx].pdu_type = pdu_type;
@@ -414,7 +416,8 @@ static bool is_my_dci(NR_UE_MAC_INST_t *mac, nfapi_nr_dl_dci_pdu_t *received_pdu
       return false;
     if (received_pdu->RNTI != mac->ra.t_crnti && mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION)
       return false;
-    if (received_pdu->RNTI != 0x10b && mac->ra.ra_state == nrRA_WAIT_RAR)
+    // if (received_pdu->RNTI != 0x10b && mac->ra.ra_state == nrRA_WAIT_RAR)
+    if (received_pdu->RNTI != mac->ra.ra_rnti && mac->ra.ra_state == nrRA_WAIT_RAR)
       return false;
     if (received_pdu->RNTI != 0xFFFF && mac->ra.ra_state <= nrRA_GENERATE_PREAMBLE)
       return false;
