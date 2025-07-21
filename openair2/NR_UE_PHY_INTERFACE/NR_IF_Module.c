@@ -709,6 +709,9 @@ static void fill_dci_from_dl_config(nr_downlink_indication_t*dl_ind, fapi_nr_dl_
   if (!dl_ind->dci_ind)
     return;
 
+  int num_dcis = dl_ind->dci_ind->number_of_dcis;    
+  uint8_t *dci_found_list = (uint8_t*)calloc(num_dcis, sizeof(uint8_t));
+
   AssertFatal(dl_config->number_pdus < sizeof(dl_config->dl_config_list) / sizeof(dl_config->dl_config_list[0]),
               "Too many dl_config pdus %d", dl_config->number_pdus);
   for (int i = 0; i < dl_config->number_pdus; i++) {
@@ -724,14 +727,15 @@ static void fill_dci_from_dl_config(nr_downlink_indication_t*dl_ind, fapi_nr_dl_
                 "num_dci_options %d > dci_format_options array\n", num_dci_options);
 
     for (int j = 0; j < num_dci_options; j++) {
-      int num_dcis = dl_ind->dci_ind->number_of_dcis;
+      
       AssertFatal(num_dcis <= sizeof(dl_ind->dci_ind->dci_list) / sizeof(dl_ind->dci_ind->dci_list[0]),
                   "dl_config->number_pdus %d > dci_ind->dci_list array\n", num_dcis);
       for (int k = 0; k < num_dcis; k++) {
         LOG_T(NR_PHY, "Received len %d, length options[%d] %d, format assigned %d, format options[%d] %d\n",
               dl_ind->dci_ind->dci_list[k].payloadSize, j, rel15_dci->dci_length_options[j],
               dl_ind->dci_ind->dci_list[k].dci_format, j, rel15_dci->dci_format_options[j]);
-        if (rel15_dci->dci_length_options[j] == dl_ind->dci_ind->dci_list[k].payloadSize) {
+        if (dci_found_list[k] != 1 && rel15_dci->dci_length_options[j] == dl_ind->dci_ind->dci_list[k].payloadSize) {
+          dci_found_list[k] = 1;
           dl_ind->dci_ind->dci_list[k].dci_format = rel15_dci->dci_format_options[j];
           dl_ind->dci_ind->dci_list[k].ss_type = rel15_dci->ss_type_options[j];
           dl_ind->dci_ind->dci_list[k].coreset_type = rel15_dci->coreset.CoreSetType;
@@ -741,6 +745,8 @@ static void fill_dci_from_dl_config(nr_downlink_indication_t*dl_ind, fapi_nr_dl_
       }
     }
   }
+
+  free(dci_found_list);
 }
 
 // This piece of code is not used in "normal" ue, but in "fapi mode"

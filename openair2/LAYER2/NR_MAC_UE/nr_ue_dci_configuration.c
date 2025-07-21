@@ -158,6 +158,8 @@ void config_dci_pdu(NR_UE_MAC_INST_t *mac,
 
   int temp_num_dci_options = (mac->ra.ra_state == nrRA_WAIT_RAR || rnti_type == TYPE_SI_RNTI_) ? 1 : 2;
   int dci_format[2] = {0};
+  LOG_D(NR_MAC, "searchSpaceType = %d      ue_Specific->dci_Formats=%ld", 
+    ss->searchSpaceType->present, ss->searchSpaceType->choice.ue_Specific->dci_Formats);
   if (ss->searchSpaceType->present == NR_SearchSpace__searchSpaceType_PR_ue_Specific) {
     if (ss->searchSpaceType->choice.ue_Specific->dci_Formats ==
         NR_SearchSpace__searchSpaceType__ue_Specific__dci_Formats_formats0_0_And_1_0) {
