@@ -1617,6 +1617,8 @@ int nr_ue_configure_pucch(NR_UE_MAC_INST_t *mac,
         pucch_pdu->nr_of_symbols = pucchres->format.choice.format0->nrofSymbols;
         pucch_pdu->start_symbol_index = pucchres->format.choice.format0->startingSymbolIndex;
         pucch_pdu->mcs = get_pucch0_mcs(pucch->n_harq, pucch->n_sr, pucch->ack_payload, pucch->sr_payload);
+        pucch_pdu->payload = (pucch->ack_payload << 1) | (pucch->n_sr > 0);
+        pucch_pdu->n_bit = pucch->n_harq + 1;
         break;
       case NR_PUCCH_Resource__format_PR_format1 :
         pucch_pdu->format_type = 1;
@@ -2520,6 +2522,7 @@ bool trigger_periodic_scheduling_request(NR_UE_MAC_INST_t *mac, PUCCH_sched_t *p
         return false;
       }
       pucch->sr_payload = ret;
+      mac->nr_ue_emul_l1.num_srs = ret;
       sr_count++;
       AssertFatal(sr_count < 2, "Cannot handle more than 1 SR per slot yet\n");
     }

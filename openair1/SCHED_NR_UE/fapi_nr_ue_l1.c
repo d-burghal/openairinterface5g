@@ -241,9 +241,15 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
               pdu_0_1->ul_cqi = 255;
               pdu_0_1->timing_advance = 0;
               pdu_0_1->rssi = 0;
+              if (mac->nr_ue_emul_l1.num_srs > 0) {
+                pdu_0_1->pduBitmap = 1;
+                pdu_0_1->sr.sr_indication = 1;
+                pdu_0_1->sr.sr_confidence_level = 0;
+              }
               if (mac->nr_ue_emul_l1.num_harqs > 0) {
                 int harq_index = 0;
-                pdu_0_1->pduBitmap = 2; // (value->pduBitmap >> 1) & 0x01) == HARQ and (value->pduBitmap) & 0x01) == SR
+                pdu_0_1->pduBitmap |= 2; // (value->pduBitmap >> 1) & 0x01) == HARQ and (value->pduBitmap) & 0x01) == SR
+                // pdu_0_1->harq.num_harq = mac->nr_ue_emul_l1.num_harqs > 0 ? mac->nr_ue_emul_l1.num_harqs : 1;
                 pdu_0_1->harq.num_harq = mac->nr_ue_emul_l1.num_harqs;
                 pdu_0_1->harq.harq_confidence_level = 0;
                 int harq_pid = -1;
