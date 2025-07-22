@@ -434,7 +434,9 @@ static void copy_dl_tti_req_to_dl_info(nr_downlink_indication_t *dl_info, nfapi_
     memset(mac->nr_ue_emul_l1.index_has_rar, 0, sizeof(mac->nr_ue_emul_l1.index_has_rar));
     mac->nr_ue_emul_l1.expected_dci = false;
     memset(mac->nr_ue_emul_l1.index_has_dci, 0, sizeof(mac->nr_ue_emul_l1.index_has_dci));
+    
     int pdu_idx = 0;
+    int valid_pdu_idx = 0;
 
     int num_pdus = dl_tti_request->dl_tti_request_body.nPDUs;
     AssertFatal(num_pdus >= 0, "Invalid dl_tti_request number of PDUS\n");
@@ -466,31 +468,31 @@ static void copy_dl_tti_req_to_dl_info(nr_downlink_indication_t *dl_info, nfapi_
                 for (int j = 0; j < num_dcis; j++)
                 {
                     nfapi_nr_dl_dci_pdu_t *dci_pdu_list = &pdu_list->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[j];
-                    if (!is_my_dci(mac, dci_pdu_list))
+                    if (is_my_dci(mac, dci_pdu_list))
                     {
-                        continue;
-                    }
                     if (mac->ra.ra_state > nrRA_UE_IDLE) {
-                      fill_dl_info_with_pdcch(dl_info->dci_ind, dci_pdu_list, pdu_idx);
+                        fill_dl_info_with_pdcch(dl_info->dci_ind, dci_pdu_list, valid_pdu_idx);
                     }
                     if (dci_pdu_list->RNTI == 0xffff)
                     {
                         mac->nr_ue_emul_l1.expected_sib = true;
-                        mac->nr_ue_emul_l1.index_has_sib[j] = true;
+                          mac->nr_ue_emul_l1.index_has_sib[pdu_idx] = true;
                         LOG_T(NR_MAC, "Setting index_has_sib[%d] = true\n", j);
                     }
                     else if (dci_pdu_list->RNTI == mac->ra.ra_rnti)
                     {
                         mac->nr_ue_emul_l1.expected_rar = true;
-                        mac->nr_ue_emul_l1.index_has_rar[j] = true;
+                          mac->nr_ue_emul_l1.index_has_rar[pdu_idx] = true;
                         LOG_T(NR_MAC, "Setting index_has_rar[%d] = true\n", j);
                     }
                     else
                     {
                         mac->nr_ue_emul_l1.expected_dci = true;
-                        mac->nr_ue_emul_l1.index_has_dci[j] = true;
+                          mac->nr_ue_emul_l1.index_has_dci[pdu_idx] = true;
                         LOG_T(NR_MAC, "Setting index_has_dci[%d] = true\n", j);
                     }
+                    valid_pdu_idx++;
+                  }
                     pdu_idx++;
                 }
             }
@@ -710,43 +712,59 @@ static void fill_dci_from_dl_config(nr_downlink_indication_t*dl_ind, fapi_nr_dl_
     return;
 
   int num_dcis = dl_ind->dci_ind->number_of_dcis;    
-  uint8_t *dci_found_list = (uint8_t*)calloc(num_dcis, sizeof(uint8_t));
+  // uint8_t *dci_found_list = (uint8_t*)calloc(num_dcis, sizeof(uint8_t));
+  bool dci_found = false;
 
+  for (int k = 0; k < num_dcis; k++) {
+    dci_found = false;
   AssertFatal(dl_config->number_pdus < sizeof(dl_config->dl_config_list) / sizeof(dl_config->dl_config_list[0]),
               "Too many dl_config pdus %d", dl_config->number_pdus);
   for (int i = 0; i < dl_config->number_pdus; i++) {
-    LOG_D(PHY, "Filling DCI with a total of %d total DL PDUs (dl_config %p) \n",
+      LOG_D(NR_PHY_DCI, "Filling DCI with a total of %d total DL PDUs (dl_config %p) \n",
           dl_config->number_pdus, dl_config);
     fapi_nr_dl_config_dci_dl_pdu_rel15_t *rel15_dci = &dl_config->dl_config_list[i].dci_config_pdu.dci_config_rel15;
     int num_dci_options = rel15_dci->num_dci_options;
     if (num_dci_options <= 0)
-      LOG_D(NR_MAC, "num_dci_opts = %d for pdu[%d] in dl_config_list\n", rel15_dci->num_dci_options, i);
+        LOG_D(NR_PHY_DCI, "num_dci_opts = %d for pdu[%d] in dl_config_list\n", rel15_dci->num_dci_options, i);
     AssertFatal(num_dci_options <= sizeof(rel15_dci->dci_length_options) / sizeof(rel15_dci->dci_length_options[0]),
                 "num_dci_options %d > dci_length_options array\n", num_dci_options);
     AssertFatal(num_dci_options <= sizeof(rel15_dci->dci_format_options) / sizeof(rel15_dci->dci_format_options[0]),
                 "num_dci_options %d > dci_format_options array\n", num_dci_options);
 
+      if (!(rel15_dci->rnti != SI_RNTI && rel15_dci->rnti == dl_ind->dci_ind->dci_list[k].rnti))
+        continue;
+      
+      for (int l = 0; l < rel15_dci->number_of_candidates; l++) {
+        
+        if (!(rel15_dci->CCE[l] == dl_ind->dci_ind->dci_list[k].n_CCE && rel15_dci->L[l] == dl_ind->dci_ind->dci_list[k].N_CCE))
+          continue;
+
     for (int j = 0; j < num_dci_options; j++) {
       
       AssertFatal(num_dcis <= sizeof(dl_ind->dci_ind->dci_list) / sizeof(dl_ind->dci_ind->dci_list[0]),
                   "dl_config->number_pdus %d > dci_ind->dci_list array\n", num_dcis);
-      for (int k = 0; k < num_dcis; k++) {
-        LOG_T(NR_PHY, "Received len %d, length options[%d] %d, format assigned %d, format options[%d] %d\n",
+          LOG_T(NR_PHY_DCI, "Received len %d, length options[%d] %d, format assigned %d, format options[%d] %d\n",
               dl_ind->dci_ind->dci_list[k].payloadSize, j, rel15_dci->dci_length_options[j],
               dl_ind->dci_ind->dci_list[k].dci_format, j, rel15_dci->dci_format_options[j]);
-        if (dci_found_list[k] != 1 && rel15_dci->dci_length_options[j] == dl_ind->dci_ind->dci_list[k].payloadSize) {
-          dci_found_list[k] = 1;
+          if (rel15_dci->dci_length_options[j] == dl_ind->dci_ind->dci_list[k].payloadSize) {
+            // dci_found_list[k] = 1;
+            dci_found = true;
           dl_ind->dci_ind->dci_list[k].dci_format = rel15_dci->dci_format_options[j];
           dl_ind->dci_ind->dci_list[k].ss_type = rel15_dci->ss_type_options[j];
           dl_ind->dci_ind->dci_list[k].coreset_type = rel15_dci->coreset.CoreSetType;
-          LOG_D(NR_PHY, "format assigned dl_ind->dci_ind->dci_list[k].dci_format %d\n",
+            LOG_D(NR_PHY_DCI, "format assigned dl_ind->dci_ind->dci_list[k].dci_format %d\n",
                 dl_ind->dci_ind->dci_list[k].dci_format);
+            break;
         }
+      }
+
+        if (dci_found)
+          break;
       }
     }
   }
 
-  free(dci_found_list);
+  // free(dci_found_list);
 }
 
 // This piece of code is not used in "normal" ue, but in "fapi mode"
