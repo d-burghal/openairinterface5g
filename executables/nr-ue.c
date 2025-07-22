@@ -231,6 +231,7 @@ static void process_queued_nr_nfapi_msgs(NR_UE_MAC_INST_t *mac, int sfn, int slo
     struct sfn_slot_s sfn_sf = {.sfn = mac->nr_ue_emul_l1.harq[i].active_ul_harq_sfn, .slot = mac->nr_ue_emul_l1.harq[i].active_ul_harq_slot };
     nfapi_nr_ul_tti_request_t *ul_tti_request_crc = unqueue_matching(&nr_ul_tti_req_queue, MAX_QUEUE_SIZE, sfn_slot_matcher, &sfn_sf);
     if (ul_tti_request_crc && ul_tti_request_crc->n_pdus > 0) {
+      LOG_D(NR_MAC, "Got ul_tti_req for sfn/slot %d.%d\n", sfn, slot);
       check_and_process_dci(NULL, NULL, NULL, ul_tti_request_crc);
       free_and_zero(ul_tti_request_crc);
     }
@@ -325,7 +326,14 @@ static void *NRUE_phy_stub_standalone_pnf_task(void *arg)
     }
     last_sfn_slot = sfn_slot;
 
-    LOG_D(NR_MAC, "The received sfn/slot [%d %d] from proxy\n",
+    int ret = pthread_mutex_lock(&mac->if_mutex);
+    AssertFatal(!ret, "mutex failed %d\n", ret);
+    update_mac_ul_timers(mac);
+    update_mac_dl_timers(mac);
+    ret = pthread_mutex_unlock(&mac->if_mutex);
+    AssertFatal(!ret, "mutex failed %d\n", ret);  
+
+    LOG_D(NR_MAC, "Received sfn/slot indication [%d %d] from proxy\n",
           frame, slot);
 
     if (IS_SA_MODE(get_softmodem_params()) && mac->mib == NULL) {
