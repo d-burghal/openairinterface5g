@@ -636,6 +636,7 @@ static void rrc_gNB_generate_defaultRRCReconfiguration(const protocol_ctxt_t *co
                                    NULL,
                                    measconfig,
                                    dedicatedNAS_MessageList,
+                                   NULL,
                                    ue_context_pP,
                                    &rrc->carrier,
                                    &rrc->configuration,
@@ -681,6 +682,43 @@ static void rrc_gNB_generate_defaultRRCReconfiguration(const protocol_ctxt_t *co
 
     nr_mac_enable_ue_rrc_processing_timer(ctxt_pP->module_id, ue_p->rnti, *rrc->carrier.servingcellconfigcommon->ssbSubcarrierSpacing, delay_ms);
   }
+}
+
+//-----------------------------------------------------------------------------
+NR_RRCReconfiguration_v1610_IEs_t* prepare_rrc_reconfig_v1610(rnti_t sl_rnti) {
+//-----------------------------------------------------------------------------
+
+    LOG_D(NR_RRC, "Preparing RRCReconfiguration-v1610-IEs with Sidelink IEs.\n");
+    NR_RRCReconfiguration_v1610_IEs_t* v1610_ies = (NR_RRCReconfiguration_v1610_IEs_t*)malloc(sizeof(NR_RRCReconfiguration_v1610_IEs_t));
+    memset(v1610_ies, 0, sizeof(NR_RRCReconfiguration_v1610_IEs_t));
+
+    v1610_ies->sl_ConfigDedicatedNR_r16 = (NR_SetupRelease_SL_ConfigDedicatedNR_r16_t*)malloc(sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
+    memset(v1610_ies->sl_ConfigDedicatedNR_r16, 0, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
+
+    // Set the CHOICE to 'setup'
+    v1610_ies->sl_ConfigDedicatedNR_r16->present = NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_setup;
+    v1610_ies->sl_ConfigDedicatedNR_r16->choice.setup = (NR_SL_ConfigDedicatedNR_r16_t*)malloc(sizeof(NR_SL_ConfigDedicatedNR_r16_t));
+    memset(v1610_ies->sl_ConfigDedicatedNR_r16->choice.setup, 0, sizeof(NR_SL_ConfigDedicatedNR_r16_t));
+
+    NR_SL_ConfigDedicatedNR_r16_t* sl_config = v1610_ies->sl_ConfigDedicatedNR_r16->choice.setup;
+    sl_config->sl_PHY_MAC_RLC_Config_r16 = (NR_SL_PHY_MAC_RLC_Config_r16_t*)malloc(sizeof(NR_SL_PHY_MAC_RLC_Config_r16_t));
+    memset(sl_config->sl_PHY_MAC_RLC_Config_r16, 0, sizeof(NR_SL_PHY_MAC_RLC_Config_r16_t));
+
+    NR_SL_PHY_MAC_RLC_Config_r16_t* phy_mac_config = sl_config->sl_PHY_MAC_RLC_Config_r16;
+    phy_mac_config->sl_ScheduledConfig_r16 = (NR_SetupRelease_SL_ScheduledConfig_r16_t*)malloc(sizeof(NR_SetupRelease_SL_ScheduledConfig_r16_t));
+    memset(phy_mac_config->sl_ScheduledConfig_r16, 0, sizeof(NR_SetupRelease_SL_ScheduledConfig_r16_t));
+
+    // Set the CHOICE to 'setup'NR_SL_PHY_MAC_RLC_Config_r16_t
+    NR_SetupRelease_SL_ScheduledConfig_r16_t* sched_config = phy_mac_config->sl_ScheduledConfig_r16;
+    sched_config->present = NR_SetupRelease_SL_ScheduledConfig_r16_PR_setup;
+    sched_config->choice.setup = (NR_SL_ScheduledConfig_r16_t*)malloc(sizeof(NR_SL_ScheduledConfig_r16_t));
+    memset(sched_config->choice.setup, 0, sizeof(NR_SL_ScheduledConfig_r16_t));
+
+    sched_config->choice.setup->sl_RNTI_r16 = sl_rnti;
+    sched_config->choice.setup->sl_CS_RNTI_r16 = (NR_RNTI_Value_t*)malloc(sizeof(NR_RNTI_Value_t));
+    *sched_config->choice.setup->sl_CS_RNTI_r16 = sl_rnti;
+    LOG_D(NR_RRC, "Assigned sl-RNTI-r16 = %u\n", sl_rnti);
+    return v1610_ies;
 }
 
 //-----------------------------------------------------------------------------
@@ -756,6 +794,7 @@ void rrc_gNB_generate_dedicatedRRCReconfiguration(const protocol_ctxt_t *const c
                                    NULL,
                                    NULL,
                                    dedicatedNAS_MessageList,
+                                   NULL,
                                    ue_context_pP,
                                    &rrc->carrier,
                                    &rrc->configuration,
@@ -904,6 +943,7 @@ rrc_gNB_modify_dedicatedRRCReconfiguration(
                                    NULL,
                                    NULL,
                                    NULL,
+                                   NULL,
                                    NULL);
   LOG_DUMPMSG(NR_RRC, DEBUG_RRC, (char *)buffer, size, "[MSG] RRC Reconfiguration\n");
 
@@ -984,6 +1024,7 @@ rrc_gNB_generate_dedicatedRRCReconfiguration_release(
                                    NULL,
                                    NULL,
                                    dedicatedNAS_MessageList,
+                                   NULL,
                                    NULL,
                                    NULL,
                                    NULL,
@@ -1362,6 +1403,7 @@ void rrc_gNB_process_RRCReestablishmentComplete(const protocol_ctxt_t *const ctx
                                    NULL,
                                    NULL, // MeasObj_list,
                                    NULL,
+                                   NULL,
                                    ue_context_pP,
                                    &rrc->carrier,
                                    NULL,
@@ -1414,12 +1456,14 @@ void rrc_gNB_process_RRCReestablishmentComplete(const protocol_ctxt_t *const ctx
 //-----------------------------------------------------------------------------
 
 int nr_rrc_reconfiguration_req(rrc_gNB_ue_context_t         *const ue_context_pP,
-                               protocol_ctxt_t              *const ctxt_pP,
+                               const protocol_ctxt_t        *const ctxt_pP,
                                const int                    dl_bwp_id,
                                const int                    ul_bwp_id) {
 
   uint8_t xid = rrc_gNB_get_next_transaction_identifier(ctxt_pP->module_id);
   gNB_RRC_UE_t *ue_p = &ue_context_pP->ue_context;
+
+  NR_RRCReconfiguration_v1610_IEs_t* rrc_ext_v1610 = NULL;
 
   NR_CellGroupConfig_t *masterCellGroup = ue_p->masterCellGroup;
   if (dl_bwp_id > 0) {
@@ -1428,6 +1472,11 @@ int nr_rrc_reconfiguration_req(rrc_gNB_ue_context_t         *const ue_context_pP
   }
   if (ul_bwp_id > 0) {
     *masterCellGroup->spCellConfig->spCellConfigDedicated->uplinkConfig->firstActiveUplinkBWP_Id = ul_bwp_id;
+  }
+  if (dl_bwp_id == 0 && ul_bwp_id == 0) {
+    rnti_t assigned_sl_rnti = 0;
+    rrc_ext_v1610 = prepare_rrc_reconfig_v1610(assigned_sl_rnti);
+    masterCellGroup = NULL;
   }
 
   uint8_t buffer[RRC_BUF_SIZE];
@@ -1442,24 +1491,28 @@ int nr_rrc_reconfiguration_req(rrc_gNB_ue_context_t         *const ue_context_pP
                                        NULL,
                                        NULL,
                                        NULL,
+                                       rrc_ext_v1610,
                                        ue_context_pP,
                                        NULL,
                                        NULL,
                                        NULL,
                                        masterCellGroup);
 
-  nr_rrc_mac_update_cellgroup(ue_context_pP->ue_context.rnti, masterCellGroup);
+  if (dl_bwp_id > 0 || ul_bwp_id > 0)
+    nr_rrc_mac_update_cellgroup(ue_context_pP->ue_context.rnti, masterCellGroup);
 
   gNB_RRC_INST *rrc = RC.nrrrc[ctxt_pP->module_id];
   nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, rrc_gNB_mui++, size, buffer, deliver_pdu_srb_f1, rrc);
 
-  if (NODE_IS_DU(rrc->node_type) || NODE_IS_MONOLITHIC(rrc->node_type)) {
-    uint32_t delay_ms = ue_p->masterCellGroup && ue_p->masterCellGroup->spCellConfig && ue_p->masterCellGroup->spCellConfig->spCellConfigDedicated
-                                && ue_p->masterCellGroup->spCellConfig->spCellConfigDedicated->downlinkBWP_ToAddModList
-                            ? NR_RRC_RECONFIGURATION_DELAY_MS + NR_RRC_BWP_SWITCHING_DELAY_MS
-                            : NR_RRC_RECONFIGURATION_DELAY_MS;
+  if (dl_bwp_id > 0 || ul_bwp_id > 0) {
+    if (NODE_IS_DU(rrc->node_type) || NODE_IS_MONOLITHIC(rrc->node_type)) {
+      uint32_t delay_ms = ue_p->masterCellGroup && ue_p->masterCellGroup->spCellConfig && ue_p->masterCellGroup->spCellConfig->spCellConfigDedicated
+                                  && ue_p->masterCellGroup->spCellConfig->spCellConfigDedicated->downlinkBWP_ToAddModList
+                              ? NR_RRC_RECONFIGURATION_DELAY_MS + NR_RRC_BWP_SWITCHING_DELAY_MS
+                              : NR_RRC_RECONFIGURATION_DELAY_MS;
 
-    nr_mac_enable_ue_rrc_processing_timer(ctxt_pP->module_id, ue_p->rnti, *rrc->carrier.servingcellconfigcommon->ssbSubcarrierSpacing, delay_ms);
+      nr_mac_enable_ue_rrc_processing_timer(ctxt_pP->module_id, ue_p->rnti, *rrc->carrier.servingcellconfigcommon->ssbSubcarrierSpacing, delay_ms);
+    }
   }
 
   return 0;
@@ -1975,6 +2028,25 @@ static void handle_rrcReconfigurationComplete(const protocol_ctxt_t *const ctxt_
   };
   rrc->mac_rrc.ue_context_modification_request(&ue_context_modif_req);
 }
+
+static int handle_sidelinkUEInformationNR(const protocol_ctxt_t *const ctxt_pP,
+                                          rrc_gNB_ue_context_t *ue_context_p)
+{
+#if 0
+  gNB_RRC_UE_t *ue_p = &ue_context_p->ue_context;
+  rrc_pdu_session_param_t *session = &ue_p->pduSession[0];
+  if (ue_p->StatusRrc == NR_RRC_CONNECTED
+      && ue_p->nb_of_pdusessions > 0
+      && session->status == PDU_SESSION_STATUS_ESTABLISHED) {
+    nr_rrc_reconfiguration_req(ue_context_p, ctxt_pP, 0, 0);
+  }
+#else
+  nr_rrc_reconfiguration_req(ue_context_p, ctxt_pP, 0, 0);
+#endif
+
+  return 0;
+}
+
 //-----------------------------------------------------------------------------
 int rrc_gNB_decode_dcch(const protocol_ctxt_t *const ctxt_pP,
                         const rb_id_t Srb_id,
@@ -2111,6 +2183,27 @@ int rrc_gNB_decode_dcch(const protocol_ctxt_t *const ctxt_pP,
 
       default:
         break;
+    }
+  } else if (ul_dcch_msg->message.present == NR_UL_DCCH_MessageType_PR_messageClassExtension) {
+    LOG_I(NR_RRC, "[Received NR_UL_DCCH_MessageType_PR_messageClassExtension]\n");
+    if (ul_dcch_msg->message.choice.messageClassExtension->present == NR_UL_DCCH_MessageType__messageClassExtension_PR_c2) {
+      LOG_I(NR_RRC, "[Received NR_UL_DCCH_MessageType__messageClassExtension_PR_c2]\n");
+
+      switch (ul_dcch_msg->message.choice.messageClassExtension->choice.c2->present) {
+        case NR_UL_DCCH_MessageType__messageClassExtension__c2_PR_NOTHING:
+          LOG_I(NR_RRC, "Received c2_PR_NOTHING on UL-DCCH-Message\n");
+          break;
+
+        case NR_UL_DCCH_MessageType__messageClassExtension__c2_PR_sidelinkUEInformationNR_r16:
+          LOG_I(NR_RRC, "Received sidelinkUEInformationNR on UL-DCCH-Message\n");
+          xer_fprint(stdout, &asn_DEF_NR_UL_DCCH_Message, (void *)ul_dcch_msg);
+          if (handle_sidelinkUEInformationNR(ctxt_pP, ue_context_p) == -1)
+            return -1;
+          break;
+
+        default:
+          break;
+      }
     }
   }
   return 0;

@@ -130,7 +130,7 @@ int8_t nr_mac_rrc_bwp_switch_req(const module_id_t     module_idP,
                                  const int             ul_bwp_id);
 
 int nr_rrc_reconfiguration_req(rrc_gNB_ue_context_t         *const ue_context_pP,
-                               protocol_ctxt_t              *const ctxt_pP,
+                               const protocol_ctxt_t        *const ctxt_pP,
                                const int                    dl_bwp_id,
                                const int                    ul_bwp_id);
 

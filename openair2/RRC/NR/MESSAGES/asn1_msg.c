@@ -729,6 +729,7 @@ int16_t do_RRCReconfiguration(
     NR_SDAP_Config_t             *sdap_config,
     NR_MeasConfig_t              *meas_config,
     struct NR_RRCReconfiguration_v1530_IEs__dedicatedNAS_MessageList *dedicatedNAS_MessageList,
+    NR_RRCReconfiguration_v1610_IEs_t *rrc_ext_v1610,
     rrc_gNB_ue_context_t         *const ue_context_pP,
     rrc_gNB_carrier_data_t       *carrier,
     const gNB_RrcConfigurationReq *configuration,
@@ -780,6 +781,19 @@ int16_t do_RRCReconfiguration(
       ie->nonCriticalExtension = calloc(1, sizeof(NR_RRCReconfiguration_v1530_IEs_t));
       if (dedicatedNAS_MessageList)
         ie->nonCriticalExtension->dedicatedNAS_MessageList = dedicatedNAS_MessageList;
+    }
+
+    // Attach v1610
+    if (rrc_ext_v1610) {
+      if (!ie->nonCriticalExtension)
+        ie->nonCriticalExtension = calloc(1, sizeof(NR_RRCReconfiguration_v1530_IEs_t));
+      if (!ie->nonCriticalExtension->nonCriticalExtension)
+        ie->nonCriticalExtension->nonCriticalExtension = calloc(1, sizeof(NR_RRCReconfiguration_v1540_IEs_t));
+      if (!ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension) {
+        ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension = calloc(1, sizeof(NR_RRCReconfiguration_v1560_IEs_t));
+      }
+      ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension = rrc_ext_v1610;
+      LOG_D(NR_RRC, "Attached v1610 sidelink extension to the chain.\n");
     }
 
     if(cellGroupConfig!=NULL){
@@ -1043,14 +1057,14 @@ uint8_t do_NR_ULInformationTransfer(uint8_t **buffer, uint32_t pdu_length, uint8
     ssize_t encoded;
     NR_UL_DCCH_Message_t ul_dcch_msg;
     memset(&ul_dcch_msg, 0, sizeof(NR_UL_DCCH_Message_t));
-    ul_dcch_msg.message.present           = NR_UL_DCCH_MessageType_PR_c1;
-    ul_dcch_msg.message.choice.c1          = CALLOC(1,sizeof(struct NR_UL_DCCH_MessageType__c1));
+    ul_dcch_msg.message.present = NR_UL_DCCH_MessageType_PR_c1;
+    ul_dcch_msg.message.choice.c1 = CALLOC(1, sizeof(struct NR_UL_DCCH_MessageType__c1));
     ul_dcch_msg.message.choice.c1->present = NR_UL_DCCH_MessageType__c1_PR_ulInformationTransfer;
-    ul_dcch_msg.message.choice.c1->choice.ulInformationTransfer = CALLOC(1,sizeof(struct NR_ULInformationTransfer));
+    ul_dcch_msg.message.choice.c1->choice.ulInformationTransfer = CALLOC(1, sizeof(struct NR_ULInformationTransfer));
     ul_dcch_msg.message.choice.c1->choice.ulInformationTransfer->criticalExtensions.present = NR_ULInformationTransfer__criticalExtensions_PR_ulInformationTransfer;
-    ul_dcch_msg.message.choice.c1->choice.ulInformationTransfer->criticalExtensions.choice.ulInformationTransfer = CALLOC(1,sizeof(struct NR_ULInformationTransfer_IEs));
+    ul_dcch_msg.message.choice.c1->choice.ulInformationTransfer->criticalExtensions.choice.ulInformationTransfer = CALLOC(1, sizeof(struct NR_ULInformationTransfer_IEs));
     struct NR_ULInformationTransfer_IEs *ulInformationTransfer = ul_dcch_msg.message.choice.c1->choice.ulInformationTransfer->criticalExtensions.choice.ulInformationTransfer;
-    ulInformationTransfer->dedicatedNAS_Message = CALLOC(1,sizeof(NR_DedicatedNAS_Message_t));
+    ulInformationTransfer->dedicatedNAS_Message = CALLOC(1, sizeof(NR_DedicatedNAS_Message_t));
     ulInformationTransfer->dedicatedNAS_Message->buf = pdu_buffer;
     ulInformationTransfer->dedicatedNAS_Message->size = pdu_length;
     ulInformationTransfer->lateNonCriticalExtension = NULL;
@@ -1058,6 +1072,112 @@ uint8_t do_NR_ULInformationTransfer(uint8_t **buffer, uint32_t pdu_length, uint8
     AssertFatal(encoded > 0,"ASN1 message encoding failed (%s, %ld)!\n",
                 "ULInformationTransfer",encoded);
     LOG_D(NR_RRC,"ULInformationTransfer Encoded %zd bytes\n",encoded);
+
+    return encoded;
+}
+
+uint8_t do_NR_SidelinkUEInformation(uint8_t **buffer, uint32_t pdu_length, uint8_t *pdu_buffer) {
+    ssize_t encoded;
+    NR_UL_DCCH_Message_t ul_dcch_msg;
+    memset(&ul_dcch_msg, 0, sizeof(NR_UL_DCCH_Message_t));
+    ul_dcch_msg.message.present = NR_UL_DCCH_MessageType_PR_messageClassExtension;
+    ul_dcch_msg.message.choice.messageClassExtension = CALLOC(1, sizeof(struct NR_UL_DCCH_MessageType__messageClassExtension));
+    ul_dcch_msg.message.choice.messageClassExtension->present = NR_UL_DCCH_MessageType__messageClassExtension_PR_c2;
+    ul_dcch_msg.message.choice.messageClassExtension->choice.c2 = CALLOC(1, sizeof(struct NR_UL_DCCH_MessageType__messageClassExtension__c2));
+    ul_dcch_msg.message.choice.messageClassExtension->choice.c2->present = NR_UL_DCCH_MessageType__messageClassExtension__c2_PR_sidelinkUEInformationNR_r16;
+    ul_dcch_msg.message.choice.messageClassExtension->choice.c2->choice.sidelinkUEInformationNR_r16 = CALLOC(1, sizeof(struct NR_SidelinkUEInformationNR_r16));
+    ul_dcch_msg.message.choice.messageClassExtension->choice.c2->choice.sidelinkUEInformationNR_r16->criticalExtensions.present = NR_SidelinkUEInformationNR_r16__criticalExtensions_PR_sidelinkUEInformationNR_r16;
+    ul_dcch_msg.message.choice.messageClassExtension->choice.c2->choice.sidelinkUEInformationNR_r16->criticalExtensions.choice.sidelinkUEInformationNR_r16 = CALLOC(1, sizeof(struct NR_SidelinkUEInformationNR_r16_IEs));
+    struct NR_SidelinkUEInformationNR_r16_IEs *sidelinkUEInformationNR = ul_dcch_msg.message.choice.messageClassExtension->choice.c2->choice.sidelinkUEInformationNR_r16->criticalExtensions.choice.sidelinkUEInformationNR_r16;
+
+    long carrierFreq = 1; //sidelink communication frequency (range 1::8)
+    sidelinkUEInformationNR->sl_RxInterestedFreqList_r16 = CALLOC(1, sizeof(struct NR_SL_InterestedFreqList_r16));
+    ASN_SEQUENCE_ADD(&sidelinkUEInformationNR->sl_RxInterestedFreqList_r16->list, &carrierFreq);
+
+    struct NR_SL_TxResourceReq_r16 *txResourceReq = CALLOC(1, sizeof(struct NR_SL_TxResourceReq_r16));
+
+    NR_SL_DestinationIdentity_r16_t *destIdentity = CALLOC(1, sizeof(NR_SL_DestinationIdentity_r16_t));
+    destIdentity->buf = CALLOC(1, sizeof(uint8_t));
+    destIdentity->buf[0] = 0;
+    destIdentity->size = 1;
+    destIdentity->bits_unused = 7;
+    txResourceReq->sl_DestinationIdentity_r16 = *destIdentity;
+
+    txResourceReq->sl_CastType_r16 = 2 ; //ENUMERATED {broadcast, groupcast, unicast, spare1},
+
+    struct NR_SL_RLC_ModeIndication_r16 *rlc_modeIndi = CALLOC(1, sizeof(struct NR_SL_RLC_ModeIndication_r16));
+    rlc_modeIndi->sl_Mode_r16.present = NR_SL_RLC_ModeIndication_r16__sl_Mode_r16_PR_sl_AM_Mode_r16;
+    rlc_modeIndi->sl_Mode_r16.choice.sl_AM_Mode_r16 = (NULL_t)0;
+
+    NR_SL_QoS_Info_r16_t *rlc_QoS_info = CALLOC(1, sizeof(NR_SL_QoS_Info_r16_t));
+    rlc_QoS_info->sl_QoS_FlowIdentity_r16 = 1;
+    rlc_QoS_info->sl_QoS_Profile_r16 = NULL;
+    ASN_SEQUENCE_ADD(&rlc_modeIndi->sl_QoS_InfoList_r16.list, rlc_QoS_info);
+
+    txResourceReq->sl_RLC_ModeIndicationList_r16 = CALLOC(1, sizeof(struct NR_SL_TxResourceReq_r16__sl_RLC_ModeIndicationList_r16));
+    ASN_SEQUENCE_ADD(&txResourceReq->sl_RLC_ModeIndicationList_r16->list, rlc_modeIndi);
+
+    NR_SL_QoS_Info_r16_t *QoS_info = CALLOC(1, sizeof(NR_SL_QoS_Info_r16_t));
+    QoS_info->sl_QoS_FlowIdentity_r16 = 1;
+    QoS_info->sl_QoS_Profile_r16 = CALLOC(1, sizeof(struct NR_SL_QoS_Profile_r16));
+    QoS_info->sl_QoS_Profile_r16->sl_PQI_r16 = CALLOC(1, sizeof(struct NR_SL_PQI_r16));
+
+    QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->present = NR_SL_PQI_r16_PR_sl_Non_StandardizedPQI_r16;
+    if (QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->present == NR_SL_PQI_r16_PR_sl_StandardizedPQI_r16) {
+      QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_StandardizedPQI_r16 = 0; //INTEGER (0..255)
+    }
+    else if (QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->present == NR_SL_PQI_r16_PR_sl_Non_StandardizedPQI_r16) {
+      QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16 = CALLOC(1, sizeof(struct NR_SL_PQI_r16__sl_Non_StandardizedPQI_r16));
+      QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16->sl_ResourceType_r16 = CALLOC(1, sizeof(long));
+      QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16->sl_PriorityLevel_r16 = CALLOC(1, sizeof(long));
+      QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16->sl_PacketDelayBudget_r16 = CALLOC(1, sizeof(long));
+      QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16->sl_PacketErrorRate_r16 = CALLOC(1, sizeof(long));
+      QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16->sl_AveragingWindow_r16 = CALLOC(1, sizeof(long));
+      QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16->sl_MaxDataBurstVolume_r16 = CALLOC(1, sizeof(long));
+
+      *QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16->sl_ResourceType_r16 = 0; //ENUMERATED {gbr, non-GBR, delayCriticalGBR, spare1}
+      *QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16->sl_PriorityLevel_r16 = 1; //INTEGER (1..8)
+      *QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16->sl_PacketDelayBudget_r16 = 1023; //INTEGER (0..1023)
+      *QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16->sl_PacketErrorRate_r16 = 0; //INTEGER (0..9)
+      *QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16->sl_AveragingWindow_r16 = 0; //INTEGER (0..4095)
+      *QoS_info->sl_QoS_Profile_r16->sl_PQI_r16->choice.sl_Non_StandardizedPQI_r16->sl_MaxDataBurstVolume_r16 = 4095; //INTEGER (0..4095)
+    }
+    QoS_info->sl_QoS_Profile_r16->sl_GFBR_r16 = CALLOC(1, sizeof(unsigned long));
+    QoS_info->sl_QoS_Profile_r16->sl_MFBR_r16 = CALLOC(1, sizeof(unsigned long));
+    QoS_info->sl_QoS_Profile_r16->sl_Range_r16 = NULL; // CALLOC(1, sizeof(long));
+    *QoS_info->sl_QoS_Profile_r16->sl_GFBR_r16 = 100;  //INTEGER (0..4000000000) Kbps
+    *QoS_info->sl_QoS_Profile_r16->sl_MFBR_r16 = 1000; //INTEGER (0..4000000000) kbps
+
+    txResourceReq->sl_QoS_InfoList_r16 = CALLOC(1, sizeof(struct NR_SL_TxResourceReq_r16__sl_QoS_InfoList_r16));
+    ASN_SEQUENCE_ADD(&txResourceReq->sl_QoS_InfoList_r16->list, QoS_info);
+
+    NR_SL_TypeTxSync_r16_t type_txSync = NR_SL_TypeTxSync_r16_ue;
+    txResourceReq->sl_TypeTxSyncList_r16 = CALLOC(1, sizeof(struct NR_SL_TxResourceReq_r16__sl_TypeTxSyncList_r16));
+    ASN_SEQUENCE_ADD(&txResourceReq->sl_TypeTxSyncList_r16->list, &type_txSync);
+
+    txResourceReq->sl_TxInterestedFreqList_r16 = CALLOC(1, sizeof(struct NR_SL_TxResourceReqList_r16));
+    long temp_txFreq = 1;
+    ASN_SEQUENCE_ADD(&txResourceReq->sl_TxInterestedFreqList_r16->list, &temp_txFreq);
+
+    OCTET_STRING_t sl_capaInfo;
+    sl_capaInfo.buf = CALLOC(1, sizeof(uint8_t));
+    sl_capaInfo.buf[0] = 0;
+    sl_capaInfo.size = 1;
+    txResourceReq->sl_CapabilityInformationSidelink_r16 = &sl_capaInfo;
+
+    sidelinkUEInformationNR->sl_TxResourceReqList_r16 = CALLOC(1, sizeof(struct NR_SL_TxResourceReq_r16));
+    ASN_SEQUENCE_ADD(&sidelinkUEInformationNR->sl_TxResourceReqList_r16->list, txResourceReq);
+
+    sidelinkUEInformationNR->sl_FailureList_r16 = NULL;
+    sidelinkUEInformationNR->lateNonCriticalExtension = NULL;
+    sidelinkUEInformationNR->nonCriticalExtension = NULL;
+
+    xer_fprint(stdout, &asn_DEF_NR_UL_DCCH_Message, (void *)&ul_dcch_msg);
+
+    encoded = uper_encode_to_new_buffer (&asn_DEF_NR_UL_DCCH_Message, NULL, (void *) &ul_dcch_msg, (void **) buffer);
+    AssertFatal(encoded > 0,"ASN1 message encoding failed (%s, %ld)!\n",
+                "sidelinkUEInformation", encoded);
+    LOG_I(NR_RRC,"sidelinkUEInformation Encoded %zd bytes\n",encoded);
 
     return encoded;
 }

@@ -98,6 +98,13 @@ nr_rrc_ue_process_ueCapabilityEnquiry(
 );
 
 void
+nr_ue_rrc_SL_UEInformation_trigger(
+  int module_id,
+  int frame,
+  int slot
+);
+
+void
 nr_rrc_ue_process_RadioBearerConfig(
     const protocol_ctxt_t *const       ctxt_pP,
     const uint8_t                      gNB_index,
@@ -1776,6 +1783,13 @@ int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
    LOG_I(NR_RRC,"[UE %d] State = NR_RRC_CONNECTED (gNB %d)\n", ctxt_pP->module_id, gNB_index);
  }
 
+void nr_rrc_ue_process_sl_ConfigDedicatedNR(const protocol_ctxt_t *const ctxt_pP,
+                                            const uint8_t gNB_index,
+                                            NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_conf) {
+  LOG_W(NR_RRC,"[UE %d] SFN/SF %d/%d: Processing sl_ConfigDedicatedNR %p\n",
+        ctxt_pP->module_id, ctxt_pP->frame, ctxt_pP->subframe, sl_conf);
+}
+
  //-----------------------------------------------------------------------------
  static void rrc_ue_process_rrcReconfiguration(const protocol_ctxt_t *const  ctxt_pP,
                                                NR_RRCReconfiguration_t *rrcReconfiguration,
@@ -1825,6 +1839,15 @@ int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
        }
 
        free (ie->nonCriticalExtension->dedicatedNAS_MessageList);
+     }
+
+     if((ie->nonCriticalExtension) &&
+        (ie->nonCriticalExtension->nonCriticalExtension != NULL) &&
+        (ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension != NULL) &&
+        (ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension != NULL) &&
+        (ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_ConfigDedicatedNR_r16 != NULL)) {
+        NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_conf = ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_ConfigDedicatedNR_r16;
+        nr_rrc_ue_process_sl_ConfigDedicatedNR(ctxt_pP, gNB_index, sl_conf);
      }
    }
  }
@@ -1901,6 +1924,7 @@ int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
          nr_rrc_ue_generate_RRCReconfigurationComplete(ctxt_pP,
            gNB_indexP,
            dl_dcch_msg->message.choice.c1->choice.rrcReconfiguration->rrc_TransactionIdentifier);
+         nr_ue_rrc_SL_UEInformation_trigger(ctxt_pP->module_id, ctxt_pP->frame, 0);
          break;
        }
 
@@ -2142,6 +2166,20 @@ void *rrc_nrue_task(void *args_p)
         length = do_NR_ULInformationTransfer(&buffer, NAS_UPLINK_DATA_REQ (msg_p).nasMsg.length, NAS_UPLINK_DATA_REQ (msg_p).nasMsg.data);
         /* Transfer data to PDCP */
         PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, 0, 0,0);
+        // check if SRB2 is created, if yes request data_req on DCCH1 (SRB2)
+        rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
+        nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL);
+        break;
+      }
+
+      case NR_RRC_MAC_DCCH_DATA_REQ: {
+        uint32_t length;
+        uint8_t *buffer;
+        LOG_I(NR_RRC, "[UE %d] Received %s\n", ue_mod_id, ITTI_MSG_NAME (msg_p));
+        /* Create message for PDCP (ULInformationTransfer_t) */
+        length = do_NR_SidelinkUEInformation(&buffer, NR_RRC_DCCH_DATA_REQ (msg_p).sdu_size, NULL);
+        /* Transfer data to PDCP */
+        PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, NR_RRC_DCCH_DATA_REQ (msg_p).frame, 0, 0);
         // check if SRB2 is created, if yes request data_req on DCCH1 (SRB2)
         rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
         nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL);
@@ -2537,4 +2575,21 @@ void nr_ue_rrc_timer_trigger(int module_id, int frame, int slot, int gnb_id)
   NRRRC_SLOT_PROCESS(message_p).gnb_id = gnb_id;
   LOG_D(NR_RRC, "RRC timer trigger: frame %d slot %d \n", frame, slot);
   itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(module_id), message_p);
+}
+
+void nr_ue_rrc_SL_UEInformation_trigger(int module_id, int frame, int slot)
+{
+  static bool done = false;
+  int status = get_NAS_status();
+  if (status && !done) {
+    MessageDef *message_p;
+    message_p = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_RRC_MAC_DCCH_DATA_REQ);
+    NR_RRC_MAC_DCCH_DATA_REQ(message_p).frame = frame;
+    NR_RRC_MAC_DCCH_DATA_REQ(message_p).slot = slot;
+    NR_RRC_MAC_DCCH_DATA_REQ(message_p).sdu_size = 8;
+    NR_RRC_MAC_DCCH_DATA_REQ(message_p).enb_index = 0;
+    LOG_W(NR_RRC, "RRC SL_UEInformation trigger: frame %d slot %d \n", frame, slot);
+    itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(module_id), message_p);
+    done = true;
+  }
 }
