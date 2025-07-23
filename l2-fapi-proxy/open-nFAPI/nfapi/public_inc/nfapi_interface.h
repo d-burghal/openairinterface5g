@@ -2855,7 +2855,7 @@ typedef struct {
  } nfapi_rx_indication_rel9_t;
 #define NFAPI_RX_INDICATION_REL9_TAG 0x2025
 
-#define NFAPI_RX_IND_DATA_MAX 8192
+#define NFAPI_RX_IND_DATA_MAX 32768
 typedef struct {
 	nfapi_rx_ue_information rx_ue_information;
 	nfapi_rx_indication_rel8_t rx_indication_rel8;
