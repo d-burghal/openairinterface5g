@@ -58,6 +58,7 @@ uint32_t  registration_request_len;
 extern char *baseNetAddress;
 extern uint16_t NB_UE_INST;
 static nr_ue_nas_t nr_ue_nas;
+static int nas_status;
 
 static int nas_protected_security_header_encode(
   char                                       *buffer,
@@ -413,6 +414,9 @@ void derive_ue_keys(uint8_t *buf, nr_ue_nas_t *nas) {
   printf("\n");
 }
 
+int get_NAS_status() {
+  return nas_status;
+}
 nr_ue_nas_t *get_ue_nas_info(module_id_t module_id)
 {
   DevAssert(module_id == 0);
@@ -972,6 +976,7 @@ void *nas_nrue_task(void *args_p)
 
         case NAS_CONN_ESTABLI_CNF: {
           LOG_I(NAS, "[UE %ld] Received %s: errCode %u, length %u\n", instance, ITTI_MSG_NAME(msg_p), NAS_CONN_ESTABLI_CNF(msg_p).errCode, NAS_CONN_ESTABLI_CNF(msg_p).nasMsg.length);
+          nas_status = 1;
 
           pdu_buffer = NAS_CONN_ESTABLI_CNF(msg_p).nasMsg.data;
           msg_type = get_msg_type(pdu_buffer, NAS_CONN_ESTABLI_CNF(msg_p).nasMsg.length);
