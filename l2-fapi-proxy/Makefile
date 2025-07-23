@@ -1,9 +1,9 @@
 CC = gcc
-# CFLAGS = -g -O2 -Wall -Werror
-CFLAGS = -g -Wall #-Werror
+CFLAGS = -g -O2 -Wall -Werror
+# CFLAGS = -g -Wall #-Werror
 CXX = g++ -std=c++11
-# CXXFLAGS = -g -O3 -Wall -Wextra -Werror
-CXXFLAGS = -g -Wall -Wextra #-Werror
+CXXFLAGS = -g -O3 -Wall -Wextra -Werror
+# CXXFLAGS = -g -Wall -Wextra #-Werror
 
 BUILD_DIR = ./build
 TARGET_EXEC = $(BUILD_DIR)/proxy
@@ -14,33 +14,31 @@ LIB_DIR = .
 SRC_DIR = ./src
 INC_DIRS = \
   $(SRC_DIR) \
-  $(LIB_DIR)/nfapi/oai_integration \
-  $(LIB_DIR)/nfapi/open-nFAPI/nfapi/public_inc \
-  $(LIB_DIR)/nfapi/open-nFAPI/pnf_sim/inc \
-  $(LIB_DIR)/nfapi/open-nFAPI/nfapi/inc \
-  $(LIB_DIR)/nfapi/open-nFAPI/fapi/inc \
-  $(LIB_DIR)/nfapi/open-nFAPI/pnf/public_inc \
-  $(LIB_DIR)/nfapi/open-nFAPI/pnf/inc \
-  $(LIB_DIR)/nfapi/open-nFAPI/common/public_inc \
-  $(LIB_DIR)/nfapi/open-nFAPI/common/inc \
+  $(LIB_DIR)/open-nFAPI/nfapi/public_inc \
+  $(LIB_DIR)/open-nFAPI/pnf_sim/inc \
+  $(LIB_DIR)/open-nFAPI/nfapi/inc \
+  $(LIB_DIR)/open-nFAPI/fapi/inc \
+  $(LIB_DIR)/open-nFAPI/pnf/public_inc \
+  $(LIB_DIR)/open-nFAPI/pnf/inc \
+  $(LIB_DIR)/open-nFAPI/common/public_inc \
+  $(LIB_DIR)/open-nFAPI/common/inc \
   $(LIB_DIR)/common \
   $(LIB_DIR)/common/utils \
   $(LIB_DIR)/common/utils/LOG \
 
 LIB_SOURCES = \
-  $(LIB_DIR)/nfapi/oai_integration/nfapi.c \
-  $(LIB_DIR)/nfapi/open-nFAPI/nfapi/src/nfapi_p4.c \
-  $(LIB_DIR)/nfapi/open-nFAPI/nfapi/src/nfapi_p5.c \
-  $(LIB_DIR)/nfapi/open-nFAPI/nfapi/src/nfapi_p7.c \
-  $(LIB_DIR)/nfapi/open-nFAPI/fapi/src/nr_fapi.c \
-  $(LIB_DIR)/nfapi/open-nFAPI/fapi/src/nr_fapi_p5.c \
-  $(LIB_DIR)/nfapi/open-nFAPI/fapi/src/nr_fapi_p7.c \
-  $(LIB_DIR)/nfapi/open-nFAPI/pnf/src/pnf_interface.c \
-  $(LIB_DIR)/nfapi/open-nFAPI/pnf/src/pnf_p7_interface.c \
-  $(LIB_DIR)/nfapi/open-nFAPI/pnf/src/pnf.c \
-  $(LIB_DIR)/nfapi/open-nFAPI/pnf/src/pnf_p7.c \
-  $(LIB_DIR)/nfapi/open-nFAPI/common/src/debug.c \
-  $(LIB_DIR)/nfapi/open-nFAPI/common/src/nfapi.c \
+  $(LIB_DIR)/open-nFAPI/nfapi/src/nfapi_p4.c \
+  $(LIB_DIR)/open-nFAPI/nfapi/src/nfapi_p5.c \
+  $(LIB_DIR)/open-nFAPI/nfapi/src/nfapi_p7.c \
+  $(LIB_DIR)/open-nFAPI/fapi/src/nr_fapi.c \
+  $(LIB_DIR)/open-nFAPI/fapi/src/nr_fapi_p5.c \
+  $(LIB_DIR)/open-nFAPI/fapi/src/nr_fapi_p7.c \
+  $(LIB_DIR)/open-nFAPI/pnf/src/pnf_interface.c \
+  $(LIB_DIR)/open-nFAPI/pnf/src/pnf_p7_interface.c \
+  $(LIB_DIR)/open-nFAPI/pnf/src/pnf.c \
+  $(LIB_DIR)/open-nFAPI/pnf/src/pnf_p7.c \
+  $(LIB_DIR)/open-nFAPI/common/src/debug.c \
+  $(LIB_DIR)/open-nFAPI/common/src/nfapi.c \
   
 
 SRCS = \
