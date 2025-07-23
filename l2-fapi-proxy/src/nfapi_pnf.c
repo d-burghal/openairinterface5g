@@ -4505,7 +4505,7 @@ void *oai_slot_task(void *context)
            arrive to the OAI UE, that the slot will arrive AFTER the TX_DATA_REQ. The relationship
            between slot indications and TX_DATA_REQs are critical to the ACK/nACK procedure.
            This is a temporary fix until will can concretely sync the PNF and VNF. */
-        usleep(1000);
+        usleep(300);
         transfer_downstream_sfn_slot_to_proxy(sfn_slot_tx); // send to oai UE
         NFAPI_TRACE(NFAPI_TRACE_INFO, "Frame %u Slot %u sent to OAI ue", NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot_tx),
                    NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot_tx));
