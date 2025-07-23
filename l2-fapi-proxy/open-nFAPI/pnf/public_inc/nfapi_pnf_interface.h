@@ -99,7 +99,7 @@ typedef struct nfapi_pnf_config
 	/*! The ip address of the VNF 
 	 *
 	 */
-	char* vnf_ip_addr;
+	const char* vnf_ip_addr;
 
 	/*! The ip port of the VNF 
 	 */
