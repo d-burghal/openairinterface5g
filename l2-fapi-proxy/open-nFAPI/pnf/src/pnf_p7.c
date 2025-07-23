@@ -1361,20 +1361,99 @@ int pnf_p7_subframe_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn_sf)
 	return 0;
 }
 
-bool is_nr_p7_request_in_window(const uint16_t sfn, const uint16_t slot, const char* name, const pnf_p7_t* phy)
+// bool is_nr_p7_request_in_window(const uint16_t sfn, const uint16_t slot, const char* name, const pnf_p7_t* phy)
+// {
+//   printf("--- req->sfn = %d    req->slot = %d    phy->sfn = %d    phy->slot = %d\n ---", sfn, slot, phy->sfn, phy->slot);
+//   const uint32_t recv = NFAPI_SFNSLOT2DEC(phy->mu, sfn, slot); // unpack sfn/slot
+//   const uint32_t curr = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
+//   const uint8_t timing_window = phy->_public.slot_buffer_size; // TODO check
+//   uint32_t diff = curr < recv ? recv - curr : curr - recv;
+//   if (diff > NFAPI_MAX_SFNSLOTDEC(phy->mu) / 2)
+//     diff = NFAPI_MAX_SFNSLOTDEC(phy->mu) - diff;
+//   if (diff > timing_window) {
+//     NFAPI_TRACE(NFAPI_TRACE_WARN, "[%d] %s is out of window %d (delta:%d) [max:%d]\n", curr, name, recv, diff, timing_window);
+//     return false;
+//   }
+//   return true;
+// }
+
+// return 1 if in window
+// return 0 if out of window
+uint8_t is_nr_p7_request_in_window(uint16_t sfn,uint16_t slot, const char* name, pnf_p7_t* phy)
 {
-  const uint32_t recv = NFAPI_SFNSLOT2DEC(phy->mu, sfn, slot); // unpack sfn/slot
-  const uint32_t curr = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
-  const uint8_t timing_window = phy->_public.slot_buffer_size; // TODO check
-  uint32_t diff = curr < recv ? recv - curr : curr - recv;
-  if (diff > NFAPI_MAX_SFNSLOTDEC(phy->mu) / 2)
-    diff = NFAPI_MAX_SFNSLOTDEC(phy->mu) - diff;
-  if (diff > timing_window) {
-    NFAPI_TRACE(NFAPI_TRACE_WARN, "[%d] %s is out of window %d (delta:%d) [max:%d]\n", curr, name, recv, diff, timing_window);
-    return false;
-  }
-  return true;
+	uint32_t recv_sfn_slot_dec = NFAPI_SFNSLOT2DEC(phy->mu, sfn,slot);
+	uint32_t current_sfn_slot_dec = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn,phy->slot);
+	//printf("p7_msg_sfn: %d, p7_msg_slot: %d, phy_sfn:%d , phy_slot:%d \n",sfn,slot,phy->sfn,phy->slot);
+	uint8_t in_window = 0;
+	uint8_t timing_window = phy->_public.slot_buffer_size;
+
+	// if(recv_sfn_slot_dec <= current_sfn_slot_dec)
+	// {
+	// 	// Need to check for wrap in window
+	// 	if(((recv_sfn_slot_dec + timing_window) % NFAPI_MAX_SFNSLOTDEC) < recv_sfn_slot_dec)
+	// 	{
+	// 		if(current_sfn_slot_dec > ((recv_sfn_slot_dec + timing_window) % NFAPI_MAX_SFNSLOTDEC))
+	// 		{
+	// 			// out of window
+	// 			NFAPI_TRACE(NFAPI_TRACE_NOTE, "[%d] %s is late %d (with wrap)\n", current_sfn_slot_dec, name, recv_sfn_slot_dec);
+	// 		}
+	// 		else
+	// 		{
+	// 			// ok
+	// 			//NFAPI_TRACE(NFAPI_TRACE_NOTE, "[%d] %s is in window %d (with wrap)\n", current_sfn_sf_dec, name, recv_sfn_sf_dec);
+	// 			in_window = 1;
+	// 		}
+	// 	}
+	// 	else
+	// 	{
+	// 		if((current_sfn_slot_dec - recv_sfn_slot_dec) <= timing_window)
+	// 			{
+	// 				// in window
+	// 				//NFAPI_TRACE(NFAPI_TRACE_NOTE, "[%d] %s is in window %d\n", current_sfn_slot_dec, name, recv_sfn_slot_dec);
+	// 				in_window = 1;
+	// 			}
+	// 		//NFAPI_TRACE(NFAPI_TRACE_NOTE, "[%d] %s is in late %d (delta:%d)\n", current_sfn_slot_dec, name, recv_sfn_slot_dec, (current_sfn_slot_dec - recv_sfn_slot_dec));
+	// 	}
+
+	// }
+	// else
+	// {
+	// 	// Need to check it is in window
+	// 	if((recv_sfn_slot_dec - current_sfn_slot_dec) <= timing_window)
+	// 	{
+	// 		// in window
+	// 		//NFAPI_TRACE(NFAPI_TRACE_NOTE, "[%d] %s is in window %d\n", current_sfn_sf_dec, name, recv_sfn_sf_dec);
+	// 		in_window = 1;
+	// 	}
+	// 	else
+	// 	{
+	// 		// too far in the future
+	// 		NFAPI_TRACE(NFAPI_TRACE_NOTE, "[%d] %s is out of window %d (delta:%d) [max:%d]\n", current_sfn_slot_dec, name, recv_sfn_slot_dec,  (recv_sfn_slot_dec - current_sfn_slot_dec), timing_window);
+	// 	}
+
+	// }
+	if(current_sfn_slot_dec <= recv_sfn_slot_dec + timing_window){
+		in_window = 1;
+		NFAPI_TRACE(NFAPI_TRACE_NOTE, "[%d] %s is in window %d\n", current_sfn_slot_dec, name, recv_sfn_slot_dec);
+	}
+	else if(current_sfn_slot_dec + NFAPI_MAX_SFNSLOTDEC(phy->mu) <= recv_sfn_slot_dec + timing_window){ //checking for wrap
+		in_window = 1;
+		NFAPI_TRACE(NFAPI_TRACE_NOTE, "[%d] %s is in window %d\n", current_sfn_slot_dec, name, recv_sfn_slot_dec);
+	}
+	else
+	{
+                in_window = 1;
+                NFAPI_TRACE(NFAPI_TRACE_NOTE, "current_sfn_slot_dec [%d] <= recv_sfn_slot_dec [%d] + timing_window [%d]\n",
+                            current_sfn_slot_dec, recv_sfn_slot_dec, timing_window);
+                NFAPI_TRACE(NFAPI_TRACE_NOTE, "current_sfn_slot_dec [%d] + NFAPI_MAX_SFNSLOTDEC [%d] <= recv_sfn_slot_dec [%d] + timing_window [%d]\n",
+                            current_sfn_slot_dec, NFAPI_MAX_SFNSLOTDEC(phy->mu), recv_sfn_slot_dec, timing_window);
+		NFAPI_TRACE(NFAPI_TRACE_NOTE, "[%d] %s is out of window %d (delta:%d) [max:%d]\n",
+                            current_sfn_slot_dec, name, recv_sfn_slot_dec,  (current_sfn_slot_dec - recv_sfn_slot_dec), timing_window);
+	}//Need to add more cases
+
+	return in_window;
 }
+
 
 /*! \brief Checks if the slot a message is intended to configure is of the appropriate type ( DL or UL slot )
  *  \param sfn The SFN from a P7 message
@@ -3064,7 +3143,8 @@ int pnf_nr_p7_message_pump(pnf_p7_t* pnf_p7)
                                 pnf_p7->slot = 0;
                                 pnf_p7->sfn = (pnf_p7->sfn + 1) % 1024;
                         }
-
+			// printf("*** sfn = %d    slot = %d    pselect_start.tv_sec=%ld    nsec=%ld    slot_start.tv_sec=%ld    nsec=%ld    timeout.tv_sec=%ld  nsec=%ld ***\n", 
+			// 	pnf_p7->sfn, pnf_p7->slot, pselect_start.tv_sec, pselect_start.tv_nsec, slot_start.tv_sec, slot_start.tv_nsec, timeout.tv_sec, timeout.tv_nsec);
 			continue;
 		}
 		else if (selectRetval == -1 && (errno == EINTR))
