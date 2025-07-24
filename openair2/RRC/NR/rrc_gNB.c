@@ -1462,6 +1462,7 @@ int nr_rrc_reconfiguration_req(rrc_gNB_ue_context_t         *const ue_context_pP
 
   uint8_t xid = rrc_gNB_get_next_transaction_identifier(ctxt_pP->module_id);
   gNB_RRC_UE_t *ue_p = &ue_context_pP->ue_context;
+  ue_p->xids[xid] = RRC_REESTABLISH_COMPLETE;
 
   NR_RRCReconfiguration_v1610_IEs_t* rrc_ext_v1610 = NULL;
 
@@ -2006,6 +2007,9 @@ static void handle_rrcReconfigurationComplete(const protocol_ctxt_t *const ctxt_
         break;
       case RRC_DEFAULT_RECONF:
         rrc_gNB_send_NGAP_INITIAL_CONTEXT_SETUP_RESP(ctxt_pP, ue_context_p);
+        break;
+      case RRC_REESTABLISH_COMPLETE:
+        LOG_W(NR_RRC, "Handling of RRC Reconfiguration Complete message UE %lx\n", ctxt_pP->rntiMaybeUEid);
         break;
       default:
         LOG_E(RRC, "Received unexpected xid: %d\n", xid);

@@ -104,6 +104,12 @@ nr_ue_rrc_SL_UEInformation_trigger(
   int slot
 );
 
+void nr_rrc_ue_process_sidelink_radioResourceConfig(
+  const protocol_ctxt_t *const ctxt_pP,
+  const uint8_t gNB_index,
+  NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_ConfigDedicatedNR
+);
+
 void
 nr_rrc_ue_process_RadioBearerConfig(
     const protocol_ctxt_t *const       ctxt_pP,
@@ -1783,13 +1789,6 @@ int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
    LOG_I(NR_RRC,"[UE %d] State = NR_RRC_CONNECTED (gNB %d)\n", ctxt_pP->module_id, gNB_index);
  }
 
-void nr_rrc_ue_process_sl_ConfigDedicatedNR(const protocol_ctxt_t *const ctxt_pP,
-                                            const uint8_t gNB_index,
-                                            NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_conf) {
-  LOG_W(NR_RRC,"[UE %d] SFN/SF %d/%d: Processing sl_ConfigDedicatedNR %p\n",
-        ctxt_pP->module_id, ctxt_pP->frame, ctxt_pP->subframe, sl_conf);
-}
-
  //-----------------------------------------------------------------------------
  static void rrc_ue_process_rrcReconfiguration(const protocol_ctxt_t *const  ctxt_pP,
                                                NR_RRCReconfiguration_t *rrcReconfiguration,
@@ -1847,7 +1846,7 @@ void nr_rrc_ue_process_sl_ConfigDedicatedNR(const protocol_ctxt_t *const ctxt_pP
         (ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension != NULL) &&
         (ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_ConfigDedicatedNR_r16 != NULL)) {
         NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_conf = ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_ConfigDedicatedNR_r16;
-        nr_rrc_ue_process_sl_ConfigDedicatedNR(ctxt_pP, gNB_index, sl_conf);
+        nr_rrc_ue_process_sidelink_radioResourceConfig(ctxt_pP, gNB_index, sl_conf);
      }
    }
  }
@@ -2196,16 +2195,18 @@ void *rrc_nrue_task(void *args_p)
     msg_p = NULL;
   }
 }
-void nr_rrc_ue_process_sidelink_radioResourceConfig(
-  module_id_t                                Mod_idP,
-  uint8_t                                    gNB_index,
-  NR_SetupRelease_SL_ConfigDedicatedNR_r16_t  *sl_ConfigDedicatedNR
-)
+
+void nr_rrc_ue_process_sidelink_radioResourceConfig(const protocol_ctxt_t *const ctxt_pP,
+                                                    const uint8_t gNB_index,
+                                                    NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_ConfigDedicatedNR)
 {
   //process sl_CommConfig, configure MAC/PHY for transmitting SL communication (RRC_CONNECTED)
   if (sl_ConfigDedicatedNR != NULL) {
     switch (sl_ConfigDedicatedNR->present){
       case NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_setup:
+        LOG_I(NR_RRC, "[UE %d] Received message sidelink_radioResourceConfig\n", ctxt_pP->module_id);
+        NR_RNTI_Value_t sl_rnti = sl_ConfigDedicatedNR->choice.setup->sl_PHY_MAC_RLC_Config_r16->sl_ScheduledConfig_r16->choice.setup->sl_RNTI_r16;
+        LOG_W(NR_RRC, "Received sl-RNTI-r16 = %lu\n", sl_rnti);
         //TODO
         break;
       case NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_release:
