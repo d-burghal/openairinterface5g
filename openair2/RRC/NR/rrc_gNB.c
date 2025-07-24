@@ -685,7 +685,7 @@ static void rrc_gNB_generate_defaultRRCReconfiguration(const protocol_ctxt_t *co
 }
 
 //-----------------------------------------------------------------------------
-NR_RRCReconfiguration_v1610_IEs_t* prepare_rrc_reconfig_v1610(rnti_t sl_rnti) {
+NR_RRCReconfiguration_v1610_IEs_t* prepare_rrc_reconfig_v1610(rnti_t sl_rnti, NR_SL_TxResourceReqList_r16_t *sl_TxRscReqList_r16) {
 //-----------------------------------------------------------------------------
 
     LOG_D(NR_RRC, "Preparing RRCReconfiguration-v1610-IEs with Sidelink IEs.\n");
@@ -1456,15 +1456,12 @@ void rrc_gNB_process_RRCReestablishmentComplete(const protocol_ctxt_t *const ctx
 //-----------------------------------------------------------------------------
 
 int nr_rrc_reconfiguration_req(rrc_gNB_ue_context_t         *const ue_context_pP,
-                               const protocol_ctxt_t        *const ctxt_pP,
+                               protocol_ctxt_t              *const ctxt_pP,
                                const int                    dl_bwp_id,
                                const int                    ul_bwp_id) {
 
   uint8_t xid = rrc_gNB_get_next_transaction_identifier(ctxt_pP->module_id);
   gNB_RRC_UE_t *ue_p = &ue_context_pP->ue_context;
-  ue_p->xids[xid] = RRC_REESTABLISH_COMPLETE;
-
-  NR_RRCReconfiguration_v1610_IEs_t* rrc_ext_v1610 = NULL;
 
   NR_CellGroupConfig_t *masterCellGroup = ue_p->masterCellGroup;
   if (dl_bwp_id > 0) {
@@ -1474,11 +1471,60 @@ int nr_rrc_reconfiguration_req(rrc_gNB_ue_context_t         *const ue_context_pP
   if (ul_bwp_id > 0) {
     *masterCellGroup->spCellConfig->spCellConfigDedicated->uplinkConfig->firstActiveUplinkBWP_Id = ul_bwp_id;
   }
-  if (dl_bwp_id == 0 && ul_bwp_id == 0) {
-    rnti_t assigned_sl_rnti = 0;
-    rrc_ext_v1610 = prepare_rrc_reconfig_v1610(assigned_sl_rnti);
-    masterCellGroup = NULL;
-  }
+
+  uint8_t buffer[RRC_BUF_SIZE];
+  int size = do_RRCReconfiguration(ctxt_pP,
+                                       buffer,
+                                       RRC_BUF_SIZE,
+                                       xid,
+                                       NULL,
+                                       NULL,
+                                       NULL,
+                                       NULL,
+                                       NULL,
+                                       NULL,
+                                       NULL,
+                                       NULL,
+                                       ue_context_pP,
+                                       NULL,
+                                       NULL,
+                                       NULL,
+                                       masterCellGroup);
+
+  nr_rrc_mac_update_cellgroup(ue_context_pP->ue_context.rnti, masterCellGroup);
+
+  gNB_RRC_INST *rrc = RC.nrrrc[ctxt_pP->module_id];
+  nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, rrc_gNB_mui++, size, buffer, deliver_pdu_srb_f1, rrc);
+
+  if (NODE_IS_DU(rrc->node_type) || NODE_IS_MONOLITHIC(rrc->node_type)) {
+    uint32_t delay_ms = ue_p->masterCellGroup && ue_p->masterCellGroup->spCellConfig && ue_p->masterCellGroup->spCellConfig->spCellConfigDedicated
+                                && ue_p->masterCellGroup->spCellConfig->spCellConfigDedicated->downlinkBWP_ToAddModList
+                            ? NR_RRC_RECONFIGURATION_DELAY_MS + NR_RRC_BWP_SWITCHING_DELAY_MS
+                            : NR_RRC_RECONFIGURATION_DELAY_MS;
+
+    nr_mac_enable_ue_rrc_processing_timer(ctxt_pP->module_id, ue_p->rnti, *rrc->carrier.servingcellconfigcommon->ssbSubcarrierSpacing, delay_ms);
+}
+
+  return 0;
+}
+
+//-----------------------------------------------------------------------------
+int nr_rrc_reconfiguration_req_sidelink(rrc_gNB_ue_context_t                  *const ue_context_pP,
+                                        const protocol_ctxt_t                 *const ctxt_pP,
+                                        NR_SidelinkUEInformationNR_r16_IEs_t  *sl_UEInfo_r16) {
+
+  if(sl_UEInfo_r16 == NULL)
+    return 0;
+
+  uint8_t xid = rrc_gNB_get_next_transaction_identifier(ctxt_pP->module_id);
+  gNB_RRC_UE_t *ue_p = &ue_context_pP->ue_context;
+  ue_p->xids[xid] = RRC_REESTABLISH_COMPLETE;
+
+  NR_RRCReconfiguration_v1610_IEs_t* rrc_ext_v1610 = NULL;
+
+  rnti_t assigned_sl_rnti = 0;
+  rrc_ext_v1610 = prepare_rrc_reconfig_v1610(assigned_sl_rnti, sl_UEInfo_r16->sl_TxResourceReqList_r16);
+
 
   uint8_t buffer[RRC_BUF_SIZE];
   int size = do_RRCReconfiguration(ctxt_pP,
@@ -1497,24 +1543,10 @@ int nr_rrc_reconfiguration_req(rrc_gNB_ue_context_t         *const ue_context_pP
                                        NULL,
                                        NULL,
                                        NULL,
-                                       masterCellGroup);
-
-  if (dl_bwp_id > 0 || ul_bwp_id > 0)
-    nr_rrc_mac_update_cellgroup(ue_context_pP->ue_context.rnti, masterCellGroup);
+                                       NULL);
 
   gNB_RRC_INST *rrc = RC.nrrrc[ctxt_pP->module_id];
   nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, rrc_gNB_mui++, size, buffer, deliver_pdu_srb_f1, rrc);
-
-  if (dl_bwp_id > 0 || ul_bwp_id > 0) {
-    if (NODE_IS_DU(rrc->node_type) || NODE_IS_MONOLITHIC(rrc->node_type)) {
-      uint32_t delay_ms = ue_p->masterCellGroup && ue_p->masterCellGroup->spCellConfig && ue_p->masterCellGroup->spCellConfig->spCellConfigDedicated
-                                  && ue_p->masterCellGroup->spCellConfig->spCellConfigDedicated->downlinkBWP_ToAddModList
-                              ? NR_RRC_RECONFIGURATION_DELAY_MS + NR_RRC_BWP_SWITCHING_DELAY_MS
-                              : NR_RRC_RECONFIGURATION_DELAY_MS;
-
-      nr_mac_enable_ue_rrc_processing_timer(ctxt_pP->module_id, ue_p->rnti, *rrc->carrier.servingcellconfigcommon->ssbSubcarrierSpacing, delay_ms);
-    }
-  }
 
   return 0;
 }
@@ -2009,7 +2041,7 @@ static void handle_rrcReconfigurationComplete(const protocol_ctxt_t *const ctxt_
         rrc_gNB_send_NGAP_INITIAL_CONTEXT_SETUP_RESP(ctxt_pP, ue_context_p);
         break;
       case RRC_REESTABLISH_COMPLETE:
-        LOG_W(NR_RRC, "Handling of RRC Reconfiguration Complete message UE %lx\n", ctxt_pP->rntiMaybeUEid);
+        LOG_D(NR_RRC, "Handling of RRC Reconfiguration Complete message UE %lx\n", ctxt_pP->rntiMaybeUEid);
         break;
       default:
         LOG_E(RRC, "Received unexpected xid: %d\n", xid);
@@ -2034,19 +2066,23 @@ static void handle_rrcReconfigurationComplete(const protocol_ctxt_t *const ctxt_
 }
 
 static int handle_sidelinkUEInformationNR(const protocol_ctxt_t *const ctxt_pP,
-                                          rrc_gNB_ue_context_t *ue_context_p)
+                                          rrc_gNB_ue_context_t *ue_context_p,
+                                          NR_SidelinkUEInformationNR_r16_t *sidelinkUEInformationNR_r16)
 {
-#if 0
-  gNB_RRC_UE_t *ue_p = &ue_context_p->ue_context;
-  rrc_pdu_session_param_t *session = &ue_p->pduSession[0];
-  if (ue_p->StatusRrc == NR_RRC_CONNECTED
-      && ue_p->nb_of_pdusessions > 0
-      && session->status == PDU_SESSION_STATUS_ESTABLISHED) {
-    nr_rrc_reconfiguration_req(ue_context_p, ctxt_pP, 0, 0);
+  if (sidelinkUEInformationNR_r16 != NULL) {
+    switch (sidelinkUEInformationNR_r16->criticalExtensions.present){
+      case NR_SidelinkUEInformationNR_r16__criticalExtensions_PR_sidelinkUEInformationNR_r16: {
+        NR_SidelinkUEInformationNR_r16_IEs_t *sl_UEInfo_r16 = sidelinkUEInformationNR_r16->criticalExtensions.choice.sidelinkUEInformationNR_r16;
+        nr_rrc_reconfiguration_req_sidelink(ue_context_p, ctxt_pP, sl_UEInfo_r16);
+      } break;
+      case NR_SidelinkUEInformationNR_r16__criticalExtensions_PR_criticalExtensionsFuture:
+        break;
+      case NR_SidelinkUEInformationNR_r16__criticalExtensions_PR_NOTHING:
+        break;
+      default:
+        break;
+    }
   }
-#else
-  nr_rrc_reconfiguration_req(ue_context_p, ctxt_pP, 0, 0);
-#endif
 
   return 0;
 }
@@ -2201,7 +2237,7 @@ int rrc_gNB_decode_dcch(const protocol_ctxt_t *const ctxt_pP,
         case NR_UL_DCCH_MessageType__messageClassExtension__c2_PR_sidelinkUEInformationNR_r16:
           LOG_I(NR_RRC, "Received sidelinkUEInformationNR on UL-DCCH-Message\n");
           xer_fprint(stdout, &asn_DEF_NR_UL_DCCH_Message, (void *)ul_dcch_msg);
-          if (handle_sidelinkUEInformationNR(ctxt_pP, ue_context_p) == -1)
+          if (handle_sidelinkUEInformationNR(ctxt_pP, ue_context_p, ul_dcch_msg->message.choice.messageClassExtension->choice.c2->choice.sidelinkUEInformationNR_r16) == -1)
             return -1;
           break;
 
