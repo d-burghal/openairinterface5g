@@ -2059,6 +2059,14 @@ void *rrc_nrue_task(void *args_p)
          nr_rrc_handle_timers(timers);
          NR_UE_RRC_SI_INFO *SInfo = &NR_UE_rrc_inst[ue_mod_id].SInfo[NRRRC_SLOT_PROCESS (msg_p).gnb_id];
          nr_rrc_SI_timers(SInfo);
+         if(NRRRC_SLOT_PROCESS (msg_p).frame % 128 == 0 && NRRRC_SLOT_PROCESS (msg_p).slot == 0 && get_NAS_status()) {
+            uint32_t length;
+            uint8_t *buffer;
+            length = do_NR_UEAssistanceInformation(&buffer);
+            PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, NRRRC_SLOT_PROCESS (msg_p).frame, NRRRC_SLOT_PROCESS (msg_p).slot, 0);
+            rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
+            nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL);
+         }
          break;
 
        case NR_RRC_MAC_RA_IND:

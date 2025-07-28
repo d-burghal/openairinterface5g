@@ -1953,6 +1953,34 @@ static int handle_ueCapabilityInformation(const protocol_ctxt_t *const ctxt_pP,
   return 0;
 }
 
+static int handle_ueAssistanceInformation(const protocol_ctxt_t *const ctxt_pP,
+                                          rrc_gNB_ue_context_t *ue_context_p,
+                                          const NR_UEAssistanceInformation_t *ue_assitance_info)
+{
+  AssertFatal(ue_context_p != NULL, "Processing %s() for UE %lx, ue_context_p is NULL\n", __func__, ctxt_pP->rntiMaybeUEid);
+  int tp_cnt = 0;
+
+  if (ue_assitance_info->criticalExtensions.present == NR_UEAssistanceInformation__criticalExtensions_PR_ueAssistanceInformation) {
+    struct NR_UEAssistanceInformation_IEs *ueAssistanceInformation = ue_assitance_info->criticalExtensions.choice.ueAssistanceInformation;
+    const NR_SL_UE_AssistanceInformationNR_r16_t *trafficPatternList =
+        ueAssistanceInformation->nonCriticalExtension->nonCriticalExtension->sl_UE_AssistanceInformationNR_r16;
+
+    for (int i = 0; i < trafficPatternList->list.count; i++) {
+      const NR_SL_TrafficPatternInfo_r16_t *tp_container = trafficPatternList->list.array[i];
+      long tp_period = tp_container->trafficPeriodicity_r16;
+      long tp_timeOffset = tp_container->timingOffset_r16;
+      long tp_QoSFlowId = tp_container->sl_QoS_FlowIdentity_r16;
+      LOG_I(NR_RRC, "got NR_UEAssistanceInformation tp_period %ld tp_timeOffset %ld tp_QoSFlowId %ld\n", tp_period, tp_timeOffset, tp_QoSFlowId);
+      tp_cnt++;
+      // TODO :: Need to associate these values to resource allocation for sl mode 1.
+    }
+  }
+  if (tp_cnt == 0)
+    return -1;
+
+  return 0;
+}
+
 static int handle_rrcSetupComplete(const protocol_ctxt_t *const ctxt_pP,
                                    rrc_gNB_ue_context_t *ue_context_p,
                                    const NR_RRCSetupComplete_t *setup_complete)
@@ -2218,6 +2246,14 @@ int rrc_gNB_decode_dcch(const protocol_ctxt_t *const ctxt_pP,
       case NR_UL_DCCH_MessageType__c1_PR_rrcReestablishmentComplete:
         if (handle_rrcReestablishmentComplete(ctxt_pP, ul_dcch_msg->message.choice.c1->choice.rrcReestablishmentComplete)
             == -1)
+          return -1;
+        break;
+
+      case NR_UL_DCCH_MessageType__c1_PR_ueAssistanceInformation:
+        if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
+          xer_fprint(stdout, &asn_DEF_NR_UL_DCCH_Message, (void *)ul_dcch_msg);
+        }
+        if (handle_ueAssistanceInformation(ctxt_pP, ue_context_p, ul_dcch_msg->message.choice.c1->choice.ueAssistanceInformation) == -1)
           return -1;
         break;
 
