@@ -1076,6 +1076,50 @@ uint8_t do_NR_ULInformationTransfer(uint8_t **buffer, uint32_t pdu_length, uint8
     return encoded;
 }
 
+uint8_t do_NR_UEAssistanceInformation(uint8_t **buffer) {
+    ssize_t encoded;
+    NR_UL_DCCH_Message_t ul_dcch_msg;
+    memset(&ul_dcch_msg, 0, sizeof(NR_UL_DCCH_Message_t));
+    ul_dcch_msg.message.present = NR_UL_DCCH_MessageType_PR_c1;
+
+    ul_dcch_msg.message.choice.c1 = CALLOC(1, sizeof(struct NR_UL_DCCH_MessageType__c1));
+    ul_dcch_msg.message.choice.c1->present = NR_UL_DCCH_MessageType__c1_PR_ueAssistanceInformation;
+    ul_dcch_msg.message.choice.c1->choice.ueAssistanceInformation = CALLOC(1, sizeof(struct NR_UEAssistanceInformation));
+    ul_dcch_msg.message.choice.c1->choice.ueAssistanceInformation->criticalExtensions.present = NR_UEAssistanceInformation__criticalExtensions_PR_ueAssistanceInformation;
+    ul_dcch_msg.message.choice.c1->choice.ueAssistanceInformation->criticalExtensions.choice.ueAssistanceInformation = CALLOC(1, sizeof(struct NR_UEAssistanceInformation_IEs));
+    struct NR_UEAssistanceInformation_IEs *ueAssistanceInformation = ul_dcch_msg.message.choice.c1->choice.ueAssistanceInformation->criticalExtensions.choice.ueAssistanceInformation;
+
+    ueAssistanceInformation->nonCriticalExtension = CALLOC(1, sizeof(struct NR_UEAssistanceInformation_v1540_IEs));
+    ueAssistanceInformation->nonCriticalExtension->nonCriticalExtension = CALLOC(1, sizeof(struct NR_UEAssistanceInformation_v1610_IEs));
+    ueAssistanceInformation->nonCriticalExtension->nonCriticalExtension->sl_UE_AssistanceInformationNR_r16 = CALLOC(1, sizeof(struct NR_SL_UE_AssistanceInformationNR_r16));
+
+    struct NR_SL_TrafficPatternInfo_r16 *trafficPattern = CALLOC(1, sizeof(struct NR_SL_TrafficPatternInfo_r16));
+    trafficPattern->trafficPeriodicity_r16 = NR_SL_TrafficPatternInfo_r16__trafficPeriodicity_r16_ms1000;
+    trafficPattern->timingOffset_r16 = 0;
+    trafficPattern->messageSize_r16.buf = CALLOC(1, sizeof(uint8_t));
+    trafficPattern->messageSize_r16.buf[0] = 1;
+    trafficPattern->messageSize_r16.size = 1;
+    trafficPattern->messageSize_r16.bits_unused = 7;
+    trafficPattern->sl_QoS_FlowIdentity_r16 = 1;
+    ASN_SEQUENCE_ADD(&ueAssistanceInformation->nonCriticalExtension->nonCriticalExtension->sl_UE_AssistanceInformationNR_r16->list, trafficPattern);
+
+    encoded = uper_encode_to_new_buffer(&asn_DEF_NR_UL_DCCH_Message, NULL, (void *) &ul_dcch_msg, (void **) buffer);
+    AssertFatal(encoded > 0, "ASN1 message encoding failed (%s, %ld)!\n",
+                "NR_SL_UE_AssistanceInformationNR_r16",encoded);
+    LOG_I(NR_RRC, "NR_SL_UE_AssistanceInformationNR_r16 Encoded %zd bytes\n",encoded);
+
+    free(trafficPattern->messageSize_r16.buf);
+    free(trafficPattern);
+    free(ueAssistanceInformation->nonCriticalExtension->nonCriticalExtension->sl_UE_AssistanceInformationNR_r16);
+    free(ueAssistanceInformation->nonCriticalExtension->nonCriticalExtension);
+    free(ueAssistanceInformation->nonCriticalExtension);
+    free(ueAssistanceInformation);
+    free(ul_dcch_msg.message.choice.c1->choice.ueAssistanceInformation);
+    free(ul_dcch_msg.message.choice.c1);
+
+    return encoded;
+}
+
 uint8_t do_NR_SidelinkUEInformation(uint8_t **buffer, uint32_t pdu_length, uint8_t *pdu_buffer) {
     ssize_t encoded;
     NR_UL_DCCH_Message_t ul_dcch_msg;
