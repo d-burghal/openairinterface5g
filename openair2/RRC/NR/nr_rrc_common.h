@@ -24,7 +24,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h> 
+#include <stdint.h>
+#include "NR_DL-CCCH-Message.h"
 
 #define NR_RRC_HEADER_SIZE_MAX 64
 #define NR_RRC_BUFFER_SIZE_MAX 1024
@@ -73,4 +74,7 @@ typedef struct SRB_INFO_TABLE_ENTRY_NR_s {
 
 void rrc_init_nr_srb_param(NR_LCHAN_DESC *chan);
 
+void free_nr_sl_SetupRelease_SL_ConfigDedicatedNR_r16(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_conf);
+
+void free_nr_sl_resource_pool(NR_SL_ResourcePool_r16_t *sl_ResourcePool_r16);
 #endif

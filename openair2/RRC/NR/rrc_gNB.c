@@ -1520,6 +1520,8 @@ int nr_rrc_reconfiguration_req_sidelink(rrc_gNB_ue_context_t                  *c
                                        NULL,
                                        NULL,
                                        NULL);
+  if (rrc_ext_v1610->sl_ConfigDedicatedNR_r16)
+    free_nr_sl_SetupRelease_SL_ConfigDedicatedNR_r16(rrc_ext_v1610->sl_ConfigDedicatedNR_r16);
 
   gNB_RRC_INST *rrc = RC.nrrrc[ctxt_pP->module_id];
   nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, rrc_gNB_mui++, size, buffer, deliver_pdu_srb_f1, rrc);

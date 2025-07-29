@@ -259,6 +259,7 @@ typedef struct NR_UE_RRC_INST_s {
 
   //Sidelink params
   NR_SL_PreconfigurationNR_r16_t *sl_preconfig;
+  NR_SL_ConfigDedicatedNR_r16_t *nr_sl_dedicated_cfg;
   NR_MasterInformationBlockSidelink_t *sl_mib;
 
 } NR_UE_RRC_INST_t;
