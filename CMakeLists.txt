@@ -1331,6 +1331,7 @@ set(NR_L2_SRC_UE
   ${NR_SRAP_SRC}
   ${NR_UE_RRC_DIR}/L2_interface_ue.c
   ${NR_UE_RRC_DIR}/main_ue.c
+  ${NR_RRC_DIR}/nr_rrc_common.c
   ${NR_RRC_DIR}/nr_rrc_config.c
   ${NR_UE_RRC_DIR}/rrc_UE.c
   ${NR_UE_RRC_DIR}/rrc_nsa.c

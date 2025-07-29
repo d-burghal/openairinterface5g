@@ -178,6 +178,55 @@ int configure_NR_SL_Preconfig(uint8_t id,int sync_source);
 void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *ueinfo);
 
 int get_NAS_status();
+
+void extract_nr_sl_ResourcePool(struct NR_SL_ResourcePool_r16 *sl_ResourcePool,
+                                struct NR_SL_ResourcePool_r16 *recvd_sl_ResourcePool);
+
+void extract_nr_sl_ResourcePool(struct NR_SL_ResourcePool_r16 *sl_ResourcePool,
+                                struct NR_SL_ResourcePool_r16 *recvd_sl_ResourcePool);
+
+void extract_nr_sl_Rest_ResourcePool_Config(struct NR_SL_ResourcePool_r16 *sl_RxPool_r16,
+                                            struct NR_SL_ResourcePool_r16 *recvd_sl_RxPool);
+
+void extract_nr_sl_rlc_config(NR_SL_RLC_Config_r16_t *sl_RLC_Config,
+                              NR_SL_RLC_Config_r16_t *rcvd_sl_RLC_Config_r16);
+
+void extract_nr_sl_rlc_config(NR_SL_RLC_Config_r16_t *sl_RLC_Config,
+                              NR_SL_RLC_Config_r16_t *rcvd_sl_RLC_Config_r16);
+
+void extract_nr_sl_mac_logical_channel_config(struct NR_SL_LogicalChannelConfig_r16 *sl_MAC_LogicalChannelConfig_r16,
+                                              struct NR_SL_LogicalChannelConfig_r16 *rcvd_sl_MAC_LogicalChannelConfig_r16);
+
+void extract_nr_sl_scs_specific_carrier(NR_SL_FreqConfig_r16_t *sl_FreqInfoToAddMod,
+                                        NR_SL_FreqConfig_r16_t *recvd_sl_FreqInfoToAddMod);
+
+void extract_nr_sl_SyncConfig(NR_SL_SyncConfig_r16_t *sl_syncconfig,
+                              NR_SL_SyncConfig_r16_t *rcvd_sl_syncconfig);
+
+void extract_nr_sl_rlc_bearer_config(NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig,
+                                     NR_SL_RLC_BearerConfig_r16_t *rcvd_sl_RLC_BearerConfig);
+
+void extract_nr_sl_scheduled_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig,
+                                    NR_SetupRelease_SL_ScheduledConfig_r16_t *recv_sl_ScheduledConfig);
+
+void extract_nr_sl_FreqInfoToAddMod(NR_SL_FreqConfig_r16_t *sl_FreqInfoToAddMod,
+                                    NR_SL_FreqConfig_r16_t *recvd_sl_FreqInfoToAddMod);
+
+void extract_nr_sl_bwp_generic(NR_SL_BWP_Config_r16_t *sl_BWP_ToAddMod,
+                               NR_SL_BWP_Config_r16_t *recvd_sl_BWP_ToAddMod);
+
+void nr_rrc_ue_process_sl_ConfigDedicatedNR(const protocol_ctxt_t *const ctxt_pP,
+                                            const uint8_t gNB_index,
+                                            NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_conf);
+
+void extract_nr_sl_PSCCH_Config(NR_SL_PSCCH_Config_r16_t *recvd_sl_PSCCH_Config,
+                                NR_SL_PSCCH_Config_r16_t *targeted_sl_PSCCH_Config);
+
+void extract_nr_sl_PSSCH_Config(NR_SL_PSSCH_Config_r16_t *recvd_sl_PSSCH_Config,
+                                NR_SL_PSSCH_Config_r16_t *targeted_sl_PSSCH_Config);
+
+void extract_nr_sl_PSFCH_Config(NR_SL_PSFCH_Config_r16_t *recvd_sl_PSFCH_Config,
+                                NR_SL_PSFCH_Config_r16_t *targeted_sl_PSFCH_Config);
 /** @}*/
 #endif
 
