@@ -34,8 +34,12 @@
 #include "oai_asn1.h"
 #include "SIMULATION/TOOLS/sim.h" // for taus();
 
+#include "sl_preconfig_paramvalues_gNB.h"
+#include "rrc_proto.h"
+#include "openair2/RRC/NR/nr_rrc_proto.h"
 #include "uper_decoder.h"
 #include "uper_encoder.h"
+#include "openair2/GNB_APP/gnb_paramdef.h"
 
 const uint8_t slotsperframe[5] = {10, 20, 40, 80, 160};
 
@@ -2871,4 +2875,129 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
     xer_fprint(stdout, &asn_DEF_NR_SpCellConfig, (void *)secondaryCellGroup->spCellConfig);
   }
   return secondaryCellGroup;
+}
+
+void nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_ConfigDedicatedNR, rnti_t sl_rnti) {
+  sl_ConfigDedicatedNR->present = NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_setup;
+  sl_ConfigDedicatedNR->choice.setup = CALLOC(1, sizeof(NR_SL_ConfigDedicatedNR_r16_t));
+  sl_ConfigDedicatedNR->choice.setup->sl_PHY_MAC_RLC_Config_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16));
+
+  struct NR_SL_PHY_MAC_RLC_Config_r16* sl_PHY_MAC_RLC_Config = sl_ConfigDedicatedNR->choice.setup->sl_PHY_MAC_RLC_Config_r16;
+  sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = CALLOC(1, sizeof(long));
+  *sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = NR_SL_PHY_MAC_RLC_Config_r16__sl_CSI_Acquisition_r16_enabled;
+
+  sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ScheduledConfig_r16_t));
+  // Set the CHOICE to 'setup'NR_SL_PHY_MAC_RLC_Config_r16_t
+  NR_SetupRelease_SL_ScheduledConfig_r16_t* sched_config = sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
+  sched_config->present = NR_SetupRelease_SL_ScheduledConfig_r16_PR_setup;
+  sched_config->choice.setup = CALLOC(1, sizeof(NR_SL_ScheduledConfig_r16_t));
+  sched_config->choice.setup->sl_RNTI_r16 = sl_rnti;
+  sched_config->choice.setup->sl_CS_RNTI_r16 = CALLOC(1, sizeof(NR_RNTI_Value_t));
+  *sched_config->choice.setup->sl_CS_RNTI_r16 = sl_rnti;
+
+  LOG_D(NR_RRC, "Assigned sl-RNTI-r16 = %u\n", sl_rnti);
+  char aprefix[MAX_OPTNAME_SIZE*2 + 8];
+
+  struct NR_SL_FreqConfig_r16* sl_FreqInfoToAddMod = CALLOC(1, sizeof(struct NR_SL_FreqConfig_r16));
+  sl_FreqInfoToAddMod->valueN_r16 = -1;
+  sl_FreqInfoToAddMod->sl_Freq_Id_r16 = 1;
+  sl_FreqInfoToAddMod->frequencyShift7p5khzSL_r16 = CALLOC(1, sizeof(long));
+  sl_FreqInfoToAddMod->sl_AbsoluteFrequencyPointA_r16 = CALLOC(1, sizeof(NR_ARFCN_ValueNR_t));
+  sl_FreqInfoToAddMod->sl_AbsoluteFrequencySSB_r16 = CALLOC(1, sizeof(NR_ARFCN_ValueNR_t));
+
+  struct NR_SCS_SpecificCarrier* sl_SCS_SpecificCarrier = CALLOC(1, sizeof(struct NR_SCS_SpecificCarrier));
+  sl_SCS_SpecificCarrier->ext1 = NULL;
+  ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list, sl_SCS_SpecificCarrier);
+
+  sl_FreqInfoToAddMod->sl_BWP_ToReleaseList_r16 = CALLOC(1, sizeof(struct NR_SL_FreqConfig_r16__sl_BWP_ToReleaseList_r16));
+  NR_BWP_Id_t* nr_bwd_id = CALLOC(1, sizeof(NR_BWP_Id_t));
+  *nr_bwd_id = 1;
+  ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_BWP_ToReleaseList_r16->list, nr_bwd_id);
+
+  sl_FreqInfoToAddMod->sl_SyncConfigList_r16 = CALLOC(1, sizeof(NR_SL_SyncConfigList_r16_t));
+  NR_SL_SyncConfig_r16_t* sl_SyncConfig = CALLOC(1, sizeof(NR_SL_SyncConfig_r16_t));
+  ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list, sl_SyncConfig);
+
+  // config info related to rx and tx of SL SYNC SIGNALS (SLSS)
+  prepare_nr_sl_SyncConfig_gNB(sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list.array[0]);
+
+  // Sidelink BWP configuration.
+  // In REL16, 17 SUPPORTS only 1 SIDELINK Bandwidth part
+  NR_SL_BWP_Config_r16_t* sl_BWP_ToAddMod = CALLOC(1, sizeof(NR_SL_BWP_Config_r16_t));
+  int num_tx_pools = 1, num_rx_pools = 1;
+  int sl_syncsource = true;
+  sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_FreqConfig_r16__sl_BWP_ToAddModList_r16));
+  prepare_NR_SL_BWPConfig(sl_BWP_ToAddMod, num_tx_pools, num_rx_pools, sl_syncsource);
+  sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_BWP_r16->subcarrierSpacing = NR_SubcarrierSpacing_kHz30;
+  sl_BWP_ToAddMod->sl_BWP_Id = 1;
+  ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list, sl_BWP_ToAddMod);
+
+  paramdef_t SL_FDCPARAMS[] = SL_FD_CONFIG_PARAMS_DESC(sl_FreqInfoToAddMod);
+  paramlist_def_t SL_FDCParamList = {SL_CONFIG_STRING_SL_FDC_LIST, NULL, 0};
+  sprintf(aprefix, "%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION,0);
+  config_getlist(&SL_FDCParamList, NULL, 0, aprefix);
+  LOG_D(RRC, "NUM SL-FDC elem in cfg file:%d\n", SL_FDCParamList.numelt);
+  sprintf(aprefix, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION,0, SL_CONFIG_STRING_SL_FDC_LIST, 0);
+  config_get(SL_FDCPARAMS, sizeof(SL_FDCPARAMS)/sizeof(paramdef_t), aprefix);
+  sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16__sl_FreqInfoToAddModList_r16));
+  ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list, sl_FreqInfoToAddMod);
+
+  sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16__sl_RLC_BearerToAddModList_r16));
+  struct NR_SL_RLC_BearerConfig_r16* sl_RLC_BearerConfig = CALLOC(1, sizeof(struct NR_SL_RLC_BearerConfig_r16));
+  sl_RLC_BearerConfig->sl_RLC_BearerConfigIndex_r16 = 1;
+  sl_RLC_BearerConfig->sl_ServedRadioBearer_r16 = NULL;
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16 = CALLOC(1, sizeof(struct NR_SL_LogicalChannelConfig_r16));
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_ConfiguredGrantType1Allowed_r16 = CALLOC(1, sizeof(long));
+
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16 = CALLOC(1, sizeof(struct NR_SL_LogicalChannelConfig_r16__sl_AllowedCG_List_r16));
+  NR_SL_ConfigIndexCG_r16_t *sl_AllowedCG = CALLOC(1, sizeof(NR_SL_ConfigIndexCG_r16_t));
+  ASN_SEQUENCE_ADD(&sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16->list, sl_AllowedCG);
+
+  //RLC channel configurations
+  sl_RLC_BearerConfig->sl_RLC_Config_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16));
+  sl_RLC_BearerConfig->sl_RLC_Config_r16->present = NR_SL_RLC_Config_r16_PR_sl_AM_RLC_r16;
+  sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_AM_RLC_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_AM_RLC_r16));
+  struct NR_SL_RLC_Config_r16__sl_AM_RLC_r16* sl_RLC_ChannelConfig_AM = sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_AM_RLC_r16;
+  sl_RLC_ChannelConfig_AM->sl_SN_FieldLengthAM_r16 = CALLOC(1, sizeof(long));
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16 = CALLOC(1, sizeof(long));
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_MaxPUSCH_Duration_r16 = CALLOC(1, sizeof(long));
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16 = CALLOC(1, sizeof(struct NR_SL_LogicalChannelConfig_r16__sl_AllowedSCS_List_r16));
+  struct NR_SL_LogicalChannelConfig_r16__sl_AllowedSCS_List_r16* sl_AllowedSCS_List = sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16;
+  NR_SubcarrierSpacing_t *subCarrierSpacing = CALLOC(1, sizeof(NR_SubcarrierSpacing_t));
+  *subCarrierSpacing = NR_SubcarrierSpacing_kHz30;
+  ASN_SEQUENCE_ADD(&sl_AllowedSCS_List->list, subCarrierSpacing);
+
+  paramdef_t SL_DEDICATED_CONF_PARAMS[] = SL_CONFIGDEDICATEDNR_PARAMS_DESC(sl_RLC_BearerConfig);
+  paramlist_def_t SL_DEDICATED_CONF_ParamList = {CONFIG_STRING_SL_ConfigDedicatedNR_LIST, NULL, 0};
+  sprintf(aprefix, "%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION,0);
+  config_getlist(&SL_DEDICATED_CONF_ParamList, NULL, 0, aprefix);
+  LOG_D(RRC, "NUM SL-FDC elem in cfg file:%d\n", SL_DEDICATED_CONF_ParamList.numelt);
+  sprintf(aprefix, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION,0, CONFIG_STRING_SL_ConfigDedicatedNR_LIST, 0);
+  config_get( SL_DEDICATED_CONF_PARAMS,sizeof(SL_DEDICATED_CONF_PARAMS)/sizeof(paramdef_t),aprefix);
+
+  ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list, sl_RLC_BearerConfig);
+  xer_fprint(stdout, &asn_DEF_NR_SL_PHY_MAC_RLC_Config_r16, (void *)sl_PHY_MAC_RLC_Config);
+}
+
+// TODO: Later, we need following function to configure remote UE
+// sl-L2RelayUE-Config-r17 SetupRelease { SL-L2RelayUE-Config-r17 }
+void nr_rrc_pre_configure_SL_L2RelayUE_Config(NR_SetupRelease_SL_L2RelayUE_Config_r17_t* sl_L2RelayUE_Config) {
+
+  sl_L2RelayUE_Config->present = NR_SetupRelease_SL_L2RelayUE_Config_r17_PR_setup;
+  sl_L2RelayUE_Config->choice.setup = CALLOC(1, sizeof(NR_SL_L2RelayUE_Config_r17_t));
+  sl_L2RelayUE_Config->choice.setup->sl_RemoteUE_ToAddModList_r17 = CALLOC(1, sizeof(NR_SL_L2RelayUE_Config_r17_t));
+  NR_SL_L2RelayUE_Config_r17_t* sl_RemoteUE_ToAddModList = sl_L2RelayUE_Config->choice.setup->sl_RemoteUE_ToAddModList_r17;
+
+  struct NR_SL_RemoteUE_ToAddMod_r17 *sl_RemoteUE_ToAddMod = CALLOC(1, sizeof(struct NR_SL_RemoteUE_ToAddMod_r17));
+  sl_RemoteUE_ToAddMod->sl_L2IdentityRemote_r17.buf = CALLOC(1, sizeof(uint8_t));
+  sl_RemoteUE_ToAddMod->sl_L2IdentityRemote_r17.size = 1;
+  sl_RemoteUE_ToAddMod->sl_L2IdentityRemote_r17.bits_unused = 0;
+  sl_RemoteUE_ToAddMod->sl_L2IdentityRemote_r17.buf[0] = 0x1;
+
+  sl_RemoteUE_ToAddMod->sl_SRAP_ConfigRelay_r17 = CALLOC(1, sizeof(struct NR_SL_SRAP_Config_r17));
+  sl_RemoteUE_ToAddMod->sl_SRAP_ConfigRelay_r17->sl_LocalIdentity_r17 = 0x1;
+  sl_RemoteUE_ToAddMod->sl_SRAP_ConfigRelay_r17->sl_MappingToAddModList_r17 = CALLOC(1, sizeof(struct NR_SL_SRAP_Config_r17__sl_MappingToAddModList_r17));
+
+  ASN_SEQUENCE_ADD(&sl_RemoteUE_ToAddModList->sl_RemoteUE_ToAddModList_r17->list, sl_RemoteUE_ToAddMod);
+
 }

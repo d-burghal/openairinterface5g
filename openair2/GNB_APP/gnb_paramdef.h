@@ -442,6 +442,23 @@ typedef enum {
 #define MACRLC_REMOTE_S_PORTD_IDX                              16
 #define MACRLC_SCHED_MODE_IDX                                  17
 
+#define CONFIG_STRING_SL_ConfigDedicatedNR_LIST                "sl_ConfigDedicatedNR"
+#define CONFIG_STRING_SL_ALLOWED_CG                            "sl_AllowedCG"
+#define CONFIG_STRING_SL_MAX_RETX_THRESHOLD                    "sl_MaxRetxThreshold"
+#define CONFIG_STRING_SL_POLL_BYTE                             "sl_PollByte"
+#define CONFIG_STRING_SL_POLL_PDU                              "sl_PollPDU"
+#define CONFIG_STRING_SL_SN_FIELD_LENGTH_AM                    "sl_SN_FieldLengthAM"
+#define CONFIG_STRING_SL_T_POLL_RETRANSMIT                     "sl_T_PollRetransmit"
+#define CONFIG_STRING_SL_BUCKET_SIZE_DURATION                  "sl_BucketSizeDuration"
+#define CONFIG_STRING_SL_CONFIGURED_GRANT_TYPE1_ALLOWED        "sl_Configured_Grant_Type1_Allowed"
+#define CONFIG_STRING_SL_HARQ_FEEDBACK_ENABLED                 "sl_HARQ_Feedback_Enabled"
+#define CONFIG_STRING_SL_MAX_PUSCH_DURATION                    "sl_MaxPUSCH_Duration"
+#define CONFIG_STRING_SL_PRIORITISED_BIT_RATE                  "sl_PrioritisedBitRate"
+#define CONFIG_STRING_SL_PRIORITY                              "sl_Priority_r16"
+
+#define CONFIG_STRING_SL_L2RELAY_UE_CONFIG_LIST                "sl_L2RelayUE_Config"
+#define CONFIG_STRING_SL_LOCAL_IDENTITY                        "sl_L2IdentityRemote"
+#define CONFIG_STRING_SL_L2_IDENTITY_REMOTE                    "sl_LocalIdentity"
 
 /* thread configuration parameters section name */
 #define THREAD_CONFIG_STRING_THREAD_STRUCT                "THREAD_STRUCT"
@@ -496,5 +513,23 @@ typedef enum {
 #define SECURITY_CONFIG_DO_DRB_INTEGRITY_IDX   3
 
 /*----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
+
+#define SL_CONFIGDEDICATEDNR_PARAMS_DESC(sl_RLC_BearerConfig) {          \
+  {CONFIG_STRING_SL_BUCKET_SIZE_DURATION, NULL, 0, .i64ptr=&sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_BucketSizeDuration_r16, .defintval=1, TYPE_INT64, 0},       \
+  {CONFIG_STRING_SL_PRIORITY, NULL, 0, .i64ptr=&sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_Priority_r16, .defintval=1, TYPE_INT64, 0}, \
+  {CONFIG_STRING_SL_PRIORITISED_BIT_RATE, NULL, 0, .i64ptr=&sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_PrioritisedBitRate_r16, .defintval=1, TYPE_INT64, 0}, \
+  {CONFIG_STRING_SL_ALLOWED_CG, NULL, 0, .i64ptr=sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16->list.array[0], .defintval=1, TYPE_INT64, 0}, \
+  {CONFIG_STRING_SL_MAX_RETX_THRESHOLD, NULL, 0, .i64ptr=&sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_MaxRetxThreshold_r16, .defintval=1, TYPE_INT64, 0}, \
+  {CONFIG_STRING_SL_POLL_BYTE, NULL, 0, .i64ptr=&sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_PollByte_r16, .defintval=1, TYPE_INT64, 0}, \
+  {CONFIG_STRING_SL_POLL_PDU, NULL, 0, .i64ptr=&sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_PollPDU_r16, .defintval=1, TYPE_INT64, 0}, \
+  {CONFIG_STRING_SL_SN_FIELD_LENGTH_AM, NULL, 0, .i64ptr=sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16, .defintval=1, TYPE_INT64, 0}, \
+  {CONFIG_STRING_SL_CONFIGURED_GRANT_TYPE1_ALLOWED, NULL, 0, .i64ptr=sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_ConfiguredGrantType1Allowed_r16, .defintval=1, TYPE_INT64, 0}, \
+  {CONFIG_STRING_SL_HARQ_FEEDBACK_ENABLED, NULL, 0, .i64ptr=sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16, .defintval=1, TYPE_INT64, 0}, \
+  {CONFIG_STRING_SL_MAX_PUSCH_DURATION, NULL, 0, .i64ptr=sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_MaxPUSCH_Duration_r16, .defintval=1, TYPE_INT64, 0}, \
+  {CONFIG_STRING_SL_T_POLL_RETRANSMIT, NULL, 0, .i64ptr=&sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_T_PollRetransmit_r16, .defintval=1, TYPE_INT64, 0}}
+
+#define SL_L2RELAY_UE_CONFIG_PARAMS_DESC() {          \
+  {CONFIG_STRING_SL_LOCAL_IDENTITY, NULL, 0, .iptr=&srb1_params.srb1_max_retx_threshold, .defintval=4, TYPE_UINT, 0},       \
+  {CONFIG_STRING_SL_L2_IDENTITY_REMOTE, NULL, 0, .iptr=&srb1_params.srb1_max_retx_threshold, .defintval=4, TYPE_UINT, 0}}
 
 #endif

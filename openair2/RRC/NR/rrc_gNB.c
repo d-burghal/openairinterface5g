@@ -692,32 +692,8 @@ NR_RRCReconfiguration_v1610_IEs_t* prepare_rrc_reconfig_v1610(rnti_t sl_rnti, NR
     NR_RRCReconfiguration_v1610_IEs_t* v1610_ies = (NR_RRCReconfiguration_v1610_IEs_t*)malloc(sizeof(NR_RRCReconfiguration_v1610_IEs_t));
     memset(v1610_ies, 0, sizeof(NR_RRCReconfiguration_v1610_IEs_t));
 
-    v1610_ies->sl_ConfigDedicatedNR_r16 = (NR_SetupRelease_SL_ConfigDedicatedNR_r16_t*)malloc(sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
-    memset(v1610_ies->sl_ConfigDedicatedNR_r16, 0, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
-
-    // Set the CHOICE to 'setup'
-    v1610_ies->sl_ConfigDedicatedNR_r16->present = NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_setup;
-    v1610_ies->sl_ConfigDedicatedNR_r16->choice.setup = (NR_SL_ConfigDedicatedNR_r16_t*)malloc(sizeof(NR_SL_ConfigDedicatedNR_r16_t));
-    memset(v1610_ies->sl_ConfigDedicatedNR_r16->choice.setup, 0, sizeof(NR_SL_ConfigDedicatedNR_r16_t));
-
-    NR_SL_ConfigDedicatedNR_r16_t* sl_config = v1610_ies->sl_ConfigDedicatedNR_r16->choice.setup;
-    sl_config->sl_PHY_MAC_RLC_Config_r16 = (NR_SL_PHY_MAC_RLC_Config_r16_t*)malloc(sizeof(NR_SL_PHY_MAC_RLC_Config_r16_t));
-    memset(sl_config->sl_PHY_MAC_RLC_Config_r16, 0, sizeof(NR_SL_PHY_MAC_RLC_Config_r16_t));
-
-    NR_SL_PHY_MAC_RLC_Config_r16_t* phy_mac_config = sl_config->sl_PHY_MAC_RLC_Config_r16;
-    phy_mac_config->sl_ScheduledConfig_r16 = (NR_SetupRelease_SL_ScheduledConfig_r16_t*)malloc(sizeof(NR_SetupRelease_SL_ScheduledConfig_r16_t));
-    memset(phy_mac_config->sl_ScheduledConfig_r16, 0, sizeof(NR_SetupRelease_SL_ScheduledConfig_r16_t));
-
-    // Set the CHOICE to 'setup'NR_SL_PHY_MAC_RLC_Config_r16_t
-    NR_SetupRelease_SL_ScheduledConfig_r16_t* sched_config = phy_mac_config->sl_ScheduledConfig_r16;
-    sched_config->present = NR_SetupRelease_SL_ScheduledConfig_r16_PR_setup;
-    sched_config->choice.setup = (NR_SL_ScheduledConfig_r16_t*)malloc(sizeof(NR_SL_ScheduledConfig_r16_t));
-    memset(sched_config->choice.setup, 0, sizeof(NR_SL_ScheduledConfig_r16_t));
-
-    sched_config->choice.setup->sl_RNTI_r16 = sl_rnti;
-    sched_config->choice.setup->sl_CS_RNTI_r16 = (NR_RNTI_Value_t*)malloc(sizeof(NR_RNTI_Value_t));
-    *sched_config->choice.setup->sl_CS_RNTI_r16 = sl_rnti;
-    LOG_D(NR_RRC, "Assigned sl-RNTI-r16 = %u\n", sl_rnti);
+    v1610_ies->sl_ConfigDedicatedNR_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
+    nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(v1610_ies->sl_ConfigDedicatedNR_r16, sl_rnti);
     return v1610_ies;
 }
 

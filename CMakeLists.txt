@@ -297,7 +297,10 @@ target_link_libraries(lte_rrc PRIVATE nr_rrc)
 
 #NR RRC
 #######
-add_library(nr_rrc ${OPENAIR2_DIR}/RRC/NR/MESSAGES/asn1_msg.c)
+add_library(nr_rrc
+  ${OPENAIR2_DIR}/RRC/NR/MESSAGES/asn1_msg.c
+  ${OPENAIR2_DIR}/RRC/NR/rrc_sl_preconfig_gNB.c
+  )
 target_link_libraries(nr_rrc PUBLIC asn1_nr_rrc asn1_lte_rrc)
 
 # S1AP
@@ -1292,6 +1295,7 @@ set(L2_NR_SRC
   ${NR_RRC_DIR}/mac_rrc_dl_direct.c
   ${NR_RRC_DIR}/mac_rrc_dl_f1ap.c
   ${NR_RRC_DIR}/nr_rrc_config.c
+  ${NR_RRC_DIR}/rrc_sl_preconfig_gNB.c
   ${NR_RRC_DIR}/rrc_gNB_nsa.c
   ${NR_RRC_DIR}/rrc_gNB_internode.c
   ${NR_RRC_DIR}/rrc_gNB_reconfig.c
