@@ -110,7 +110,7 @@ static void handle_nr_uci(NR_UL_IND_t *UL_info)
 
       case NFAPI_NR_UCI_FORMAT_0_1_PDU_TYPE: {
         const nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu = &uci_list[i].pucch_pdu_format_0_1;
-        LOG_D(NR_MAC, "The received uci has sfn slot %d %d, num_ucis %d and pdu_size %d\n",
+        LOG_D(NR_MAC, "The received uci format 0_1 has sfn slot %d %d, num_ucis %d and pdu_size %d\n",
                 UL_info->uci_ind.sfn, UL_info->uci_ind.slot, num_ucis, uci_list[i].pdu_size);
         handle_nr_uci_pucch_0_1(mod_id, frame, slot, uci_pdu);
         break;
@@ -118,6 +118,8 @@ static void handle_nr_uci(NR_UL_IND_t *UL_info)
 
         case NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE: {
           const nfapi_nr_uci_pucch_pdu_format_2_3_4_t *uci_pdu = &uci_list[i].pucch_pdu_format_2_3_4;
+        LOG_D(NR_MAC, "The received uci format 2_3_4 has sfn slot %d %d, num_ucis %d and pdu_size %d\n",
+                UL_info->uci_ind.sfn, UL_info->uci_ind.slot, num_ucis, uci_list[i].pdu_size);
           handle_nr_uci_pucch_2_3_4(mod_id, frame, slot, uci_pdu);
           break;
         }

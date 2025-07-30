@@ -46,7 +46,9 @@
 #include "radio/ETHERNET/if_defs.h"
 #include <stdio.h>
 #include "openair2/GNB_APP/MACRLC_nr_paramdef.h"
+#include "nfapi/open-nFAPI/common/public_inc/debug.h"
 
+#define MU 1  // RDF: Only support numerology 1 for L2 Proxy mode
 #define MAX_IF_MODULES 100
 
 UL_IND_t *UL_INFO = NULL;
@@ -917,6 +919,8 @@ static void enqueue_nr_nfapi_msg(void *buffer, ssize_t len, nfapi_p7_message_hea
                 LOG_E(NR_PHY, "Message tx_data_request failed to unpack\n");
                 break;
             }
+            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Received an NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST message in SFN/slot %d %d. \n",
+                    tx_data_request->SFN, tx_data_request->Slot);
             LOG_D(NR_PHY, "Received an NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST message in SFN/slot %d %d. \n",
                     tx_data_request->SFN, tx_data_request->Slot);
             if (!put_queue(&nr_tx_req_queue, tx_data_request))
@@ -1058,7 +1062,8 @@ void *nrue_standalone_pnf_task(void *context)
       uint16_t *sfn_slot = CALLOC(1, sizeof(*sfn_slot));
       memcpy(sfn_slot, buffer, sizeof(*sfn_slot));
 
-      LOG_D(NR_PHY, "Received from proxy sfn_slot %x\n", *sfn_slot);
+      NFAPI_TRACE(NFAPI_TRACE_DEBUG, "%s: Handling NR SLOT Indication\n", __FUNCTION__);
+      LOG_D(NR_PHY, "Received from proxy sfn_slot %d.%d\n", NFAPI_SFNSLOTDEC2SFN(MU, *sfn_slot), NFAPI_SFNSLOTDEC2SLOT(MU, *sfn_slot));
 
       if (!put_queue(&nr_sfn_slot_queue, sfn_slot))
       {
