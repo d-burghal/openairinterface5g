@@ -44,6 +44,7 @@
 #include "nr_phy_common.h"
 #include "common/utils/time_manager/time_manager.h"
 #include "log.h"
+#include "nfapi/open-nFAPI/common/public_inc/debug.h"
 
 /*
  *  NR SLOT PROCESSING SEQUENCE
@@ -223,7 +224,7 @@ static void process_queued_nr_nfapi_msgs(NR_UE_MAC_INST_t *mac, int sfn, int slo
   nfapi_nr_ul_dci_request_t *ul_dci_request = get_queue(&nr_ul_dci_req_queue);
 
   for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++) {
-    LOG_D(NR_MAC,
+    LOG_T(NR_MAC,
           "Try to get a ul_tti_req by matching CRC active sfn/slot %d.%d from queue with %lu items\n",
           sfn,
           slot,
@@ -231,7 +232,7 @@ static void process_queued_nr_nfapi_msgs(NR_UE_MAC_INST_t *mac, int sfn, int slo
     struct sfn_slot_s sfn_sf = {.sfn = mac->nr_ue_emul_l1.harq[i].active_ul_harq_sfn, .slot = mac->nr_ue_emul_l1.harq[i].active_ul_harq_slot };
     nfapi_nr_ul_tti_request_t *ul_tti_request_crc = unqueue_matching(&nr_ul_tti_req_queue, MAX_QUEUE_SIZE, sfn_slot_matcher, &sfn_sf);
     if (ul_tti_request_crc && ul_tti_request_crc->n_pdus > 0) {
-      LOG_D(NR_MAC, "Got ul_tti_req for sfn/slot %d.%d\n", sfn, slot);
+      LOG_T(NR_MAC, "Got ul_tti_req for sfn/slot %d.%d\n", sfn, slot);
       check_and_process_dci(NULL, NULL, NULL, ul_tti_request_crc);
       free_and_zero(ul_tti_request_crc);
     }
