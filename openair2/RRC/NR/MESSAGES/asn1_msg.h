@@ -173,7 +173,7 @@ uint8_t do_NR_ULInformationTransfer(uint8_t **buffer,
 
 uint8_t do_NR_SidelinkUEInformation(uint8_t **buffer, uint32_t pdu_length, uint8_t *pdu_buffer);
 
-uint8_t do_NR_UEAssistanceInformation(uint8_t **buffer);
+uint8_t do_NR_UEAssistanceInformation(uint8_t **buffer, long tp_type);
 
 uint8_t do_RRCReestablishmentRequest(uint8_t Mod_id, uint8_t *buffer, uint16_t c_rnti);
 

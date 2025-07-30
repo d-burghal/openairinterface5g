@@ -1076,7 +1076,7 @@ uint8_t do_NR_ULInformationTransfer(uint8_t **buffer, uint32_t pdu_length, uint8
     return encoded;
 }
 
-uint8_t do_NR_UEAssistanceInformation(uint8_t **buffer) {
+uint8_t do_NR_UEAssistanceInformation(uint8_t **buffer, long tp_type) {
     ssize_t encoded;
     NR_UL_DCCH_Message_t ul_dcch_msg;
     memset(&ul_dcch_msg, 0, sizeof(NR_UL_DCCH_Message_t));
@@ -1100,7 +1100,7 @@ uint8_t do_NR_UEAssistanceInformation(uint8_t **buffer) {
     trafficPattern->messageSize_r16.buf[0] = 1;
     trafficPattern->messageSize_r16.size = 1;
     trafficPattern->messageSize_r16.bits_unused = 7;
-    trafficPattern->sl_QoS_FlowIdentity_r16 = 1;
+    trafficPattern->sl_QoS_FlowIdentity_r16 = tp_type;
     ASN_SEQUENCE_ADD(&ueAssistanceInformation->nonCriticalExtension->nonCriticalExtension->sl_UE_AssistanceInformationNR_r16->list, trafficPattern);
 
     encoded = uper_encode_to_new_buffer(&asn_DEF_NR_UL_DCCH_Message, NULL, (void *) &ul_dcch_msg, (void **) buffer);
