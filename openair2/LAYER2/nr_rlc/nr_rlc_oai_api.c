@@ -55,6 +55,80 @@ static uint64_t nr_rlc_current_time;
 static int      nr_rlc_current_time_last_frame;
 static int      nr_rlc_current_time_last_subframe;
 
+int nr_rlc_packet_counter = 0;
+uint64_t nr_rlc_last_check_time = 0;
+
+static uint64_t get_current_time_ms() {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);  // Monotonic time since boot
+  return (uint64_t)(ts.tv_sec * 1000ULL + ts.tv_nsec / 1000000ULL);
+}
+
+void nr_ue_SL_UEAsistance_trigger(int module_id, int frame, int ch_id, bool is_pc5, int tp_type)
+{
+  MessageDef *message_p;
+  message_p = itti_alloc_new_message(TASK_RRC_NRUE, 0, RLC_TRAFFIC_PTN_CHG_IND);
+  RLC_TRAFFIC_PTN_CHG_IND(message_p).frame = frame;
+  RLC_TRAFFIC_PTN_CHG_IND(message_p).ch_id = ch_id;
+  RLC_TRAFFIC_PTN_CHG_IND(message_p).is_pc5 = is_pc5;
+  RLC_TRAFFIC_PTN_CHG_IND(message_p).tp_type = tp_type;
+  LOG_D(RLC, "RRC SL_UEAsistance trigger: frame %d traffic pattern type %d \n", frame, tp_type);
+  itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(module_id), message_p);
+}
+
+static void monitor_trafffic_pattern(const module_id_t         module_idP,
+                                     const frame_t             frameP,
+                                     nr_rlc_entity_t           *rb,
+                                     const logical_chan_id_t   channel_idP,
+                                     bool                      is_pc5_link)
+{
+  static uint32_t traffic_pattern_type;
+  uint64_t now = get_current_time_ms();
+  nr_rlc_packet_counter++;
+  bool status = false;
+  if (now - nr_rlc_last_check_time >= 1000) {  // 1000 ms window
+    int old_pattern_type;
+    if (nr_rlc_packet_counter < 2) {
+      if (traffic_pattern_type != 0) {
+        old_pattern_type = traffic_pattern_type;
+        traffic_pattern_type = 0;
+        status = true;
+      }
+    }
+    else if (nr_rlc_packet_counter < 10) {
+      if (traffic_pattern_type != 1) {
+        old_pattern_type = traffic_pattern_type;
+        traffic_pattern_type = 1;
+        status = true;
+      }
+    }
+    else if (nr_rlc_packet_counter < 100) {
+      if (traffic_pattern_type != 2) {
+        old_pattern_type = traffic_pattern_type;
+        traffic_pattern_type = 2;
+        status = true;
+      }
+    }
+    else {
+      if (traffic_pattern_type != 3) {
+        old_pattern_type = traffic_pattern_type;
+        traffic_pattern_type = 3;
+        status = true;
+      }
+    }
+    if (status) {
+      int md = rb->stats.mode;
+      LOG_W(RLC, "Traffic pattern has been changed from %d to %d\n", old_pattern_type, traffic_pattern_type);
+      LOG_I(RLC, "is_pc5_link %d channel_idP %u rxpdu_pkts %u mode %s Packet count in last 1000ms: %d\n",
+            is_pc5_link, channel_idP, rb->stats.rxpdu_pkts,
+            md == 0 ? "AM" : (md == 1 ? "UM" : "TM"), nr_rlc_packet_counter);
+      nr_ue_SL_UEAsistance_trigger(module_idP, frameP, channel_idP, is_pc5_link, traffic_pattern_type);
+    }
+    // Reset for next window
+    nr_rlc_packet_counter = 0;
+    nr_rlc_last_check_time = now;
+  }
+}
 
 void mac_rlc_data_ind (const module_id_t         module_idP,
                        const rnti_t              rntiP,
@@ -108,6 +182,9 @@ void mac_rlc_data_ind (const module_id_t         module_idP,
     LOG_D(RLC, "RB found! (channel ID %d) \n", channel_idP);
     rb->set_time(rb, nr_rlc_current_time);
     rb->recv_pdu(rb, buffer_pP, tb_sizeP);
+    if(channel_idP > 3 && is_pc5_link == 1 && enb_flagP == 0) {
+      monitor_trafffic_pattern(module_idP, frameP, rb, channel_idP, is_pc5_link);
+    }
   } else {
     LOG_E(RLC, "%s:%d:%s: fatal: no RB found (channel ID %d)\n",
           __FILE__, __LINE__, __FUNCTION__, channel_idP);

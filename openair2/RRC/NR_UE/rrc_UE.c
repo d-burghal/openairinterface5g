@@ -2598,11 +2598,27 @@ void *rrc_nrue_task(void *args_p)
          nr_rrc_handle_timers(timers);
          NR_UE_RRC_SI_INFO *SInfo = &NR_UE_rrc_inst[ue_mod_id].SInfo[NRRRC_SLOT_PROCESS (msg_p).gnb_id];
          nr_rrc_SI_timers(SInfo);
+#ifdef PERIODIC_UE_ASSISTANCE_INFO
          if(NRRRC_SLOT_PROCESS (msg_p).frame % 128 == 0 && NRRRC_SLOT_PROCESS (msg_p).slot == 0 && get_NAS_status()) {
             uint32_t length;
             uint8_t *buffer;
-            length = do_NR_UEAssistanceInformation(&buffer);
+            length = do_NR_UEAssistanceInformation(&buffer, 1);
             PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, NRRRC_SLOT_PROCESS (msg_p).frame, NRRRC_SLOT_PROCESS (msg_p).slot, 0);
+            rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
+            nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL);
+         }
+#endif
+         break;
+
+       case RLC_TRAFFIC_PTN_CHG_IND:
+         LOG_D(NR_RRC, "[UE %d] Received %s: frame %d ch_id %d is_pc5 %d tp_type %d\n",
+               ue_mod_id, ITTI_MSG_NAME (msg_p), RLC_TRAFFIC_PTN_CHG_IND (msg_p).frame, RLC_TRAFFIC_PTN_CHG_IND (msg_p).ch_id,
+               RLC_TRAFFIC_PTN_CHG_IND (msg_p).is_pc5, RLC_TRAFFIC_PTN_CHG_IND (msg_p).tp_type);
+         if(get_NAS_status()) {
+            uint32_t length;
+            uint8_t *buffer;
+            length = do_NR_UEAssistanceInformation(&buffer, RLC_TRAFFIC_PTN_CHG_IND (msg_p).tp_type + 1);
+            PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, RLC_TRAFFIC_PTN_CHG_IND (msg_p).frame, 0, 0);
             rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
             nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL);
          }
