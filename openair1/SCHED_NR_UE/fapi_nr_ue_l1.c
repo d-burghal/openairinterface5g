@@ -178,6 +178,7 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
               crc_ind->crc_list[j].tb_crc_status = 0;
               crc_ind->crc_list[j].timing_advance = 31;
               crc_ind->crc_list[j].ul_cqi = 255;
+              crc_ind->crc_list[j].rssi = 255;
               emul_l1_harq_t *harq = &mac->nr_ue_emul_l1.harq[crc_ind->crc_list[j].harq_id];
               AssertFatal(harq->active_ul_harq_sfn == -1 && harq->active_ul_harq_slot == -1,
                           "We did not send an active CRC when we should have!\n");
@@ -230,6 +231,37 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
               uci_ind->uci_list[j].pdu_size = sizeof(nfapi_nr_uci_pucch_pdu_format_2_3_4_t);
               nfapi_nr_uci_pucch_pdu_format_2_3_4_t *pdu_2_3_4 = &uci_ind->uci_list[j].pucch_pdu_format_2_3_4;
               fill_uci_2_3_4(pdu_2_3_4, &it->pucch_config_pdu);
+
+              // RDF fix
+              if (mac->nr_ue_emul_l1.num_harqs > 0) {
+                int harq_index = 0;
+                pdu_2_3_4->pduBitmap |= 2; // (value->pduBitmap >> 1) & 0x01) == HARQ and (value->pduBitmap) & 0x01) == SR
+                // pdu_2_3_4->harq.num_harq = mac->nr_ue_emul_l1.num_harqs > 0 ? mac->nr_ue_emul_l1.num_harqs : 1;
+                int harq_pid = -1;
+                uint8_t *payload = calloc(1, NR_MAX_HARQ_PROCESSES/8 + 1);
+                for (int k = 0; k < NR_MAX_HARQ_PROCESSES; k++) {
+                  if (mac->nr_ue_emul_l1.harq[k].active && mac->nr_ue_emul_l1.harq[k].active_dl_harq_sfn == uci_ind->sfn
+                      && mac->nr_ue_emul_l1.harq[k].active_dl_harq_slot == uci_ind->slot) {
+                    mac->nr_ue_emul_l1.harq[k].active = false;
+                    harq_pid = k;
+                    // AssertFatal(harq_index < pdu_2_3_4->harq.num_harq, "Invalid harq_index %d\n", harq_index);
+                    // RDF: mac->dl_harq_info[k].ack never gets set anywhere, so below will always indicate NACK.
+                    // pdu_2_3_4->harq.harq_list[harq_index].harq_value = !mac->dl_harq_info[k].ack;
+                    pdu_2_3_4->harq.harq_crc = 0;
+                    payload[harq_index / 8] |= (1 << (harq_index % 8));
+                    harq_index++;
+                  }
+                }
+                pdu_2_3_4->harq.harq_bit_len = harq_index;
+                if (harq_index > 0) {
+                  int num_bytes = harq_index/8 + 1;
+                  pdu_2_3_4->harq.harq_payload = calloc(1, num_bytes);
+                  memcpy(pdu_2_3_4->harq.harq_payload, payload, num_bytes);
+                }
+                free(payload);
+                AssertFatal(harq_pid != -1, "No active harq_pid, sfn_slot = %u.%u", uci_ind->sfn, uci_ind->slot);
+              }
+
             } else {
               nfapi_nr_uci_pucch_pdu_format_0_1_t *pdu_0_1 = &uci_ind->uci_list[j].pucch_pdu_format_0_1;
               uci_ind->uci_list[j].pdu_type = NFAPI_NR_UCI_FORMAT_0_1_PDU_TYPE;
@@ -246,6 +278,7 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
                 pdu_0_1->sr.sr_indication = 1;
                 pdu_0_1->sr.sr_confidence_level = 0;
               }
+              // RDF fix
               if (mac->nr_ue_emul_l1.num_harqs > 0) {
                 int harq_index = 0;
                 pdu_0_1->pduBitmap |= 2; // (value->pduBitmap >> 1) & 0x01) == HARQ and (value->pduBitmap) & 0x01) == SR
