@@ -170,7 +170,8 @@ typedef struct message_buffer_t
     uint32_t magic;             // for sanity checking
 #   define MESSAGE_BUFFER_MAGIC 0x45504953 // arbitrary value
     size_t length;              // number of valid bytes in .data[]
-    uint8_t data[NFAPI_RX_IND_DATA_MAX];
+    // uint8_t data[NFAPI_RX_IND_DATA_MAX];
+    uint8_t *data;
 } message_buffer_t;
 
 // subframe_msgs_t holds all of the messages

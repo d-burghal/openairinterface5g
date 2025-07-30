@@ -2591,6 +2591,9 @@ void oai_slot_ind(uint16_t sfn, uint16_t slot)
         ind.slot = slot;
         ind.header.phy_id = p7_nr_config_g->phy_id;
         ind.header.message_id = NFAPI_NR_PHY_MSG_TYPE_SLOT_INDICATION;
+        pnf_p7_t* pnf_p7 = (pnf_p7_t*)(p7_nr_config_g);
+        pnf_p7->sfn = sfn;
+        pnf_p7->slot = slot;
         int slot_ret = nfapi_pnf_p7_nr_slot_ind(p7_nr_config_g, &ind);
 
         if (slot_ret < 0)
@@ -2635,7 +2638,7 @@ static uint16_t get_message_id(message_buffer_t *msg)
     uint16_t message_id = ~0;
     uint8_t *in = msg->data;
     uint8_t *end = msg->data + msg->length;
-    assert(end <= msg->data + sizeof(msg->data));
+    //assert(end <= msg->data + sizeof(msg->data));
     pull16(&in, &phy_id, end);
     pull16(&in, &message_id, end);
     return message_id;
@@ -2645,7 +2648,7 @@ static bool get_sfnsf(message_buffer_t *msg, uint16_t *sfnsf)
 {
     uint8_t *in = msg->data;
     uint8_t *end = msg->data + msg->length;
-    assert(end <= msg->data + sizeof(msg->data));
+    // assert(end <= msg->data + sizeof(msg->data));
 
     uint16_t phy_id;
     uint16_t message_id;
@@ -2683,7 +2686,7 @@ static bool get_sfnslot(message_buffer_t *msg, uint16_t *sfnslot)
 {
     uint8_t *in = msg->data;
     uint8_t *end = msg->data + msg->length;
-    assert(end <= msg->data + sizeof(msg->data));
+    //assert(end <= msg->data + sizeof(msg->data));
 
     uint16_t phy_id;
     uint16_t message_id;
@@ -2859,7 +2862,7 @@ static void oai_slot_aggregate_rach_ind(slot_msgs_t *msgs)
     {
         message_buffer_t *msg = msgs->msgs[i];
         nfapi_nr_rach_indication_t ind;
-        assert(msg->length <= sizeof(msg->data));
+        // assert(msg->length <= sizeof(msg->data));
 
         if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
         {
@@ -2990,7 +2993,7 @@ static void oai_slot_aggregate_crc_ind(slot_msgs_t *msgs)
     {
         nfapi_nr_crc_indication_t ind;
         message_buffer_t *msg = msgs->msgs[n];
-        assert(msg->length <= sizeof(msg->data));
+        // assert(msg->length <= sizeof(msg->data));
         if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
         {
             NFAPI_TRACE(NFAPI_TRACE_ERROR, "nr_crc indication unpack failed, msg[%zu]", n);
@@ -3250,7 +3253,7 @@ static void oai_slot_aggregate_rx_data_ind(slot_msgs_t *msgs)
     {
         nfapi_nr_rx_data_indication_t ind;
         message_buffer_t *msg = msgs->msgs[n];
-        assert(msg->length <= sizeof(msg->data));
+        // assert(msg->length <= sizeof(msg->data));
         if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
         {
             NFAPI_TRACE(NFAPI_TRACE_ERROR, "rx indication unpack failed, msg[%zu]", n);
@@ -3547,7 +3550,7 @@ static void oai_slot_aggregate_uci_ind(slot_msgs_t *msgs)
     {
         nfapi_nr_uci_indication_t ind;
         message_buffer_t *msg = msgs->msgs[n];
-        assert(msg->length <= sizeof(msg->data));
+        // assert(msg->length <= sizeof(msg->data));
         if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
         {
             NFAPI_TRACE(NFAPI_TRACE_ERROR, "uci indication unpack failed, msg[%zu]", n);
@@ -3878,7 +3881,7 @@ static void oai_slot_aggregate_srs_ind(slot_msgs_t *msgs)
     {
         nfapi_nr_srs_indication_t ind;
         message_buffer_t *msg = msgs->msgs[n];
-        assert(msg->length <= sizeof(msg->data));
+        // assert(msg->length <= sizeof(msg->data));
         if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
         {
             NFAPI_TRACE(NFAPI_TRACE_ERROR, "srs indication unpack failed, msg[%zu]", n);
@@ -4050,7 +4053,7 @@ static void oai_slot_aggregate_message_id(uint16_t msg_id, slot_msgs_t *msgs)
 {
     assert(msgs->num_msgs > 0);
     assert(msgs->msgs[0] != NULL);
-    assert(msgs->msgs[0]->length <= sizeof(msgs->msgs[0]->data));
+    //assert(msgs->msgs[0]->length <= sizeof(msgs->msgs[0]->data));
     uint16_t sfn_slot = nfapi_get_sfnslot(MU, msgs->msgs[0]->data, msgs->msgs[0]->length);
 
     NFAPI_TRACE(NFAPI_TRACE_INFO, "(Proxy gNB) Aggregating collection of %s uplink messages prior to sending to gNB. Frame: %d, Slot: %d",
@@ -4505,7 +4508,7 @@ void *oai_slot_task(void *context)
            arrive to the OAI UE, that the slot will arrive AFTER the TX_DATA_REQ. The relationship
            between slot indications and TX_DATA_REQs are critical to the ACK/nACK procedure.
            This is a temporary fix until will can concretely sync the PNF and VNF. */
-        usleep(300);
+        // usleep(1000);
         transfer_downstream_sfn_slot_to_proxy(sfn_slot_tx); // send to oai UE
         NFAPI_TRACE(NFAPI_TRACE_INFO, "Frame %u Slot %u sent to OAI ue", NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot_tx),
                    NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot_tx));
@@ -4556,7 +4559,7 @@ void *oai_slot_task(void *context)
         #ifndef DISABLE_UE
         uint64_t aggregation_done = clock_usec();
 
-        if (are_queues_empty)
+        if (true || are_queues_empty)
         {
             add_nr_sleep_time(iteration_start, poll_end, slot_sent, aggregation_done);
         }
@@ -4612,11 +4615,12 @@ void oai_slot_handle_msg_from_ue(const void *msg, size_t len, uint16_t nem_id)
         return;
     }
 
-    message_buffer_t *p = malloc(sizeof(message_buffer_t));
+    message_buffer_t *p = malloc(sizeof(message_buffer_t)+sizeof(uint8_t)*len);
     assert(p != NULL);
     p->magic = MESSAGE_BUFFER_MAGIC;
     p->length = len;
-    assert(len < sizeof(p->data));
+    p->data = (uint8_t*)p + sizeof(message_buffer_t);
+    //assert(len < sizeof(p->data));
     memcpy(p->data, msg, len);
 
     if (!put_queue(&msgs_from_nr_ue[i], p))

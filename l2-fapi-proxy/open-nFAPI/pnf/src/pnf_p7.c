@@ -3138,11 +3138,11 @@ int pnf_nr_p7_message_pump(pnf_p7_t* pnf_p7)
 			slot_start = pnf_timespec_add(slot_start, slot_duration);
 
 			//increment sfn/slot
-			if (++pnf_p7->slot == 20)
-                        {
-                                pnf_p7->slot = 0;
-                                pnf_p7->sfn = (pnf_p7->sfn + 1) % 1024;
-                        }
+			// if (++pnf_p7->slot == 20)
+            //             {
+            //                     pnf_p7->slot = 0;
+            //                     pnf_p7->sfn = (pnf_p7->sfn + 1) % 1024;
+            //             }
 			// printf("*** sfn = %d    slot = %d    pselect_start.tv_sec=%ld    nsec=%ld    slot_start.tv_sec=%ld    nsec=%ld    timeout.tv_sec=%ld  nsec=%ld ***\n", 
 			// 	pnf_p7->sfn, pnf_p7->slot, pselect_start.tv_sec, pselect_start.tv_nsec, slot_start.tv_sec, slot_start.tv_nsec, timeout.tv_sec, timeout.tv_nsec);
 			continue;
