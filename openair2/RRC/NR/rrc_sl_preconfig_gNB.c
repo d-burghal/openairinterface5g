@@ -65,7 +65,7 @@ void prepare_nr_sl_SyncConfig_gNB(NR_SL_SyncConfig_r16_t *sl_syncconfig)
   sl_syncconfig->sl_SSB_TimeAllocation3_r16 = NULL;
 
   //SLSS Id
-  sl_syncconfig->sl_SSID_r16 = NULL;
+  sl_syncconfig->sl_SSID_r16 = CALLOC(1, sizeof(long));
 
   // Threshold to be used in coverage
   sl_syncconfig->txParameters_r16.syncTxThreshIC_r16 = NULL;
