@@ -45,6 +45,7 @@
 #define SL_CONFIG_STRING_NROFDOWNLINKSYMBOLS                   "sl_nrofDownlinkSymbols"
 #define SL_CONFIG_STRING_NROFUPLINKSLOTS                       "sl_nrofUplinkSlots"
 #define SL_CONFIG_STRING_NROFUPLINKSYMBOLS                     "sl_nrofUplinkSymbols"
+#define SL_CONFIG_STRING_REFERENCESUBCARRIERSPACING            "referenceSubcarrierSpacing"
 
 // Sidelink sync config parameters in SL-Preconfig.
 // 3 sets possible per sync config list entry
@@ -139,7 +140,8 @@
 {SL_CONFIG_STRING_NROFDOWNLINKSLOTS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1.nrofDownlinkSlots,.defint64val=7,TYPE_INT64,0},\
 {SL_CONFIG_STRING_NROFDOWNLINKSYMBOLS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1.nrofDownlinkSymbols,.defint64val=10,TYPE_INT64,0}, \
 {SL_CONFIG_STRING_NROFUPLINKSLOTS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1.nrofUplinkSlots,.defint64val=2,TYPE_INT64,0},\
-{SL_CONFIG_STRING_NROFUPLINKSYMBOLS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1.nrofUplinkSymbols,.defint64val=4,TYPE_INT64,0}}
+{SL_CONFIG_STRING_NROFUPLINKSYMBOLS,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->pattern1.nrofUplinkSymbols,.defint64val=4,TYPE_INT64,0},\
+{SL_CONFIG_STRING_REFERENCESUBCARRIERSPACING,NULL,0,.i64ptr=&sl_tdd_ul_dl_cfg->referenceSubcarrierSpacing,.defint64val=NR_SubcarrierSpacing_kHz30,TYPE_INT64,0}}
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*             Sidelink Sync config parameters                                                                                                     */
@@ -192,16 +194,10 @@
 {SL_CONFIG_STRING_RESPOOL_PSFCH_HOPID,NULL,0,.i64ptr=sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16,.defint64val=1,TYPE_INT64,0}, \
 {SL_CONFIG_STRING_RESPOOL_PSFCH_CANDIDATERESOURCETYPE,NULL,0,.i64ptr=sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_CandidateResourceType_r16,.defint64val=0,TYPE_INT64,0}}
 
-#define SL_RSRCSELPARAMS_DESC(sl_rsrc_sel_pool) { \
-{SL_CONFIG_STRING_RSRC_SEL_PRIORITY,NULL,0,.i64ptr=&sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16->list.array[0]->sl_Priority_r16,.defint64val=7,TYPE_INT64,0}, \
-{SL_CONFIG_STRING_RSRC_SEL_SELECTION_WINDOW,NULL,0,.i64ptr=&sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16->list.array[0]->sl_SelectionWindow_r16,.defint64val=5,TYPE_INT64,0}, \
-{SL_CONFIG_STRING_RSRC_SEL_SENSING_WINDOW,NULL,0,.i64ptr=sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SensingWindow_r16,.defint64val=6,TYPE_INT64,0}, \
-{SL_CONFIG_STRING_RSRC_SEL_TRESHOLD_RSRP,NULL,0,.i64ptr=sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_Thres_RSRP_List_r16->list.array[0],.defint64val=-128,TYPE_INT64,0}, \
+#define SL_RSRCSELPARAMS_DESC(sl_res_pool) { \
 {SL_CONFIG_STRING_RSRC_SEL_MAXNUM_PER_RESERVE,NULL,0,.i64ptr=sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16,.defint64val=1,TYPE_INT64,0}, \
 {SL_CONFIG_STRING_RSRC_SEL_RESOURCE_RESERVED_PERIOD,NULL,0,.i64ptr=&sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_ResourceReservePeriodList_r16->list.array[0]->choice.sl_ResourceReservePeriod1_r16,.defint64val=100,TYPE_INT64,0}, \
-{SL_CONFIG_STRING_RSRC_SEL_RS_FOR_SENSING,NULL,0,.i64ptr=&sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_RS_ForSensing_r16,.defint64val=1,TYPE_INT64,0}, \
-{SL_CONFIG_STRING_RSRC_SEL_TX_PERCENTAGE,NULL,0,.i64ptr=&sl_res_pool->sl_TxPercentageList_r16->list.array[0]->sl_TxPercentage_r16,.defint64val=0,TYPE_INT64,0}, \
-}
+{SL_CONFIG_STRING_RSRC_SEL_TX_PERCENTAGE,NULL,0,.i64ptr=&sl_res_pool->sl_TxPercentageList_r16->list.array[0]->sl_TxPercentage_r16,.defint64val=0,TYPE_INT64,0}}
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*             Sidelink Top-Level UE Info                                                                                                     */

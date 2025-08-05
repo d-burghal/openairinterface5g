@@ -179,7 +179,7 @@
 {SL_CONFIG_STRING_RESPOOL_PSFCH_HOPID,NULL,0,.i64ptr=sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16,.defint64val=1,TYPE_INT64,0}, \
 {SL_CONFIG_STRING_RESPOOL_PSFCH_CANDIDATERESOURCETYPE,NULL,0,.i64ptr=sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_CandidateResourceType_r16,.defint64val=0,TYPE_INT64,0}}
 
-#define SL_RSRCSELPARAMS_DESC(sl_rsrc_sel_pool) { \
+#define SL_RSRCSELPARAMS_DESC(sl_res_pool) { \
 {SL_CONFIG_STRING_RSRC_SEL_PRIORITY,NULL,0,.i64ptr=&sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16->list.array[0]->sl_Priority_r16,.defint64val=7,TYPE_INT64,0}, \
 {SL_CONFIG_STRING_RSRC_SEL_SELECTION_WINDOW,NULL,0,.i64ptr=&sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SelectionWindowList_r16->list.array[0]->sl_SelectionWindow_r16,.defint64val=5,TYPE_INT64,0}, \
 {SL_CONFIG_STRING_RSRC_SEL_SENSING_WINDOW,NULL,0,.i64ptr=sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_SensingWindow_r16,.defint64val=6,TYPE_INT64,0}, \

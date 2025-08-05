@@ -1812,6 +1812,11 @@ void extract_nr_sl_mac_logical_channel_config(struct NR_SL_LogicalChannelConfig_
     *sl_MAC_LogicalChannelConfig_r16->sl_MaxPUSCH_Duration_r16 = *rcvd_sl_MAC_LogicalChannelConfig_r16->sl_MaxPUSCH_Duration_r16;
   }
 
+  if (rcvd_sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16) {
+    sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16 = CALLOC(1, sizeof(long));
+    *sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16 = *rcvd_sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16;
+  }
+
   if (rcvd_sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16) {
     sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16 = CALLOC(1, sizeof(struct NR_SL_LogicalChannelConfig_r16__sl_AllowedSCS_List_r16));
     for (int j = 0; j < rcvd_sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16->list.count; j++) {
@@ -1833,14 +1838,18 @@ void extract_nr_sl_rlc_config(NR_SL_RLC_Config_r16_t *sl_RLC_Config, NR_SL_RLC_C
     sl_RLC_Config->choice.sl_AM_RLC_r16->sl_MaxRetxThreshold_r16 = rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_MaxRetxThreshold_r16;
     sl_RLC_Config->choice.sl_AM_RLC_r16->sl_PollByte_r16 = rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_PollByte_r16;
     sl_RLC_Config->choice.sl_AM_RLC_r16->sl_PollPDU_r16 = rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_PollPDU_r16;
-    if (rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16) {
+    if (rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16 != NULL) {
       sl_RLC_Config->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16 = CALLOC(1, sizeof(NR_SN_FieldLengthAM_t));
       *sl_RLC_Config->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16 = *rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16;
     }
     sl_RLC_Config->choice.sl_AM_RLC_r16->sl_T_PollRetransmit_r16 = rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_T_PollRetransmit_r16;
   } else if (rcvd_sl_RLC_Config_r16->present == NR_SL_RLC_Config_r16_PR_sl_UM_RLC_r16) {
-    sl_RLC_Config->choice.sl_UM_RLC_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_UM_RLC_r16));
-    sl_RLC_Config->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16 = rcvd_sl_RLC_Config_r16->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16;
+    sl_RLC_Config->present = rcvd_sl_RLC_Config_r16->present;
+    if (rcvd_sl_RLC_Config_r16->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16 != NULL) {
+      sl_RLC_Config->choice.sl_UM_RLC_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_UM_RLC_r16));
+      sl_RLC_Config->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16 = CALLOC(1, sizeof(long));
+      *sl_RLC_Config->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16 = *rcvd_sl_RLC_Config_r16->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16;
+    }
   }
 }
 
@@ -2134,7 +2143,11 @@ void extract_nr_sl_PSCCH_Config(NR_SL_PSCCH_Config_r16_t *recvd_sl_PSCCH_Config,
 void extract_nr_sl_PSSCH_Config(NR_SL_PSSCH_Config_r16_t *recvd_sl_PSSCH_Config, NR_SL_PSSCH_Config_r16_t *targeted_sl_PSSCH_Config) {
   if (recvd_sl_PSSCH_Config->sl_BetaOffsets2ndSCI_r16) {
     targeted_sl_PSSCH_Config->sl_BetaOffsets2ndSCI_r16 = CALLOC(1, sizeof(struct NR_SL_PSSCH_Config_r16__sl_BetaOffsets2ndSCI_r16));
-    *targeted_sl_PSSCH_Config->sl_BetaOffsets2ndSCI_r16 = *recvd_sl_PSSCH_Config->sl_BetaOffsets2ndSCI_r16;
+    for (int i = 0; i < recvd_sl_PSSCH_Config->sl_BetaOffsets2ndSCI_r16->list.count; i++) {
+      NR_SL_BetaOffsets_r16_t *nr_sl_BetaOffsets = CALLOC(1, sizeof(NR_SL_BetaOffsets_r16_t));
+      *nr_sl_BetaOffsets = *recvd_sl_PSSCH_Config->sl_BetaOffsets2ndSCI_r16->list.array[i];
+      ASN_SEQUENCE_ADD(&targeted_sl_PSSCH_Config->sl_BetaOffsets2ndSCI_r16->list, nr_sl_BetaOffsets);
+    }
   }
 
   if (recvd_sl_PSSCH_Config->sl_Scaling_r16) {
@@ -2192,102 +2205,114 @@ void extract_nr_sl_PSFCH_Config(NR_SL_PSFCH_Config_r16_t *recvd_sl_PSFCH_Config,
 }
 
 // Process PSFCH Configurations received from gNB
-void extract_nr_sl_Rest_ResourcePool_Config(struct NR_SL_ResourcePool_r16 *sl_RxPool_r16, struct NR_SL_ResourcePool_r16 *recvd_sl_RxPool) {
+void extract_nr_sl_Rest_ResourcePool_Config(struct NR_SL_ResourcePool_r16 *sl_ResourcePool, struct NR_SL_ResourcePool_r16 *recvd_sl_RxPool) {
   if (recvd_sl_RxPool->sl_SyncAllowed_r16) {
-    sl_RxPool_r16->sl_SyncAllowed_r16 = CALLOC(1, sizeof(NR_SL_SyncAllowed_r16_t));
+    sl_ResourcePool->sl_SyncAllowed_r16 = CALLOC(1, sizeof(NR_SL_SyncAllowed_r16_t));
     if (recvd_sl_RxPool->sl_SyncAllowed_r16->gnbEnb_Sync_r16) {
-      sl_RxPool_r16->sl_SyncAllowed_r16->gnbEnb_Sync_r16 = CALLOC(1, sizeof(long));
-      *sl_RxPool_r16->sl_SyncAllowed_r16->gnbEnb_Sync_r16 = *recvd_sl_RxPool->sl_SyncAllowed_r16->gnbEnb_Sync_r16;
+      sl_ResourcePool->sl_SyncAllowed_r16->gnbEnb_Sync_r16 = CALLOC(1, sizeof(long));
+      *sl_ResourcePool->sl_SyncAllowed_r16->gnbEnb_Sync_r16 = *recvd_sl_RxPool->sl_SyncAllowed_r16->gnbEnb_Sync_r16;
     }
     if (recvd_sl_RxPool->sl_SyncAllowed_r16->gnss_Sync_r16) {
-      sl_RxPool_r16->sl_SyncAllowed_r16->gnss_Sync_r16 = CALLOC(1, sizeof(long));
-      *sl_RxPool_r16->sl_SyncAllowed_r16->gnss_Sync_r16 = *recvd_sl_RxPool->sl_SyncAllowed_r16->gnss_Sync_r16;
+      sl_ResourcePool->sl_SyncAllowed_r16->gnss_Sync_r16 = CALLOC(1, sizeof(long));
+      *sl_ResourcePool->sl_SyncAllowed_r16->gnss_Sync_r16 = *recvd_sl_RxPool->sl_SyncAllowed_r16->gnss_Sync_r16;
     }
     if (recvd_sl_RxPool->sl_SyncAllowed_r16->ue_Sync_r16) {
-      sl_RxPool_r16->sl_SyncAllowed_r16->ue_Sync_r16 = CALLOC(1, sizeof(long));
-      *sl_RxPool_r16->sl_SyncAllowed_r16->ue_Sync_r16 = *recvd_sl_RxPool->sl_SyncAllowed_r16->ue_Sync_r16;
+      sl_ResourcePool->sl_SyncAllowed_r16->ue_Sync_r16 = CALLOC(1, sizeof(long));
+      *sl_ResourcePool->sl_SyncAllowed_r16->ue_Sync_r16 = *recvd_sl_RxPool->sl_SyncAllowed_r16->ue_Sync_r16;
     }
   }
 
   if (recvd_sl_RxPool->sl_SubchannelSize_r16) {
-    sl_RxPool_r16->sl_SubchannelSize_r16 = CALLOC(1, sizeof(long));
-    *sl_RxPool_r16->sl_SubchannelSize_r16 = *recvd_sl_RxPool->sl_SubchannelSize_r16;
+    sl_ResourcePool->sl_SubchannelSize_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_SubchannelSize_r16 = *recvd_sl_RxPool->sl_SubchannelSize_r16;
   }
 
   if (recvd_sl_RxPool->dummy) {
-    sl_RxPool_r16->dummy = CALLOC(1, sizeof(long));
-    *sl_RxPool_r16->dummy = *recvd_sl_RxPool->dummy;
+    sl_ResourcePool->dummy = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->dummy = *recvd_sl_RxPool->dummy;
   }
 
   if (recvd_sl_RxPool->sl_StartRB_Subchannel_r16) {
-    sl_RxPool_r16->sl_StartRB_Subchannel_r16 = CALLOC(1, sizeof(long));
-    *sl_RxPool_r16->sl_StartRB_Subchannel_r16 = *recvd_sl_RxPool->sl_StartRB_Subchannel_r16;
+    sl_ResourcePool->sl_StartRB_Subchannel_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_StartRB_Subchannel_r16 = *recvd_sl_RxPool->sl_StartRB_Subchannel_r16;
   }
 
   if (recvd_sl_RxPool->sl_NumSubchannel_r16) {
-    sl_RxPool_r16->sl_NumSubchannel_r16 = CALLOC(1, sizeof(long));
-    *sl_RxPool_r16->sl_NumSubchannel_r16 = *recvd_sl_RxPool->sl_NumSubchannel_r16;
+    sl_ResourcePool->sl_NumSubchannel_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_NumSubchannel_r16 = *recvd_sl_RxPool->sl_NumSubchannel_r16;
   }
 
   if (recvd_sl_RxPool->sl_Additional_MCS_Table_r16) {
-    sl_RxPool_r16->sl_Additional_MCS_Table_r16 = CALLOC(1, sizeof(long));
-    *sl_RxPool_r16->sl_Additional_MCS_Table_r16 = *recvd_sl_RxPool->sl_Additional_MCS_Table_r16;
+    sl_ResourcePool->sl_Additional_MCS_Table_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_Additional_MCS_Table_r16 = *recvd_sl_RxPool->sl_Additional_MCS_Table_r16;
   }
 
   if (recvd_sl_RxPool->sl_ThreshS_RSSI_CBR_r16) {
-    sl_RxPool_r16->sl_ThreshS_RSSI_CBR_r16 = CALLOC(1, sizeof(long));
-    *sl_RxPool_r16->sl_ThreshS_RSSI_CBR_r16 = *recvd_sl_RxPool->sl_ThreshS_RSSI_CBR_r16;
+    sl_ResourcePool->sl_ThreshS_RSSI_CBR_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_ThreshS_RSSI_CBR_r16 = *recvd_sl_RxPool->sl_ThreshS_RSSI_CBR_r16;
   }
 
   if (recvd_sl_RxPool->sl_TimeWindowSizeCBR_r16) {
-    sl_RxPool_r16->sl_TimeWindowSizeCBR_r16 = CALLOC(1, sizeof(long));
-    *sl_RxPool_r16->sl_TimeWindowSizeCBR_r16 = *recvd_sl_RxPool->sl_TimeWindowSizeCBR_r16;
+    sl_ResourcePool->sl_TimeWindowSizeCBR_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_TimeWindowSizeCBR_r16 = *recvd_sl_RxPool->sl_TimeWindowSizeCBR_r16;
   }
 
   if (recvd_sl_RxPool->sl_TimeWindowSizeCR_r16) {
-    sl_RxPool_r16->sl_TimeWindowSizeCR_r16 = CALLOC(1, sizeof(long));
-    *sl_RxPool_r16->sl_TimeWindowSizeCR_r16 = *recvd_sl_RxPool->sl_TimeWindowSizeCR_r16;
+    sl_ResourcePool->sl_TimeWindowSizeCR_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_TimeWindowSizeCR_r16 = *recvd_sl_RxPool->sl_TimeWindowSizeCR_r16;
   }
 
   if (recvd_sl_RxPool->sl_UE_SelectedConfigRP_r16) {
-    sl_RxPool_r16->sl_UE_SelectedConfigRP_r16 = CALLOC(1, sizeof(struct NR_SL_UE_SelectedConfigRP_r16));
-    sl_RxPool_r16->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16 = CALLOC(1, sizeof(long));
-    *sl_RxPool_r16->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16 = *recvd_sl_RxPool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16;
+    sl_ResourcePool->sl_UE_SelectedConfigRP_r16 = CALLOC(1, sizeof(struct NR_SL_UE_SelectedConfigRP_r16));
+    sl_ResourcePool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16 = *recvd_sl_RxPool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16;
   }
 
   if (recvd_sl_RxPool->sl_RxParametersNcell_r16) {
-    sl_RxPool_r16->sl_RxParametersNcell_r16 = CALLOC(1, sizeof(struct NR_SL_ResourcePool_r16__sl_RxParametersNcell_r16));
-    sl_RxPool_r16->sl_RxParametersNcell_r16->sl_SyncConfigIndex_r16 = recvd_sl_RxPool->sl_RxParametersNcell_r16->sl_SyncConfigIndex_r16;
+    sl_ResourcePool->sl_RxParametersNcell_r16 = CALLOC(1, sizeof(struct NR_SL_ResourcePool_r16__sl_RxParametersNcell_r16));
+    sl_ResourcePool->sl_RxParametersNcell_r16->sl_SyncConfigIndex_r16 = recvd_sl_RxPool->sl_RxParametersNcell_r16->sl_SyncConfigIndex_r16;
+    sl_ResourcePool->sl_RxParametersNcell_r16->sl_TDD_Configuration_r16 = CALLOC(1, sizeof(struct NR_TDD_UL_DL_ConfigCommon));
+    struct NR_TDD_UL_DL_ConfigCommon *sl_TDD_Configuration_r16 = sl_ResourcePool->sl_RxParametersNcell_r16->sl_TDD_Configuration_r16;
+    sl_TDD_Configuration_r16->pattern1.ext1 = NULL;
+    sl_TDD_Configuration_r16->pattern2 = NULL;
+    struct NR_TDD_UL_DL_ConfigCommon *recvd_sl_TDD_Configuration_r16 = recvd_sl_RxPool->sl_RxParametersNcell_r16->sl_TDD_Configuration_r16;
+    sl_TDD_Configuration_r16->referenceSubcarrierSpacing = recvd_sl_TDD_Configuration_r16->referenceSubcarrierSpacing;
+    sl_TDD_Configuration_r16->pattern1.dl_UL_TransmissionPeriodicity = recvd_sl_TDD_Configuration_r16->pattern1.dl_UL_TransmissionPeriodicity;
+    sl_TDD_Configuration_r16->pattern1.nrofDownlinkSlots = recvd_sl_TDD_Configuration_r16->pattern1.nrofDownlinkSlots;
+    sl_TDD_Configuration_r16->pattern1.nrofDownlinkSymbols = recvd_sl_TDD_Configuration_r16->pattern1.nrofDownlinkSymbols;
+    sl_TDD_Configuration_r16->pattern1.nrofUplinkSlots = recvd_sl_TDD_Configuration_r16->pattern1.nrofUplinkSlots;
+    sl_TDD_Configuration_r16->pattern1.nrofUplinkSymbols = recvd_sl_TDD_Configuration_r16->pattern1.nrofUplinkSymbols;
   }
 
-  sl_RxPool_r16->sl_FilterCoefficient_r16 = NULL;
+  sl_ResourcePool->sl_FilterCoefficient_r16 = NULL;
 
   if (recvd_sl_RxPool->sl_RB_Number_r16) {
-    sl_RxPool_r16->sl_RB_Number_r16 = CALLOC(1, sizeof(long));
-    *sl_RxPool_r16->sl_RB_Number_r16 = *recvd_sl_RxPool->sl_RB_Number_r16;
+    sl_ResourcePool->sl_RB_Number_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_RB_Number_r16 = *recvd_sl_RxPool->sl_RB_Number_r16;
   }
 
-  sl_RxPool_r16->sl_PreemptionEnable_r16 = NULL;
-  sl_RxPool_r16->sl_PriorityThreshold_UL_URLLC_r16 = NULL;
-  sl_RxPool_r16->sl_PriorityThreshold_r16 = NULL;
-  sl_RxPool_r16->sl_X_Overhead_r16 = NULL;
+  sl_ResourcePool->sl_PreemptionEnable_r16 = NULL;
+  sl_ResourcePool->sl_PriorityThreshold_UL_URLLC_r16 = NULL;
+  sl_ResourcePool->sl_PriorityThreshold_r16 = NULL;
+  sl_ResourcePool->sl_X_Overhead_r16 = NULL;
 
   if (recvd_sl_RxPool->sl_PowerControl_r16) {
-    sl_RxPool_r16->sl_PowerControl_r16 = CALLOC(1, sizeof(*recvd_sl_RxPool->sl_PowerControl_r16));
-    sl_RxPool_r16->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16 = CALLOC(1, sizeof(*sl_RxPool_r16->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16));
-    *sl_RxPool_r16->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16 = 0;
+    sl_ResourcePool->sl_PowerControl_r16 = CALLOC(1, sizeof(*recvd_sl_RxPool->sl_PowerControl_r16));
+    sl_ResourcePool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16 = CALLOC(1, sizeof(*sl_ResourcePool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16));
+    *sl_ResourcePool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16 = 0;
   }
 
-  sl_RxPool_r16->sl_MinMaxMCS_List_r16 = NULL;
+  sl_ResourcePool->sl_MinMaxMCS_List_r16 = NULL;
 
   if (recvd_sl_RxPool->ext1 &&
       recvd_sl_RxPool->ext1->sl_TimeResource_r16) {
-    sl_RxPool_r16->ext1 = CALLOC(1, sizeof(*sl_RxPool_r16->ext1));
-    sl_RxPool_r16->ext1->sl_TimeResource_r16 = CALLOC(1, sizeof(*sl_RxPool_r16->ext1->sl_TimeResource_r16));
-    sl_RxPool_r16->ext1->sl_TimeResource_r16->size = recvd_sl_RxPool->ext1->sl_TimeResource_r16->size;
-    sl_RxPool_r16->ext1->sl_TimeResource_r16->bits_unused = recvd_sl_RxPool->ext1->sl_TimeResource_r16->bits_unused;
-    sl_RxPool_r16->ext1->sl_TimeResource_r16->buf = CALLOC(sl_RxPool_r16->ext1->sl_TimeResource_r16->size, sizeof(uint8_t));
-    memcpy(sl_RxPool_r16->ext1->sl_TimeResource_r16->buf, recvd_sl_RxPool->ext1->sl_TimeResource_r16->buf, sl_RxPool_r16->ext1->sl_TimeResource_r16->size);
+    sl_ResourcePool->ext1 = CALLOC(1, sizeof(*sl_ResourcePool->ext1));
+    sl_ResourcePool->ext1->sl_TimeResource_r16 = CALLOC(1, sizeof(*sl_ResourcePool->ext1->sl_TimeResource_r16));
+    sl_ResourcePool->ext1->sl_TimeResource_r16->size = recvd_sl_RxPool->ext1->sl_TimeResource_r16->size - 1;
+    sl_ResourcePool->ext1->sl_TimeResource_r16->bits_unused = recvd_sl_RxPool->ext1->sl_TimeResource_r16->bits_unused;
+    sl_ResourcePool->ext1->sl_TimeResource_r16->buf = CALLOC(sl_ResourcePool->ext1->sl_TimeResource_r16->size, sizeof(uint8_t));
+    // Copy all but the last byte to exclude ASN.1 workaround (0xFF) for trailing 0 bits
+    memcpy(sl_ResourcePool->ext1->sl_TimeResource_r16->buf, recvd_sl_RxPool->ext1->sl_TimeResource_r16->buf, recvd_sl_RxPool->ext1->sl_TimeResource_r16->size - 1);
   }
 }
 
