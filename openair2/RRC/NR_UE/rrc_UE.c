@@ -2114,6 +2114,9 @@ void nr_rrc_ue_process_sl_ConfigDedicatedNR(const protocol_ctxt_t *const ctxt_pP
     }
   }
   xer_fprint(stdout, &asn_DEF_NR_SL_PHY_MAC_RLC_Config_r16, (void *)sl_PHY_MAC_RLC_Config);
+  uint8_t is_sync_source = get_nrUE_params()->sync_ref;
+  NR_UE_MAC_INST_t *mac = get_mac_inst(ctxt_pP->module_id);
+  nr_UE_configure_Sidelink_Dedicated_Cfg(0, is_sync_source, mac->src_id);
 }
 
 // Process PSCCH Configurations received from gNB

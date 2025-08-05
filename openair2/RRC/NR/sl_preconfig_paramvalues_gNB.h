@@ -53,6 +53,7 @@
 #define SL_CONFIG_STRING_SL_NUMSSB_WITHINPERIOD_0              "sl_NumSSB_WithinPeriod_0"
 #define SL_CONFIG_STRING_SL_TIMEOFFSET_SSB_0                   "sl_TimeOffsetSSB_0"
 #define SL_CONFIG_STRING_SL_TIMEINTERVAL_0                     "sl_TimeInterval_0"
+#define SL_CONFIG_STRING_SL_SSID                               "sl_SSID_r16"
 #define SL_CONFIG_STRING_SL_NUMSSB_WITHINPERIOD_1              "sl_NumSSB_WithinPeriod_1"
 #define SL_CONFIG_STRING_SL_TIMEOFFSET_SSB_1                   "sl_TimeOffsetSSB_1"
 #define SL_CONFIG_STRING_SL_TIMEINTERVAL_1                     "sl_TimeInterval_1"
@@ -155,7 +156,8 @@
 #define SL_SYNCPARAMS_DESC(sl_syncconfig) { \
 {SL_CONFIG_STRING_SL_NUMSSB_WITHINPERIOD_0,NULL,0,.i64ptr=sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_NumSSB_WithinPeriod_r16,.defint64val=1,TYPE_INT64,0}, \
 {SL_CONFIG_STRING_SL_TIMEOFFSET_SSB_0,NULL,0,.i64ptr=sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_TimeOffsetSSB_r16,.defint64val=8,TYPE_INT64,0},\
-{SL_CONFIG_STRING_SL_TIMEINTERVAL_0,NULL,0,.i64ptr=sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_TimeInterval_r16,.defint64val=60,TYPE_INT64,0}}
+{SL_CONFIG_STRING_SL_TIMEINTERVAL_0,NULL,0,.i64ptr=sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_TimeInterval_r16,.defint64val=60,TYPE_INT64,0},\
+{SL_CONFIG_STRING_SL_SSID,NULL,0,.i64ptr=sl_syncconfig->sl_SSID_r16,.defint64val=1,TYPE_INT64,0}}
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*             Sidelink BWP Config parameters                                                                                                     */

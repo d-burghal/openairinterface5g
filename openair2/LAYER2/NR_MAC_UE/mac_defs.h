@@ -681,6 +681,7 @@ typedef struct {
 
 // sidelink
   NR_SL_BWP_ConfigCommon_r16_t *sl_bwp;
+  NR_SL_BWP_Config_r16_t *sl_bwp_dedicated;
   int max_fb_time;
   NR_SL_ResourcePool_r16_t *sl_rx_res_pool;
   NR_SL_ResourcePool_r16_t *sl_tx_res_pool;

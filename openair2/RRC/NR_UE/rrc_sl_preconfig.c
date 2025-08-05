@@ -639,10 +639,6 @@ void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *uein
   } else if (get_softmodem_params()->sl_mode == 1) {
     // SL RadioBearers
     add_srap_entity(ueinfo->srcid);
-    // configure RLC
-    for (int i = 0; i < sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.count; i++) {
-      nr_rlc_add_drb_sl(ueinfo->srcid, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
-    }
   }
 
   //TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.
@@ -678,6 +674,72 @@ void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *uein
 
 }
 
+/*
+* This functions configures SIdelink operation in the UE.
+* RRC configures MAC with sidelink parameters
+* In case UE is a sync source/Master UE - then sends transmit SLSS REQ
+*/
+void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, int src_id) {
+
+  NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[id];
+
+  AssertFatal(rrc, "Check if rrc instance was created.");
+
+  NR_SL_ConfigDedicatedNR_r16_t *nr_sl_dedicated_cfg = rrc->nr_sl_dedicated_cfg;
+  AssertFatal(nr_sl_dedicated_cfg, "Check if SL dedicated config was created.");
+
+  uint8_t sync_source = SL_SYNC_SOURCE_NONE;
+
+  if (is_sync_source) {
+    sync_source = SL_SYNC_SOURCE_GNBENB;
+  }
+
+  nr_rrc_mac_config_req_sl_dedicated_config(0, rrc->nr_sl_dedicated_cfg, sync_source);
+  if (get_softmodem_params()->sl_mode == 1) {
+    // SL RadioBearers
+    add_srap_entity(src_id);
+    // configure RLC
+    for (int i = 0; i < nr_sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.count; i++) {
+      nr_rlc_add_drb_sl(src_id, 1, (NR_SL_RLC_BearerConfig_r16_t *)nr_sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.array[i]);
+    }
+  }
+  // TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.
+  // Currently hardcoding the values to these
+  uint16_t slss_id = 671, ssb_ta_index = 1;
+  // 12 bits -sl-TDD-config will be filled by MAC
+  // Incoverage 1bit is FALSE
+  // DFN, sfn will be filled by PHY
+  uint8_t sl_mib_payload[4] = {0, 0, 0, 0};
+
+  NR_SL_SSB_TimeAllocation_r16_t *ssb_ta = NULL;
+  NR_SL_FreqConfig_r16_t *fcfg = NULL;
+  NR_SL_SyncConfig_r16_t *synccfg = NULL;
+  struct NR_SL_PHY_MAC_RLC_Config_r16__sl_FreqInfoToAddModList_r16 *sl_FreqInfoToAddModList = rrc->nr_sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_FreqInfoToAddModList_r16;
+  if (sl_FreqInfoToAddModList)
+    fcfg = sl_FreqInfoToAddModList->list.array[0];
+  AssertFatal(fcfg, "Fcfg cannot be NULL\n");
+  if (fcfg->sl_SyncConfigList_r16)
+    synccfg = fcfg->sl_SyncConfigList_r16->list.array[0];
+  AssertFatal(synccfg, "Synccfg cannot be NULL\n");
+
+  if (ssb_ta_index == 1)
+    ssb_ta = synccfg->sl_SSB_TimeAllocation1_r16;
+  else if (ssb_ta_index == 2)
+    ssb_ta = synccfg->sl_SSB_TimeAllocation2_r16;
+  else if (ssb_ta_index == 3)
+    ssb_ta = synccfg->sl_SSB_TimeAllocation3_r16;
+  else DevAssert(0);
+
+  AssertFatal(ssb_ta, "SSB_timeallocation cannot be NULL\n");
+
+  if (get_softmodem_params()->sl_mode == 2) {
+    slss_id = 671;
+  } else if (get_softmodem_params()->sl_mode == 1) {
+    slss_id = *synccfg->sl_SSID_r16;
+  }
+  if (sync_source == SL_SYNC_SOURCE_GNBENB)
+    nr_rrc_mac_transmit_slss_req(id, sl_mib_payload, slss_id, ssb_ta);
+}
 
 /*decode SL-BCH (SL-MIB) message*/
 static int8_t nr_sl_rrc_ue_decode_SL_MIB(const module_id_t module_id,
