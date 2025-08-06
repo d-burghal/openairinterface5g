@@ -2877,7 +2877,7 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
   return secondaryCellGroup;
 }
 
-void nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_ConfigDedicatedNR, rnti_t sl_rnti) {
+void nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_ConfigDedicatedNR, rnti_t sl_rnti, NR_SL_TxResourceReqList_r16_t *sl_TxRscReqList_r16) {
   sl_ConfigDedicatedNR->present = NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_setup;
   sl_ConfigDedicatedNR->choice.setup = CALLOC(1, sizeof(NR_SL_ConfigDedicatedNR_r16_t));
   sl_ConfigDedicatedNR->choice.setup->sl_PHY_MAC_RLC_Config_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16));
@@ -2954,13 +2954,21 @@ void nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(NR_SetupRelease_S
   ASN_SEQUENCE_ADD(&sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16->list, sl_AllowedCG);
 
   //RLC channel configurations
+  struct NR_SL_TxResourceReq_r16 *txResourceReq = sl_TxRscReqList_r16->list.array[0];
+  struct NR_SL_RLC_ModeIndication_r16 *rlc_modeIndi = txResourceReq->sl_RLC_ModeIndicationList_r16->list.array[0];
   sl_RLC_BearerConfig->sl_RLC_Config_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16));
-  sl_RLC_BearerConfig->sl_RLC_Config_r16->present = NR_SL_RLC_Config_r16_PR_sl_UM_RLC_r16;
-  sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_UM_RLC_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_UM_RLC_r16));
-  struct NR_SL_RLC_Config_r16__sl_UM_RLC_r16 *sl_UM_RLC = sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_UM_RLC_r16;
-  sl_UM_RLC->sl_SN_FieldLengthUM_r16 = CALLOC(1, sizeof(long));
-  *sl_UM_RLC->sl_SN_FieldLengthUM_r16 = NR_SN_FieldLengthUM_size6;
-
+  if (rlc_modeIndi->sl_Mode_r16.present == NR_SL_RLC_ModeIndication_r16__sl_Mode_r16_PR_sl_AM_Mode_r16) {
+    sl_RLC_BearerConfig->sl_RLC_Config_r16->present = NR_SL_RLC_Config_r16_PR_sl_AM_RLC_r16;
+    sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_AM_RLC_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_AM_RLC_r16));
+    struct NR_SL_RLC_Config_r16__sl_AM_RLC_r16* sl_RLC_ChannelConfig_AM = sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_AM_RLC_r16;
+    sl_RLC_ChannelConfig_AM->sl_SN_FieldLengthAM_r16 = CALLOC(1, sizeof(long));
+  }
+  else if (rlc_modeIndi->sl_Mode_r16.present == NR_SL_RLC_ModeIndication_r16__sl_Mode_r16_PR_sl_UM_Mode_r16) {
+    sl_RLC_BearerConfig->sl_RLC_Config_r16->present = NR_SL_RLC_Config_r16_PR_sl_UM_RLC_r16;
+    sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_UM_RLC_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_UM_RLC_r16));
+    struct NR_SL_RLC_Config_r16__sl_UM_RLC_r16* sl_RLC_ChannelConfig_UM = sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_UM_RLC_r16;
+    sl_RLC_ChannelConfig_UM->sl_SN_FieldLengthUM_r16 = CALLOC(1, sizeof(long));
+  }
   sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16 = CALLOC(1, sizeof(long));
   sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_MaxPUSCH_Duration_r16 = CALLOC(1, sizeof(long));
   sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16 = CALLOC(1, sizeof(long));
@@ -2999,6 +3007,7 @@ void nr_rrc_pre_configure_SL_L2RelayUE_Config(NR_SetupRelease_SL_L2RelayUE_Confi
   sl_RemoteUE_ToAddMod->sl_L2IdentityRemote_r17.buf[0] = 0x1;
 
   sl_RemoteUE_ToAddMod->sl_SRAP_ConfigRelay_r17 = CALLOC(1, sizeof(struct NR_SL_SRAP_Config_r17));
+  sl_RemoteUE_ToAddMod->sl_SRAP_ConfigRelay_r17->sl_LocalIdentity_r17 = CALLOC(1, sizeof(long));
   *sl_RemoteUE_ToAddMod->sl_SRAP_ConfigRelay_r17->sl_LocalIdentity_r17 = 0x1;
   sl_RemoteUE_ToAddMod->sl_SRAP_ConfigRelay_r17->sl_MappingToAddModList_r17 = CALLOC(1, sizeof(struct NR_SL_SRAP_Config_r17__sl_MappingToAddModList_r17));
 

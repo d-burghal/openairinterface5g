@@ -80,6 +80,7 @@
 #include "NR_PCCH-Message.h"
 #include "NR_PagingRecord.h"
 #include "NR_UE-CapabilityRequestFilterNR.h"
+#include "NR_UECapabilityInformationSidelink.h"
 #include "common/utils/nr/nr_common.h"
 #if defined(NR_Rel16)
   #include "NR_SCS-SpecificCarrier.h"
@@ -1105,8 +1106,8 @@ uint8_t do_NR_UEAssistanceInformation(uint8_t **buffer, long tp_type) {
 
     encoded = uper_encode_to_new_buffer(&asn_DEF_NR_UL_DCCH_Message, NULL, (void *) &ul_dcch_msg, (void **) buffer);
     AssertFatal(encoded > 0, "ASN1 message encoding failed (%s, %ld)!\n",
-                "NR_SL_UE_AssistanceInformationNR_r16",encoded);
-    LOG_I(NR_RRC, "NR_SL_UE_AssistanceInformationNR_r16 Encoded %zd bytes\n",encoded);
+                "NR_SL_UE_AssistanceInformationNR_r16", encoded);
+    LOG_D(NR_RRC, "NR_SL_UE_AssistanceInformationNR_r16 Encoded %zd bytes\n", encoded);
 
     free(trafficPattern->messageSize_r16.buf);
     free(trafficPattern);
@@ -1142,16 +1143,16 @@ uint8_t do_NR_SidelinkUEInformation(uint8_t **buffer, uint32_t pdu_length, uint8
 
     NR_SL_DestinationIdentity_r16_t *destIdentity = CALLOC(1, sizeof(NR_SL_DestinationIdentity_r16_t));
     destIdentity->buf = CALLOC(1, sizeof(uint8_t));
-    destIdentity->buf[0] = 0;
+    destIdentity->buf[0] = 0x1;
     destIdentity->size = 1;
-    destIdentity->bits_unused = 7;
+    destIdentity->bits_unused = 0;
     txResourceReq->sl_DestinationIdentity_r16 = *destIdentity;
 
     txResourceReq->sl_CastType_r16 = 2 ; //ENUMERATED {broadcast, groupcast, unicast, spare1},
 
     struct NR_SL_RLC_ModeIndication_r16 *rlc_modeIndi = CALLOC(1, sizeof(struct NR_SL_RLC_ModeIndication_r16));
-    rlc_modeIndi->sl_Mode_r16.present = NR_SL_RLC_ModeIndication_r16__sl_Mode_r16_PR_sl_AM_Mode_r16;
-    rlc_modeIndi->sl_Mode_r16.choice.sl_AM_Mode_r16 = (NULL_t)0;
+    rlc_modeIndi->sl_Mode_r16.present = NR_SL_RLC_ModeIndication_r16__sl_Mode_r16_PR_sl_UM_Mode_r16;
+    rlc_modeIndi->sl_Mode_r16.choice.sl_UM_Mode_r16 = (NULL_t)0;
 
     NR_SL_QoS_Info_r16_t *rlc_QoS_info = CALLOC(1, sizeof(NR_SL_QoS_Info_r16_t));
     rlc_QoS_info->sl_QoS_FlowIdentity_r16 = 1;
@@ -1203,11 +1204,57 @@ uint8_t do_NR_SidelinkUEInformation(uint8_t **buffer, uint32_t pdu_length, uint8
     long temp_txFreq = 1;
     ASN_SEQUENCE_ADD(&txResourceReq->sl_TxInterestedFreqList_r16->list, &temp_txFreq);
 
-    OCTET_STRING_t sl_capaInfo;
-    sl_capaInfo.buf = CALLOC(1, sizeof(uint8_t));
-    sl_capaInfo.buf[0] = 0;
-    sl_capaInfo.size = 1;
-    txResourceReq->sl_CapabilityInformationSidelink_r16 = &sl_capaInfo;
+    NR_UECapabilityInformationSidelink_r16_IEs_t *ueCapaInfoSl_r16 = CALLOC(1, sizeof(struct NR_UECapabilityInformationSidelink_r16_IEs));
+    ueCapaInfoSl_r16->accessStratumReleaseSidelink_r16 = 0x0;
+    ueCapaInfoSl_r16->pdcp_ParametersSidelink_r16 = NULL;
+    ueCapaInfoSl_r16->rlc_ParametersSidelink_r16 = NULL;
+    ueCapaInfoSl_r16->supportedBandCombinationListSidelinkNR_r16 = NULL;
+    ueCapaInfoSl_r16->nonCriticalExtension = NULL;
+    struct NR_BandSidelinkPC5_r16 *bandSlPC5_r16 = CALLOC(1, sizeof(struct NR_BandSidelinkPC5_r16));
+    bandSlPC5_r16->freqBandSidelink_r16 = 38;
+    bandSlPC5_r16->sl_Reception_r16 = CALLOC(1, sizeof(struct NR_BandSidelinkPC5_r16__sl_Reception_r16));
+    bandSlPC5_r16->sl_Reception_r16->harq_RxProcessSidelink_r16 = 0;
+    bandSlPC5_r16->sl_Reception_r16->pscch_RxSidelink_r16 = 0;
+    bandSlPC5_r16->sl_Reception_r16->scs_CP_PatternRxSidelink_r16 = CALLOC(1, sizeof(struct  NR_BandSidelinkPC5_r16__sl_Reception_r16__scs_CP_PatternRxSidelink_r16));
+    bandSlPC5_r16->sl_Reception_r16->scs_CP_PatternRxSidelink_r16->present = NR_BandSidelinkPC5_r16__sl_Reception_r16__scs_CP_PatternRxSidelink_r16_PR_fr1_r16;
+    bandSlPC5_r16->sl_Reception_r16->scs_CP_PatternRxSidelink_r16->choice.fr1_r16 = CALLOC(1, sizeof(struct NR_BandSidelinkPC5_r16__sl_Reception_r16__scs_CP_PatternRxSidelink_r16__fr1_r16));
+    BIT_STRING_t *CP_PatternRxSl = CALLOC(1, sizeof(BIT_STRING_t));
+    CP_PatternRxSl->buf = CALLOC(1, sizeof(uint8_t));
+    CP_PatternRxSl->buf[0] = 0x1;
+    CP_PatternRxSl->size = 1;
+    CP_PatternRxSl->bits_unused = 0;
+    bandSlPC5_r16->sl_Reception_r16->scs_CP_PatternRxSidelink_r16->choice.fr1_r16->scs_30kHz_r16 = CP_PatternRxSl;
+    bandSlPC5_r16->sl_Reception_r16->scs_CP_PatternRxSidelink_r16->choice.fr2_r16 = NULL;
+    bandSlPC5_r16->sl_Reception_r16->extendedCP_RxSidelink_r16 = NULL;
+    bandSlPC5_r16->sl_Tx_256QAM_r16 = NULL;
+    bandSlPC5_r16->lowSE_64QAM_MCS_TableSidelink_r16 = NULL;
+    bandSlPC5_r16->ext1 = NULL;
+    bandSlPC5_r16->ext2 = NULL;
+    ASN_SEQUENCE_ADD(&ueCapaInfoSl_r16->supportedBandListSidelink_r16->list, bandSlPC5_r16);
+    ueCapaInfoSl_r16->appliedFreqBandListFilter_r16 = NULL;
+    ueCapaInfoSl_r16->lateNonCriticalExtension = NULL;
+
+    NR_UECapabilityInformationSidelink_t *ueCapaInfoSl = CALLOC(1, sizeof(struct NR_UECapabilityInformationSidelink));
+    ueCapaInfoSl->rrc_TransactionIdentifier_r16 = 0;
+    ueCapaInfoSl->criticalExtensions.present = NR_UECapabilityInformationSidelink__criticalExtensions_PR_ueCapabilityInformationSidelink_r16;
+    ueCapaInfoSl->criticalExtensions.choice.ueCapabilityInformationSidelink_r16 = ueCapaInfoSl_r16;
+
+    if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
+      xer_fprint(stdout, &asn_DEF_NR_UECapabilityInformationSidelink, (void *)ueCapaInfoSl);
+    }
+
+    uint8_t buf[256] = {0};
+    asn_enc_rval_t rval = uper_encode_to_buffer(&asn_DEF_NR_UECapabilityInformationSidelink, NULL, (void *)ueCapaInfoSl, buf, sizeof(buf));
+    AssertFatal(rval.encoded > 0, "ASN1 message encoding failed (%s, %lu)!\n",
+                rval.failed_type->name, rval.encoded);
+
+    if (rval.encoded > 0) {
+      OCTET_STRING_t *sl_capaInfo = CALLOC(1, sizeof(OCTET_STRING_t));
+      sl_capaInfo->buf = CALLOC(1, (rval.encoded + 7) / 8);
+      sl_capaInfo->size = (rval.encoded + 7) / 8;
+      memcpy(sl_capaInfo->buf, buf, sl_capaInfo->size);
+      txResourceReq->sl_CapabilityInformationSidelink_r16 = sl_capaInfo;
+    }
 
     sidelinkUEInformationNR->sl_TxResourceReqList_r16 = CALLOC(1, sizeof(struct NR_SL_TxResourceReq_r16));
     ASN_SEQUENCE_ADD(&sidelinkUEInformationNR->sl_TxResourceReqList_r16->list, txResourceReq);
@@ -1216,12 +1263,37 @@ uint8_t do_NR_SidelinkUEInformation(uint8_t **buffer, uint32_t pdu_length, uint8
     sidelinkUEInformationNR->lateNonCriticalExtension = NULL;
     sidelinkUEInformationNR->nonCriticalExtension = NULL;
 
-    xer_fprint(stdout, &asn_DEF_NR_UL_DCCH_Message, (void *)&ul_dcch_msg);
+    if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
+      xer_fprint(stdout, &asn_DEF_NR_UL_DCCH_Message, (void *)&ul_dcch_msg);
+    }
 
     encoded = uper_encode_to_new_buffer (&asn_DEF_NR_UL_DCCH_Message, NULL, (void *) &ul_dcch_msg, (void **) buffer);
     AssertFatal(encoded > 0,"ASN1 message encoding failed (%s, %ld)!\n",
                 "sidelinkUEInformation", encoded);
     LOG_I(NR_RRC,"sidelinkUEInformation Encoded %zd bytes\n",encoded);
+
+    free_and_zero(CP_PatternRxSl->buf);
+    free_and_zero(CP_PatternRxSl);
+    free_and_zero(bandSlPC5_r16->sl_Reception_r16->scs_CP_PatternRxSidelink_r16);
+    free_and_zero(bandSlPC5_r16->sl_Reception_r16);
+    free_and_zero(bandSlPC5_r16);
+    free_and_zero(ueCapaInfoSl_r16);
+    free_and_zero(ueCapaInfoSl);
+    free_and_zero(txResourceReq->sl_CapabilityInformationSidelink_r16);
+    free_and_zero(QoS_info->sl_QoS_Profile_r16->sl_GFBR_r16);
+    free_and_zero(QoS_info->sl_QoS_Profile_r16->sl_MFBR_r16);
+    free_and_zero(QoS_info->sl_QoS_Profile_r16->sl_PQI_r16);
+    free_and_zero(QoS_info->sl_QoS_Profile_r16);
+    free_and_zero(QoS_info);
+    free_and_zero(txResourceReq->sl_QoS_InfoList_r16);
+    free_and_zero(rlc_modeIndi);
+    free_and_zero(txResourceReq->sl_RLC_ModeIndicationList_r16);
+    free_and_zero(txResourceReq);
+    free_and_zero(sidelinkUEInformationNR->sl_TxResourceReqList_r16);
+    free_and_zero(sidelinkUEInformationNR->sl_RxInterestedFreqList_r16);
+    free_and_zero(sidelinkUEInformationNR);
+    free_and_zero(ul_dcch_msg.message.choice.messageClassExtension->choice.c2);
+    free_and_zero(ul_dcch_msg.message.choice.messageClassExtension);
 
     return encoded;
 }

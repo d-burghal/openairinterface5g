@@ -81,7 +81,8 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
                                                      int uid);
 
 void nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_ConfigDedicatedNR,
-                                                               rnti_t sl_rnti);
+                                                               rnti_t sl_rnti,
+                                                               NR_SL_TxResourceReqList_r16_t *sl_TxRscReqList_r16);
 
 void prepare_NR_SL_BWPConfig(NR_SL_BWP_Config_r16_t *sl_bwp,
                              uint16_t num_tx_pools,
