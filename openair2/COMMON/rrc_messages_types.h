@@ -89,6 +89,7 @@
 
 #define RRC_SUBFRAME_PROCESS(mSGpTR)    (mSGpTR)->ittiMsg.rrc_subframe_process
 #define NRRRC_SLOT_PROCESS(mSGpTR)      (mSGpTR)->ittiMsg.nr_rrc_slot_process
+#define NRRRC_SIDELINK_UE_INFO(mSGpTR)  (mSGpTR)->ittiMsg.nr_rrc_sl_ue_information
 
 #define RLC_SDU_INDICATION(mSGpTR)      (mSGpTR)->ittiMsg.rlc_sdu_indication
 #define RLC_TRAFFIC_PTN_CHG_IND(mSGpTR) (mSGpTR)->ittiMsg.rlc_traffic_ptn_chg_indication
@@ -486,5 +487,11 @@ typedef struct rlc_traffic_ptn_chg_indication_s {
   int is_pc5;
   int tp_type;
 } RlcTrafficPtnChgIndication;
+
+typedef struct NRRrcSlUEInformation_s {
+  uint32_t  frame;
+  uint8_t   slot;
+  uint8_t   gnb_id;
+} NRRrcSlUEInformation;
 
 #endif /* RRC_MESSAGES_TYPES_H_ */

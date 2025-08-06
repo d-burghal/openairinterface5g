@@ -693,7 +693,7 @@ NR_RRCReconfiguration_v1610_IEs_t* prepare_rrc_reconfig_v1610(rnti_t sl_rnti, NR
     memset(v1610_ies, 0, sizeof(NR_RRCReconfiguration_v1610_IEs_t));
 
     v1610_ies->sl_ConfigDedicatedNR_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
-    nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(v1610_ies->sl_ConfigDedicatedNR_r16, sl_rnti);
+    nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(v1610_ies->sl_ConfigDedicatedNR_r16, sl_rnti, sl_TxRscReqList_r16);
     return v1610_ies;
 }
 

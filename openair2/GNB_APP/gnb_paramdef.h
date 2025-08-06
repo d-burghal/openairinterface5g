@@ -447,7 +447,7 @@ typedef enum {
 #define CONFIG_STRING_SL_MAX_RETX_THRESHOLD                    "sl_MaxRetxThreshold"
 #define CONFIG_STRING_SL_POLL_BYTE                             "sl_PollByte"
 #define CONFIG_STRING_SL_POLL_PDU                              "sl_PollPDU"
-#define CONFIG_STRING_SL_SN_FIELD_LENGTH_AM                    "sl_SN_FieldLengthAM"
+#define CONFIG_STRING_SL_SN_FIELD_LENGTH_UM                    "sl_SN_FieldLengthUM"
 #define CONFIG_STRING_SL_T_POLL_RETRANSMIT                     "sl_T_PollRetransmit"
 #define CONFIG_STRING_SL_BUCKET_SIZE_DURATION                  "sl_BucketSizeDuration"
 #define CONFIG_STRING_SL_CONFIGURED_GRANT_TYPE1_ALLOWED        "sl_Configured_Grant_Type1_Allowed"
@@ -520,6 +520,7 @@ typedef enum {
   {CONFIG_STRING_SL_PRIORITY, NULL, 0, .i64ptr=&sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_Priority_r16, .defintval=1, TYPE_INT64, 0}, \
   {CONFIG_STRING_SL_PRIORITISED_BIT_RATE, NULL, 0, .i64ptr=&sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_PrioritisedBitRate_r16, .defintval=1, TYPE_INT64, 0}, \
   {CONFIG_STRING_SL_ALLOWED_CG, NULL, 0, .i64ptr=sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16->list.array[0], .defintval=1, TYPE_INT64, 0}, \
+  {CONFIG_STRING_SL_SN_FIELD_LENGTH_UM, NULL, 0, .i64ptr=sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16, .defintval=1, TYPE_INT64, 0}, \
   {CONFIG_STRING_SL_CONFIGURED_GRANT_TYPE1_ALLOWED, NULL, 0, .i64ptr=sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_ConfiguredGrantType1Allowed_r16, .defintval=1, TYPE_INT64, 0}, \
   {CONFIG_STRING_SL_HARQ_FEEDBACK_ENABLED, NULL, 0, .i64ptr=sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16, .defintval=1, TYPE_INT64, 0}, \
   {CONFIG_STRING_SL_MAX_PUSCH_DURATION, NULL, 0, .i64ptr=sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_MaxPUSCH_Duration_r16, .defintval=1, TYPE_INT64, 0}, \

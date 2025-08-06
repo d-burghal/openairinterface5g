@@ -100,8 +100,8 @@ nr_rrc_ue_process_ueCapabilityEnquiry(
 void
 nr_ue_rrc_SL_UEInformation_trigger(
   int module_id,
-  int frame,
-  int slot
+  uint32_t frame,
+  uint8_t slot
 );
 
 void nr_rrc_ue_process_sidelink_radioResourceConfig(
@@ -2762,11 +2762,11 @@ void *rrc_nrue_task(void *args_p)
         break;
       }
 
-      case NR_RRC_MAC_DCCH_DATA_REQ: {
+      case NRRRC_SIDELINK_UE_INFO: {
         uint32_t length;
         uint8_t *buffer;
         LOG_I(NR_RRC, "[UE %d] Received %s\n", ue_mod_id, ITTI_MSG_NAME (msg_p));
-        /* Create message for PDCP (ULInformationTransfer_t) */
+        /* Create message for RRC Sidelink UEInformation */
         length = do_NR_SidelinkUEInformation(&buffer, NR_RRC_DCCH_DATA_REQ (msg_p).sdu_size, NULL);
         /* Transfer data to PDCP */
         PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, NR_RRC_DCCH_DATA_REQ (msg_p).frame, 0, 0);
@@ -3172,17 +3172,16 @@ void nr_ue_rrc_timer_trigger(int module_id, int frame, int slot, int gnb_id)
   itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(module_id), message_p);
 }
 
-void nr_ue_rrc_SL_UEInformation_trigger(int module_id, int frame, int slot)
+void nr_ue_rrc_SL_UEInformation_trigger(int module_id, uint32_t frame, uint8_t slot)
 {
   static bool done = false;
   int status = get_NAS_status();
   if (status && !done) {
     MessageDef *message_p;
-    message_p = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_RRC_MAC_DCCH_DATA_REQ);
-    NR_RRC_MAC_DCCH_DATA_REQ(message_p).frame = frame;
-    NR_RRC_MAC_DCCH_DATA_REQ(message_p).slot = slot;
-    NR_RRC_MAC_DCCH_DATA_REQ(message_p).sdu_size = 8;
-    NR_RRC_MAC_DCCH_DATA_REQ(message_p).enb_index = 0;
+    message_p = itti_alloc_new_message(TASK_RRC_NRUE, 0, NRRRC_SIDELINK_UE_INFO);
+    NRRRC_SIDELINK_UE_INFO(message_p).frame = frame;
+    NRRRC_SIDELINK_UE_INFO(message_p).slot = slot;
+    NRRRC_SIDELINK_UE_INFO(message_p).gnb_id = GNB_MODULE_ID_TO_INSTANCE(module_id);
     LOG_W(NR_RRC, "RRC SL_UEInformation trigger: frame %d slot %d \n", frame, slot);
     itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(module_id), message_p);
     done = true;
