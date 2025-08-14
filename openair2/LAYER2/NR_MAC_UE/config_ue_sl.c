@@ -684,6 +684,13 @@ int nr_rrc_mac_config_req_sl_dedicated_config(module_id_t module_id,
         NR_SL_ResourcePool_r16_t *txpool =
                 bwp->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[i]->sl_ResourcePool_r16;
         if (txpool) {
+          if (txpool->sl_MinMaxMCS_List_r16) {
+            sl_mac->sl_bler.min_mcs = txpool->sl_MinMaxMCS_List_r16->list.array[0]->sl_MinMCS_PSSCH_r16;
+            sl_mac->sl_bler.max_mcs = txpool->sl_MinMaxMCS_List_r16->list.array[0]->sl_MaxMCS_PSSCH_r16;
+          } else {
+            sl_mac->sl_bler.min_mcs = 0;
+            sl_mac->sl_bler.max_mcs = MAX_MCS;
+          }
           mac->sl_tx_res_pool = txpool;
           if (sl_mac->sl_TxPool[i] == NULL)
             sl_mac->sl_TxPool[i] = malloc16_clear(sizeof(SL_ResourcePool_params_t));

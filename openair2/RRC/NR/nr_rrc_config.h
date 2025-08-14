@@ -82,12 +82,14 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
 
 void nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_ConfigDedicatedNR,
                                                                rnti_t sl_rnti,
-                                                               NR_SL_TxResourceReqList_r16_t *sl_TxRscReqList_r16);
+                                                               NR_SL_TxResourceReqList_r16_t *sl_TxRscReqList_r16,
+                                                               const NR_SL_UE_AssistanceInformationNR_r16_t *trafficPatternList);
 
 void prepare_NR_SL_BWPConfig(NR_SL_BWP_Config_r16_t *sl_bwp,
                              uint16_t num_tx_pools,
                              uint16_t num_rx_pools,
-                             uint16_t sl_syncsource);
+                             uint16_t sl_syncsource,
+                             const NR_SL_UE_AssistanceInformationNR_r16_t *trafficPatternList);
 
 void nr_rrc_pre_configure_SL_L2RelayUE_Config(NR_SetupRelease_SL_L2RelayUE_Config_r17_t* sl_L2RelayUE_Config);
 

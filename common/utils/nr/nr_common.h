@@ -43,6 +43,7 @@
 #define NR_NB_REG_PER_CCE 6
 #define NR_NB_SC_PER_RB 12
 #define MAX_SL_UE_CONNECTIONS 8
+#define MAX_MCS 28
 
 typedef enum {
   nr_FR1 = 0,
