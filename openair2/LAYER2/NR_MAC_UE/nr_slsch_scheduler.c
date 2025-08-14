@@ -45,7 +45,6 @@
 
 #define LOWER_BLER 0.2344
 #define UPPER_BLER 5.547
-#define MAX_MCS 28
 
 const uint8_t nr_rv_round_map[4] = {0, 2, 3, 1};
 
@@ -263,7 +262,8 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   NR_bler_options_t *sl_bo = &sl_mac->sl_bler;
   sl_bo->lower = LOWER_BLER;
   sl_bo->upper = UPPER_BLER;
-  sl_bo->max_mcs = MAX_MCS;
+  if (get_softmodem_params()->sl_mode == 2)
+    sl_bo->max_mcs = MAX_MCS;
 
   const int max_mcs_table = mcs_tb_ind == 1 ? 27 : 28;
   int max_mcs = min(sched_ctrl->sl_max_mcs, max_mcs_table);
@@ -271,6 +271,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
     sched_pssch->mcs = max_mcs;
   else {
     sched_pssch->mcs = get_mcs_from_bler(sl_bo, stats, &sched_ctrl->sl_bler_stats, max_mcs, frameP);
+    LOG_D(MAC, "frame %4d MCS %u\n", frameP, sched_pssch->mcs);
   }
 
   uint16_t sl_max_num_reserve = *mac->sl_tx_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16;

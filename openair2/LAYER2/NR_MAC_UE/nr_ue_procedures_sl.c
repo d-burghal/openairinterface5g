@@ -798,8 +798,9 @@ void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
                           uint8_t ack_nack, psfch_params_t *psfch_params,
                           const int nr_slots_frame, int psfch_index) {
 
-  NR_SL_BWP_Generic_r16_t *sl_bwp = (get_softmodem_params()->sl_mode == 2) ? mac->sl_bwp->sl_BWP_Generic_r16
-                                                                           : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
+  NR_SL_BWP_Generic_r16_t *sl_bwp = ((get_softmodem_params()->sl_mode == 2) || (mac->sl_bwp_dedicated == NULL))
+                                    ? mac->sl_bwp->sl_BWP_Generic_r16
+                                    : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
   SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[psfch_index];
   LOG_D(NR_MAC, "psfch_period %ld, feedback frame:slot %d:%d, frame:slot %d:%d, harq feedback %d psfch_index %d\n",
         psfch_period,

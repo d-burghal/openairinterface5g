@@ -2305,7 +2305,16 @@ void extract_nr_sl_Rest_ResourcePool_Config(struct NR_SL_ResourcePool_r16 *sl_Re
     *sl_ResourcePool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16 = 0;
   }
 
-  sl_ResourcePool->sl_MinMaxMCS_List_r16 = NULL;
+  if (recvd_sl_RxPool->sl_MinMaxMCS_List_r16) {
+    sl_ResourcePool->sl_MinMaxMCS_List_r16 = CALLOC(1, sizeof(struct NR_SL_MinMaxMCS_List_r16));
+    for (int i = 0; i < recvd_sl_RxPool->sl_MinMaxMCS_List_r16->list.count; i++) {
+      NR_SL_MinMaxMCS_Config_r16_t *mcs_config = CALLOC(1, sizeof(struct NR_SL_MinMaxMCS_Config_r16));
+      mcs_config->sl_MCS_Table_r16 = recvd_sl_RxPool->sl_MinMaxMCS_List_r16->list.array[i]->sl_MCS_Table_r16;
+      mcs_config->sl_MinMCS_PSSCH_r16 = recvd_sl_RxPool->sl_MinMaxMCS_List_r16->list.array[i]->sl_MinMCS_PSSCH_r16;
+      mcs_config->sl_MaxMCS_PSSCH_r16 = recvd_sl_RxPool->sl_MinMaxMCS_List_r16->list.array[i]->sl_MaxMCS_PSSCH_r16;
+      ASN_SEQUENCE_ADD(&sl_ResourcePool->sl_MinMaxMCS_List_r16->list, mcs_config);
+    }
+  }
 
   if (recvd_sl_RxPool->ext1 &&
       recvd_sl_RxPool->ext1->sl_TimeResource_r16) {

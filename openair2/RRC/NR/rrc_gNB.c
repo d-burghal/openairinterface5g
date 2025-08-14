@@ -685,7 +685,9 @@ static void rrc_gNB_generate_defaultRRCReconfiguration(const protocol_ctxt_t *co
 }
 
 //-----------------------------------------------------------------------------
-NR_RRCReconfiguration_v1610_IEs_t* prepare_rrc_reconfig_v1610(rnti_t sl_rnti, NR_SL_TxResourceReqList_r16_t *sl_TxRscReqList_r16) {
+NR_RRCReconfiguration_v1610_IEs_t* prepare_rrc_reconfig_v1610(rnti_t sl_rnti,
+                                                              NR_SL_TxResourceReqList_r16_t *sl_TxRscReqList_r16,
+                                                              const NR_SL_UE_AssistanceInformationNR_r16_t *trafficPatternList) {
 //-----------------------------------------------------------------------------
 
     LOG_D(NR_RRC, "Preparing RRCReconfiguration-v1610-IEs with Sidelink IEs.\n");
@@ -693,7 +695,7 @@ NR_RRCReconfiguration_v1610_IEs_t* prepare_rrc_reconfig_v1610(rnti_t sl_rnti, NR
     memset(v1610_ies, 0, sizeof(NR_RRCReconfiguration_v1610_IEs_t));
 
     v1610_ies->sl_ConfigDedicatedNR_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
-    nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(v1610_ies->sl_ConfigDedicatedNR_r16, sl_rnti, sl_TxRscReqList_r16);
+    nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(v1610_ies->sl_ConfigDedicatedNR_r16, sl_rnti, sl_TxRscReqList_r16, trafficPatternList);
     return v1610_ies;
 }
 
@@ -1485,11 +1487,12 @@ int nr_rrc_reconfiguration_req(rrc_gNB_ue_context_t         *const ue_context_pP
 }
 
 //-----------------------------------------------------------------------------
-int nr_rrc_reconfiguration_req_sidelink(rrc_gNB_ue_context_t                  *const ue_context_pP,
-                                        const protocol_ctxt_t                 *const ctxt_pP,
-                                        NR_SidelinkUEInformationNR_r16_IEs_t  *sl_UEInfo_r16) {
+int nr_rrc_reconfiguration_req_sidelink(rrc_gNB_ue_context_t                         *const ue_context_pP,
+                                        const protocol_ctxt_t                        *const ctxt_pP,
+                                        NR_SidelinkUEInformationNR_r16_IEs_t         *sl_UEInfo_r16,
+                                        const NR_SL_UE_AssistanceInformationNR_r16_t *trafficPatternList) {
 
-  if(sl_UEInfo_r16 == NULL)
+  if(sl_UEInfo_r16 == NULL && trafficPatternList == NULL)
     return 0;
 
   uint8_t xid = rrc_gNB_get_next_transaction_identifier(ctxt_pP->module_id);
@@ -1499,7 +1502,8 @@ int nr_rrc_reconfiguration_req_sidelink(rrc_gNB_ue_context_t                  *c
   NR_RRCReconfiguration_v1610_IEs_t* rrc_ext_v1610 = NULL;
 
   rnti_t assigned_sl_rnti = 0;
-  rrc_ext_v1610 = prepare_rrc_reconfig_v1610(assigned_sl_rnti, sl_UEInfo_r16->sl_TxResourceReqList_r16);
+  NR_SL_TxResourceReqList_r16_t *sl_TxRscReqList_r16 = (sl_UEInfo_r16 != NULL) ? sl_UEInfo_r16->sl_TxResourceReqList_r16 : NULL;
+  rrc_ext_v1610 = prepare_rrc_reconfig_v1610(assigned_sl_rnti, sl_TxRscReqList_r16, trafficPatternList);
 
 
   uint8_t buffer[RRC_BUF_SIZE];
@@ -1952,6 +1956,7 @@ static int handle_ueAssistanceInformation(const protocol_ctxt_t *const ctxt_pP,
       tp_cnt++;
       // TODO :: Need to associate these values to resource allocation for sl mode 1.
     }
+    nr_rrc_reconfiguration_req_sidelink(ue_context_p, ctxt_pP, NULL, trafficPatternList);
   }
   if (tp_cnt == 0)
     return -1;
@@ -2079,7 +2084,7 @@ static int handle_sidelinkUEInformationNR(const protocol_ctxt_t *const ctxt_pP,
     switch (sidelinkUEInformationNR_r16->criticalExtensions.present){
       case NR_SidelinkUEInformationNR_r16__criticalExtensions_PR_sidelinkUEInformationNR_r16: {
         NR_SidelinkUEInformationNR_r16_IEs_t *sl_UEInfo_r16 = sidelinkUEInformationNR_r16->criticalExtensions.choice.sidelinkUEInformationNR_r16;
-        nr_rrc_reconfiguration_req_sidelink(ue_context_p, ctxt_pP, sl_UEInfo_r16);
+        nr_rrc_reconfiguration_req_sidelink(ue_context_p, ctxt_pP, sl_UEInfo_r16, NULL);
       } break;
       case NR_SidelinkUEInformationNR_r16__criticalExtensions_PR_criticalExtensionsFuture:
         break;

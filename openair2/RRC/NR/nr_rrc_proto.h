@@ -135,9 +135,10 @@ int nr_rrc_reconfiguration_req(rrc_gNB_ue_context_t         *const ue_context_pP
                                const int                    dl_bwp_id,
                                const int                    ul_bwp_id);
 
-int nr_rrc_reconfiguration_req_sidelink(rrc_gNB_ue_context_t                  *const ue_context_pP,
-                                        const protocol_ctxt_t                 *const ctxt_pP,
-                                        NR_SidelinkUEInformationNR_r16_IEs_t  *sl_UEInfo_r16);
+int nr_rrc_reconfiguration_req_sidelink(rrc_gNB_ue_context_t                         *const ue_context_pP,
+                                        const protocol_ctxt_t                        *const ctxt_pP,
+                                        NR_SidelinkUEInformationNR_r16_IEs_t         *sl_UEInfo_r16,
+                                        const NR_SL_UE_AssistanceInformationNR_r16_t *trafficPatternList);
 
 void
 rrc_gNB_generate_dedicatedRRCReconfiguration_release(

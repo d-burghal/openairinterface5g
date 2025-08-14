@@ -90,7 +90,8 @@ void prepare_nr_sl_SyncConfig_gNB(NR_SL_SyncConfig_r16_t *sl_syncconfig)
 
 static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
                                        uint16_t is_txpool,
-                                       uint16_t is_sl_syncsource)
+                                       uint16_t is_sl_syncsource,
+                                       const NR_SL_UE_AssistanceInformationNR_r16_t *trafficPatternList)
 {
 
   // PSCCH configuration
@@ -223,7 +224,35 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   sl_res_pool->sl_PowerControl_r16 = CALLOC(1, sizeof(*sl_res_pool->sl_PowerControl_r16));
   sl_res_pool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16 = CALLOC(1, sizeof(*sl_res_pool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16));
   *sl_res_pool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16 = 0;
-  sl_res_pool->sl_MinMaxMCS_List_r16 = NULL;
+
+  sl_res_pool->sl_MinMaxMCS_List_r16 = CALLOC(1, sizeof(struct NR_SL_MinMaxMCS_List_r16));
+  NR_SL_MinMaxMCS_Config_r16_t *mcs_config = CALLOC(1, sizeof(struct NR_SL_MinMaxMCS_Config_r16));
+  mcs_config->sl_MCS_Table_r16 = NR_SL_MinMaxMCS_Config_r16__sl_MCS_Table_r16_qam64;
+  if(trafficPatternList != NULL){
+    for (int i = 0; i < trafficPatternList->list.count; i++) {
+      const NR_SL_TrafficPatternInfo_r16_t *tp_container = trafficPatternList->list.array[i];
+      long tp_period = tp_container->trafficPeriodicity_r16;
+      long tp_timeOffset = tp_container->timingOffset_r16;
+      long tp_QoSFlowId = tp_container->sl_QoS_FlowIdentity_r16;
+      LOG_D(NR_RRC, "tp_period %ld tp_timeOffset %ld tp_QoSFlowId %ld\n", tp_period, tp_timeOffset, tp_QoSFlowId);
+      if (tp_QoSFlowId < 2) {         // Modulation Order Qm = 2
+        mcs_config->sl_MinMCS_PSSCH_r16 = 0;
+        mcs_config->sl_MaxMCS_PSSCH_r16 = 9;
+      } else if (tp_QoSFlowId == 2) { // Modulation Order Qm = 4
+        mcs_config->sl_MinMCS_PSSCH_r16 = 10;
+        mcs_config->sl_MaxMCS_PSSCH_r16 = 16;
+      } else {                        // Modulation Order Qm = 6
+        mcs_config->sl_MinMCS_PSSCH_r16 = 17;
+        mcs_config->sl_MaxMCS_PSSCH_r16 = 28;
+      }
+      LOG_D(NR_RRC, "mcs_min %ld  mcs_max %ld\n", mcs_config->sl_MinMCS_PSSCH_r16, mcs_config->sl_MaxMCS_PSSCH_r16);
+    }
+  }
+  else {
+    mcs_config->sl_MinMCS_PSSCH_r16 = 0;
+    mcs_config->sl_MaxMCS_PSSCH_r16 = 28;
+  }
+  ASN_SEQUENCE_ADD(&sl_res_pool->sl_MinMaxMCS_List_r16->list, mcs_config);
 
   sl_res_pool->ext1 = CALLOC(1, sizeof(*sl_res_pool->ext1));
   sl_res_pool->ext1->sl_TimeResource_r16 = CALLOC(1, sizeof(*sl_res_pool->ext1->sl_TimeResource_r16));
@@ -295,7 +324,8 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
 void prepare_NR_SL_BWPConfig(NR_SL_BWP_Config_r16_t *sl_bwp,
                              uint16_t num_tx_pools,
                              uint16_t num_rx_pools,
-                             uint16_t sl_syncsource)
+                             uint16_t sl_syncsource,
+                             const NR_SL_UE_AssistanceInformationNR_r16_t *trafficPatternList)
 {
 
   sl_bwp->sl_BWP_Generic_r16 = CALLOC(1, sizeof(NR_SL_BWP_Generic_r16_t));
@@ -339,7 +369,7 @@ void prepare_NR_SL_BWPConfig(NR_SL_BWP_Config_r16_t *sl_bwp,
     sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16 = CALLOC(1, sizeof(*sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16));
     ASN_SEQUENCE_ADD(&sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list, respool);
     // Fill RX resource pool
-    prepare_NR_SL_ResourcePool(sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[0], 0, sl_syncsource);
+    prepare_NR_SL_ResourcePool(sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[0], 0, sl_syncsource, trafficPatternList);
   } else
     sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16 = NULL;
 
@@ -366,7 +396,7 @@ void prepare_NR_SL_BWPConfig(NR_SL_BWP_Config_r16_t *sl_bwp,
     ASN_SEQUENCE_ADD(&sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list, respoolcfg);
 
     // Fill tx resource pool
-    prepare_NR_SL_ResourcePool(sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[0]->sl_ResourcePool_r16, 1, sl_syncsource);
+    prepare_NR_SL_ResourcePool(sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[0]->sl_ResourcePool_r16, 1, sl_syncsource, trafficPatternList);
   } else
     sl_bwp->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16 = NULL;
 
