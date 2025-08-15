@@ -151,22 +151,34 @@ void nr_pdcp_manager_remove_ue(nr_pdcp_ue_manager_t *_m, ue_id_t rntiMaybeUEid)
 }
 
 /* must be called with lock acquired */
-void nr_pdcp_ue_add_srb_pdcp_entity(nr_pdcp_ue_t *ue, int srb_id, nr_pdcp_entity_t *entity)
+void nr_pdcp_ue_add_srb_pdcp_entity(nr_pdcp_ue_t *ue, int srb_id, nr_pdcp_entity_t *entity, nr_intf_type_t intf_type)
 {
+
   if (srb_id < 1 || srb_id > 2) {
-    LOG_E(PDCP, "%s:%d:%s: fatal, bad srb id\n", __FILE__, __LINE__, __FUNCTION__);
+    LOG_E(PDCP, "%s:%d:%s: fatal, bad srb id %d\n", __FILE__, __LINE__, __FUNCTION__, srb_id);
     exit(1);
   }
 
   srb_id--;
 
-  if (ue->srb[srb_id] != NULL) {
-    LOG_E(PDCP, "%s:%d:%s: fatal, srb already present\n",
-          __FILE__, __LINE__, __FUNCTION__);
-    exit(1);
+  if (intf_type == PC5) {
+    if (ue->sl_srb[srb_id] != NULL) {
+      LOG_E(PDCP, "%s:%d:%s: fatal, sl_srb already present\n",
+            __FILE__, __LINE__, __FUNCTION__);
+      exit(1);
+    }
+  } else if (intf_type == UU) {
+    if (ue->srb[srb_id] != NULL) {
+      LOG_E(PDCP, "%s:%d:%s: fatal, srb already present\n",
+            __FILE__, __LINE__, __FUNCTION__);
+      exit(1);
+    }
   }
 
-  ue->srb[srb_id] = entity;
+  if (intf_type == PC5)
+    ue->sl_srb[srb_id] = entity;
+  else
+    ue->srb[srb_id] = entity;
 }
 
 /* must be called with lock acquired */

@@ -1452,6 +1452,17 @@ int32_t nr_rrc_ue_establish_srb2(module_id_t ue_mod_idP,
   return(0);
 }
 
+int32_t nr_rrc_ue_establish_sl_srb1(module_id_t ue_mod_idP,
+                                    frame_t frameP,
+                                    uint8_t remote_ue_index)
+{
+  // add descriptor from RRC PDU
+  NR_UE_rrc_inst[ue_mod_idP].sl_Srb1[remote_ue_index].Active = 1;
+  NR_UE_rrc_inst[ue_mod_idP].sl_Srb1[remote_ue_index].status = RADIO_CONFIG_OK;
+  LOG_D(NR_RRC, "[RelayUE %d], CONFIG_SL_SRB1 SCCH for RemoteUE[%d]\n", ue_mod_idP, remote_ue_index);
+  return(0);
+}
+
 int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
                                 frame_t frameP,
                                 uint8_t gNB_index,
@@ -1618,6 +1629,73 @@ int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
    }
  }
 
+void nr_rrc_ue_process_RadioBearerConfig_sl(const protocol_ctxt_t *const ctxt_pP,
+                                            const uint8_t ue_index,
+                                            NR_RadioBearerConfig_t *const radioBearerConfig,
+                                            NR_SL_RLC_BearerConfig_r16_t *nr_rlc_BearerConfig)
+ {
+  long SRB_id;
+
+  if(radioBearerConfig->srb3_ToRelease != NULL){
+    if(*radioBearerConfig->srb3_ToRelease == true){
+      //TODO (release the PDCP entity and the srb-Identity of the SRB3.)
+    }
+  }
+
+  NR_UE_RRC_INST_t *ue_rrc = &NR_UE_rrc_inst[ctxt_pP->module_id];
+  if (radioBearerConfig->srb_ToAddModList != NULL) {
+    if (radioBearerConfig->securityConfig != NULL) {
+      if (*radioBearerConfig->securityConfig->keyToUse == NR_SecurityConfig__keyToUse_master) {
+      ue_rrc->cipheringAlgorithm = radioBearerConfig->securityConfig->securityAlgorithmConfig->cipheringAlgorithm;
+      ue_rrc->integrityProtAlgorithm = *radioBearerConfig->securityConfig->securityAlgorithmConfig->integrityProtAlgorithm;
+      }
+    }
+
+    uint8_t kRRCenc[16] = {0};
+    uint8_t kRRCint[16] = {0};
+    nr_derive_key(RRC_ENC_ALG,
+                  NR_UE_rrc_inst[ctxt_pP->module_id].cipheringAlgorithm,
+                  NR_UE_rrc_inst[ctxt_pP->module_id].kgnb,
+                  kRRCenc);
+
+    nr_derive_key(RRC_INT_ALG,
+                  NR_UE_rrc_inst[ctxt_pP->module_id].integrityProtAlgorithm,
+                  NR_UE_rrc_inst[ctxt_pP->module_id].kgnb,
+                  kRRCint);
+
+    // Refresh SRBs
+    nr_pdcp_add_srbs(ctxt_pP->enb_flag,
+                    ctxt_pP->rntiMaybeUEid,
+                    radioBearerConfig->srb_ToAddModList,
+                    ue_rrc->cipheringAlgorithm | (ue_rrc->integrityProtAlgorithm << 4),
+                    kRRCenc,
+                    kRRCint, PC5);
+
+    // Refresh SRBs
+    nr_rlc_add_srb_sl(ctxt_pP->rntiMaybeUEid, 1, nr_rlc_BearerConfig);
+
+    for (int cnt = 0; cnt < radioBearerConfig->srb_ToAddModList->list.count; cnt++) {
+      SRB_id = radioBearerConfig->srb_ToAddModList->list.array[cnt]->srb_Identity;
+      LOG_D(NR_RRC, "[UE %d]: Frame %d SL-SRB config cnt %d (SL-SRB%ld)\n", ctxt_pP->module_id, ctxt_pP->frame, cnt, SRB_id);
+      if (SRB_id == 1) { // sl-srb1
+        if (NR_UE_rrc_inst[ctxt_pP->module_id].sl_SRB1_config[ue_index]) {
+          memcpy(NR_UE_rrc_inst[ctxt_pP->module_id].sl_SRB1_config[ue_index],
+                  radioBearerConfig->srb_ToAddModList->list.array[cnt], sizeof(NR_SRB_ToAddMod_t));
+        } else {
+          NR_UE_rrc_inst[ctxt_pP->module_id].sl_SRB1_config[ue_index] = radioBearerConfig->srb_ToAddModList->list.array[cnt];
+          nr_rrc_ue_establish_sl_srb1(ctxt_pP->module_id,
+                                      ctxt_pP->frame,
+                                      ue_index);
+
+          LOG_D(NR_RRC, "[FRAME %05d][RRC_UE][MOD %02d][][--- MAC_CONFIG_REQ  (SRB2 gNB %d) --->][MAC_UE][MOD %02d][]\n",
+                        ctxt_pP->frame, ctxt_pP->module_id, ue_index, ctxt_pP->module_id);
+        }
+      }
+    }
+  }
+
+  LOG_D(NR_RRC, "[UE %d] State = NR_RRC_CONNECTED (peer ue %d)\n", ctxt_pP->module_id, ue_index);
+}
  //-----------------------------------------------------------------------------
  void
  nr_rrc_ue_process_RadioBearerConfig(
@@ -1662,7 +1740,7 @@ int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
                       radioBearerConfig->srb_ToAddModList,
                       ue_rrc->cipheringAlgorithm | (ue_rrc->integrityProtAlgorithm << 4),
                       kRRCenc,
-                      kRRCint);
+                      kRRCint, UU);
      // Refresh SRBs
      nr_rrc_addmod_srbs(ctxt_pP->rntiMaybeUEid,
                         radioBearerConfig->srb_ToAddModList,
@@ -2025,9 +2103,9 @@ void nr_rrc_ue_process_sl_ConfigDedicatedNR(const protocol_ctxt_t *const ctxt_pP
   LOG_W(NR_RRC,"[UE %d] SFN/SF %d/%d: Processing sl_ConfigDedicatedNR %p\n",
         ctxt_pP->module_id, ctxt_pP->frame, ctxt_pP->subframe, sl_conf);
   NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[ctxt_pP->module_id];
-  rrc->nr_sl_dedicated_cfg = CALLOC(1, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
-  rrc->nr_sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16 = CALLOC(1, sizeof(NR_SL_PHY_MAC_RLC_Config_r16_t));
-  NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RLC_Config = rrc->nr_sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16;
+  rrc->sl_dedicated_cfg = CALLOC(1, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
+  rrc->sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16 = CALLOC(1, sizeof(NR_SL_PHY_MAC_RLC_Config_r16_t));
+  NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RLC_Config = rrc->sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16;
   NR_SL_PHY_MAC_RLC_Config_r16_t *rcvd_SL_PHY_MAC_RLC_Config = sl_conf->choice.setup->sl_PHY_MAC_RLC_Config_r16;
   sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = CALLOC(1, sizeof(long));
   if (sl_conf) {

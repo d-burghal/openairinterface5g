@@ -570,7 +570,8 @@ void init_pdcp(void) {
     LINK_ENB_PDCP_TO_GTPV1U_BIT;
   
   if (!NODE_IS_DU(get_node_type())) {
-    nr_pdcp_layer_init();
+    bool gNB_flag = true;
+    nr_pdcp_layer_init(gNB_flag);
     nr_pdcp_module_init(pdcp_initmask, 0);
   }
   if (!NODE_IS_CU(get_node_type())) {

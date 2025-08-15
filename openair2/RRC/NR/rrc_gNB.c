@@ -466,7 +466,7 @@ static void rrc_gNB_generate_RRCSetup(instance_t instance,
               (char *)buf,
               size,
               "[MSG] RRC Setup\n");
-  nr_pdcp_add_srbs(true, rnti, SRBs, 0, NULL, NULL);
+  nr_pdcp_add_srbs(true, rnti, SRBs, 0, NULL, NULL, UU);
 
   freeSRBlist(SRBs);
   f1ap_dl_rrc_message_t dl_rrc = {
@@ -1089,7 +1089,7 @@ static void rrc_gNB_process_RRCReconfigurationComplete(const protocol_ctxt_t *co
                    SRBs,
                    (ue_p->integrity_algorithm << 4) | ue_p->ciphering_algorithm,
                    kRRCenc,
-                   kRRCint);
+                   kRRCint, UU);
   freeSRBlist(SRBs);
   nr_pdcp_add_drbs(ctxt_pP->enb_flag,
                    ctxt_pP->rntiMaybeUEid,
@@ -1213,7 +1213,7 @@ void rrc_gNB_generate_RRCReestablishment(const protocol_ctxt_t *ctxt_pP,
   nr_derive_key(RRC_INT_ALG, ue_p->integrity_algorithm, ue_p->kgnb, kRRCint);
 
   /* Configure SRB1 for UE */
-  nr_pdcp_add_srbs(ctxt_pP->enb_flag, ctxt_pP->rntiMaybeUEid, SRBs, 0, NULL, NULL);
+  nr_pdcp_add_srbs(ctxt_pP->enb_flag, ctxt_pP->rntiMaybeUEid, SRBs, 0, NULL, NULL, UU);
   LOG_D(NR_RRC, "UE %04x --- MAC_CONFIG_REQ  (SRB1) ---> MAC_gNB\n", ue_p->rnti);
   freeSRBlist(SRBs);
   LOG_I(NR_RRC, "Set PDCP security RNTI %04lx nca %ld nia %d in RRCReestablishment\n", ctxt_pP->rntiMaybeUEid, ue_p->ciphering_algorithm, ue_p->integrity_algorithm);
@@ -1840,6 +1840,7 @@ static int handle_ueCapabilityInformation(const protocol_ctxt_t *const ctxt_pP,
                                           const NR_UECapabilityInformation_t *ue_cap_info)
 {
   AssertFatal(ue_context_p != NULL, "Processing %s() for UE %lx, ue_context_p is NULL\n", __func__, ctxt_pP->rntiMaybeUEid);
+  AssertFatal(ue_cap_info, "Processing %s() ue_cap_info cannot be NULL\n", __func__);
   gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
 
   LOG_I(NR_RRC, "got UE capabilities for UE %lx\n", ctxt_pP->rntiMaybeUEid);

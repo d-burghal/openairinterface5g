@@ -1177,6 +1177,7 @@ void rrc_gNB_send_NGAP_UE_CAPABILITIES_IND(const protocol_ctxt_t *const ctxt_pP,
   NR_UERadioAccessCapabilityInformation_t rac = {0};
   gNB_RRC_UE_t *UE = &ue_context_pP->ue_context;
 
+  AssertFatal(ueCapabilityRATContainerList, "ueCapabilityRATContainerList cannot be NULL\n");
   if (ueCapabilityRATContainerList->list.count == 0) {
     LOG_W(RRC, "[gNB %d][UE %x] bad UE capabilities\n", ctxt_pP->module_id, UE->rnti);
     }

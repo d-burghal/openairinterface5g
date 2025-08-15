@@ -612,7 +612,7 @@ rb_found:
       LOG_E(RLC, "%s:%d:%s: ERROR: srap_data_ind failed\n", __FILE__, __LINE__, __FUNCTION__);
     }
   } else {
-    if (!pdcp_data_ind(&ctx, is_srb, 0, rb_id, size, memblock, NULL, NULL)) {
+    if (!pdcp_data_ind(&ctx, is_srb, 0, rb_id, size, memblock, NULL, NULL, entity->intf_type)) {
       LOG_E(RLC, "%s:%d:%s: ERROR: pdcp_data_ind failed\n", __FILE__, __LINE__, __FUNCTION__);
       /* what to do in case of failure? for the moment: nothing */
     }
@@ -815,7 +815,7 @@ void nr_rlc_add_srb(int rnti, int srb_id, const NR_RLC_BearerConfig_t *rlc_Beare
 
   nr_rlc_manager_lock(nr_rlc_ue_manager);
   ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, rnti);
-  if (ue->srb[srb_id-1] != NULL) {
+  if (ue->srb[srb_id - 1] != NULL) {
     LOG_W(RLC, "%s:%d:%s: SRB %d already exists for UE with RNTI %04x, do nothing\n", __FILE__, __LINE__, __FUNCTION__, srb_id, rnti);
   } else {
     /* hack: hardcode values for NR */
@@ -839,6 +839,90 @@ void nr_rlc_add_srb(int rnti, int srb_id, const NR_RLC_BearerConfig_t *rlc_Beare
     nr_rlc_ue_add_srb_rlc_entity(ue, srb_id, nr_rlc_am);
 
     LOG_I(RLC, "%s:%d:%s: added srb %d to UE with RNTI 0x%x\n", __FILE__, __LINE__, __FUNCTION__, srb_id, rnti);
+  }
+  nr_rlc_manager_unlock(nr_rlc_ue_manager);
+}
+
+void nr_rlc_add_srb_sl(int rnti, int srb_id, const NR_SL_RLC_BearerConfig_r16_t *rlc_BearerConfig) {
+  nr_rlc_entity_t            *nr_rlc_am;
+  nr_rlc_ue_t                *ue;
+
+  struct NR_SL_RLC_Config_r16 *r = rlc_BearerConfig->sl_RLC_Config_r16;
+  struct NR_SL_LogicalChannelConfig_r16 *l = rlc_BearerConfig->sl_MAC_LogicalChannelConfig_r16;
+  int channel_id = srb_id;
+  int logical_channel_group;
+
+  int t_status_prohibit;
+  int t_poll_retransmit;
+  int poll_pdu;
+  int poll_byte;
+  int max_retx_threshold;
+  int t_reassembly;
+  int sn_field_length;
+
+  LOG_D(RLC,"Trying to add SRB %d\n", srb_id);
+  if (srb_id < 1 && srb_id > 3) {
+    LOG_E(RLC, "%s:%d:%s: fatal, bad srb id %d\n",
+        __FILE__, __LINE__, __FUNCTION__, srb_id);
+    exit(1);
+  }
+
+  if (channel_id != srb_id) {
+    LOG_E(RLC, "%s:%d:%s: todo, remove this limitation\n",
+          __FILE__, __LINE__, __FUNCTION__);
+    exit(1);
+  }
+
+  logical_channel_group = *l->sl_LogicalChannelGroup_r16;
+
+  /* TODO: accept other values? */
+  if (logical_channel_group != 0) {
+    LOG_E(RLC, "%s:%d:%s: fatal error\n", __FILE__, __LINE__, __FUNCTION__);
+    exit(1);
+  }
+
+  switch (r->present) {
+  case NR_RLC_Config_PR_am: {
+    struct NR_SL_RLC_Config_r16__sl_AM_RLC_r16 *am;
+    am = r->choice.sl_AM_RLC_r16;
+    t_poll_retransmit  = decode_t_poll_retransmit(am->sl_T_PollRetransmit_r16);
+    poll_pdu           = decode_poll_pdu(am->sl_PollPDU_r16);
+    poll_byte          = decode_poll_byte(am->sl_PollByte_r16);
+    max_retx_threshold = decode_max_retx_threshold(am->sl_MaxRetxThreshold_r16);
+    sn_field_length    = decode_sn_field_length_am(*am->sl_SN_FieldLengthAM_r16);
+    break;
+  }
+  default:
+    LOG_E(RLC, "%s:%d:%s: fatal error\n", __FILE__, __LINE__, __FUNCTION__);
+    exit(1);
+  }
+
+  nr_rlc_manager_lock(nr_rlc_ue_manager);
+  ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, rnti);
+  if (ue->srb[srb_id - 1] != NULL) {
+    LOG_W(RLC, "%s:%d:%s: SRB %d already exists for UE with RNTI %04x, do nothing\n", __FILE__, __LINE__, __FUNCTION__, srb_id, rnti);
+  } else {
+    /* hack: hardcode values for NR */
+    t_poll_retransmit = 45;
+    t_reassembly = 35;
+    t_status_prohibit = 0;
+    poll_pdu = -1;
+    poll_byte = -1;
+    max_retx_threshold = 8;
+    sn_field_length = 12;
+    nr_rlc_am = new_nr_rlc_entity_am(RLC_RX_MAXSIZE,
+                                     RLC_TX_MAXSIZE,
+                                     deliver_sdu, ue,
+                                     successful_delivery, ue,
+                                     max_retx_reached, ue,
+                                     t_poll_retransmit,
+                                     t_reassembly, t_status_prohibit,
+                                     poll_pdu, poll_byte, max_retx_threshold,
+                                     sn_field_length,
+                                     PC5);
+    nr_rlc_ue_add_srb_rlc_entity(ue, srb_id, nr_rlc_am);
+
+    LOG_D(RLC, "%s:%d:%s: added sl_srb %d to UE with RNTI 0x%x\n", __FILE__, __LINE__, __FUNCTION__, srb_id, rnti);
   }
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }

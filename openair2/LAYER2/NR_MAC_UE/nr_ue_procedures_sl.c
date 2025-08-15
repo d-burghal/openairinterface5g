@@ -828,7 +828,7 @@ void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
   sched_psfch->start_symbol_index = *sl_bwp->sl_StartSymbol_r16 + sl_num_symbols - 2;
   LOG_D(NR_PHY, "sl_StartSymbol_r16 %ld, sl_num_symbols: %d, start sym index %d, mcs %d\n",
         *sl_bwp->sl_StartSymbol_r16, sl_num_symbols, sched_psfch->start_symbol_index, sched_psfch->mcs);
-  if (get_softmodem_params()->sl_mode == 2)
+  if ((get_softmodem_params()->sl_mode == 2) || (mac->sl_bwp_dedicated == NULL))
     sched_psfch->hopping_id = *mac->sl_bwp->sl_BWP_PoolConfigCommon_r16->sl_TxPoolSelectedNormal_r16->list.array[0]->sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
   else if (get_softmodem_params()->sl_mode == 1)
     sched_psfch->hopping_id = *mac->sl_bwp_dedicated->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[0]->sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
@@ -1067,7 +1067,7 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
     int round_sum = r1 + 2 * r2 + 3 * r3 + 4 * r4;
     int total_tx = r0 + round_sum;
     if (total_tx % 20 == 0 || (total_tx > 299 && total_tx < 305)) {
-      LOG_I(NR_PHY, "[UE] %d:%d PSFCH Stats: RX round (%u %u %u %u %u), SumRetx %u TotalTx %u\n",
+      LOG_D(NR_PHY, "[UE] %d:%d PSFCH Stats: RX round (%u %u %u %u %u), SumRetx %u TotalTx %u\n",
                                                       frame, slot,
                                                       UE->mac_sl_stats.cumul_round[0],
                                                       UE->mac_sl_stats.cumul_round[1],

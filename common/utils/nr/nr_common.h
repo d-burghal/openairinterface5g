@@ -76,7 +76,7 @@ typedef enum frequency_range_e {
 
 typedef enum {
   UU,
-  PC5,
+  PC5
 } nr_intf_type_t;
 
 extern const nr_bandentry_t nr_bandtable[];

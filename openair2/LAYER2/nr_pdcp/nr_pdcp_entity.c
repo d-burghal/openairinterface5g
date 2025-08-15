@@ -50,7 +50,7 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
     return;
   }
 
-  if (entity->type != NR_PDCP_SRB && !(buffer[0] & 0x80)) {
+  if (((entity->type != NR_PDCP_SRB) && (entity->type != NR_PDCP_SL_SRB)) && !(buffer[0] & 0x80)) {
     LOG_E(PDCP, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
     /* TODO: This is something of a hack. The most significant bit
        in buffer[0] should be 1 if the packet is a data packet. We are
@@ -76,7 +76,7 @@ static void nr_pdcp_entity_recv_pdu(nr_pdcp_entity_t *entity,
   entity->stats.rxpdu_sn = rcvd_sn;
 
   /* SRBs always have MAC-I, even if integrity is not active */
-  if (entity->has_integrity || entity->type == NR_PDCP_SRB) {
+  if (entity->has_integrity || ((entity->type == NR_PDCP_SRB) || (entity->type == NR_PDCP_SL_SRB))) {
     integrity_size = 4;
   } else {
     integrity_size = 0;
@@ -216,7 +216,7 @@ static int nr_pdcp_entity_process_sdu(nr_pdcp_entity_t *entity,
   }
 
   /* SRBs always have MAC-I, even if integrity is not active */
-  if (entity->has_integrity || entity->type == NR_PDCP_SRB) {
+  if (entity->has_integrity || ((entity->type == NR_PDCP_SRB) || (entity->type == NR_PDCP_SL_SRB))) {
     integrity_size = 4;
   } else {
     integrity_size = 0;

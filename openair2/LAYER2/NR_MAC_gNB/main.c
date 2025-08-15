@@ -260,7 +260,8 @@ void mac_top_init_gNB(ngran_node_t node_type)
     AssertFatal(rlc_module_init(1) == 0,"Could not initialize RLC layer\n");
 
     // These should be out of here later
-    if (get_softmodem_params()->usim_test == 0 ) nr_pdcp_layer_init();
+    bool gNB_flag = true;
+    if (get_softmodem_params()->usim_test == 0 ) nr_pdcp_layer_init(gNB_flag);
 
     if(IS_SOFTMODEM_NOS1 && get_softmodem_params()->phy_test) {
       // get default noS1 configuration
