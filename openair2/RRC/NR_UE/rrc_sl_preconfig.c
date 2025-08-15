@@ -34,6 +34,7 @@
 #include "executables/nr-uesoftmodem.h"
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
+#include "RRC/NR_UE/rrc_proto.h"
 
 #define GNSS_SUPPORT 0
 
@@ -602,6 +603,95 @@ int configure_NR_SL_Preconfig(uint8_t id,int sync_source)
   return 0;
 }
 
+static NR_SRB_ToAddModList_t *createSRBlist_sl(NR_UE_RRC_INST_t *ue, uint8_t ue_index, bool reestablish) {
+  int first_srb = 1;
+  if (!ue->sl_Srb1[ue_index].Active) {
+    LOG_E(NR_RRC, "Call SRB list while SRB1 doesn't exist\n");
+    return NULL;
+  }
+
+  NR_SRB_ToAddModList_t *list = CALLOC(sizeof(*list), 1);
+  for (int i = first_srb; i < maxSRBs; i++) {
+    // TODO: currently, only sl_srb1 is supported
+    if (i > 1) {
+      return list;
+    }
+    if (ue->sl_Srb1[ue_index].Active) {
+      asn1cSequenceAdd(list->list, NR_SRB_ToAddMod_t, srb);
+      srb->srb_Identity = i;
+      if (reestablish && i == 2) {
+        asn1cCallocOne(srb->reestablishPDCP, NR_SRB_ToAddMod__reestablishPDCP_true);
+      }
+    }
+  }
+  return list;
+}
+
+static NR_SL_RLC_BearerConfig_r16_t *get_SRB_RLC_BearerConfig_sl(long priority,
+                                                                 e_NR_SL_LogicalChannelConfig_r16__sl_BucketSizeDuration_r16 bucketSizeDuration)
+{
+  NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig                = CALLOC(1, sizeof(NR_SL_RLC_BearerConfig_r16_t));
+  sl_RLC_BearerConfig->sl_RLC_Config_r16                           = CALLOC(1, sizeof(NR_SL_RLC_Config_r16_t));
+  NR_SL_RLC_Config_r16_t *sl_rlc_Config                            = sl_RLC_BearerConfig->sl_RLC_Config_r16;
+  sl_rlc_Config->present                                           = NR_SL_RLC_Config_r16_PR_sl_AM_RLC_r16;
+  sl_rlc_Config->choice.sl_AM_RLC_r16                              = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_AM_RLC_r16));
+  sl_rlc_Config->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16     = CALLOC(1, sizeof(NR_SN_FieldLengthAM_t));
+  *sl_rlc_Config->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16    = NR_SN_FieldLengthAM_size12;
+  sl_rlc_Config->choice.sl_AM_RLC_r16->sl_T_PollRetransmit_r16     = NR_T_PollRetransmit_ms45;
+  sl_rlc_Config->choice.sl_AM_RLC_r16->sl_PollPDU_r16              = NR_PollPDU_infinity;
+  sl_rlc_Config->choice.sl_AM_RLC_r16->sl_PollByte_r16             = NR_PollByte_infinity;
+  sl_rlc_Config->choice.sl_AM_RLC_r16->sl_MaxRetxThreshold_r16     = NR_UL_AM_RLC__maxRetxThreshold_t8;
+
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16             = CALLOC(1, sizeof(NR_SL_LogicalChannelConfig_r16_t));
+  NR_SL_LogicalChannelConfig_r16_t *logicalChannelConfig           = sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16;
+  logicalChannelConfig->sl_Priority_r16                            = priority;
+  logicalChannelConfig->sl_PrioritisedBitRate_r16                  = NR_SL_LogicalChannelConfig_r16__sl_PrioritisedBitRate_r16_kBps128;
+  logicalChannelConfig->sl_BucketSizeDuration_r16                  = bucketSizeDuration;
+
+  logicalChannelConfig->sl_LogicalChannelGroup_r16 = CALLOC(1, sizeof(long));
+  *logicalChannelConfig->sl_LogicalChannelGroup_r16 = 0;
+
+  logicalChannelConfig->sl_SchedulingRequestId_r16 = CALLOC(1, sizeof(NR_SchedulingRequestId_t));
+  *logicalChannelConfig->sl_SchedulingRequestId_r16 = 0;
+
+  logicalChannelConfig->sl_LogicalChannelSR_DelayTimerApplied_r16 = CALLOC(1, sizeof(BOOLEAN_t));
+  *logicalChannelConfig->sl_LogicalChannelSR_DelayTimerApplied_r16 = false;
+
+  return sl_RLC_BearerConfig;
+}
+
+void add_sl_srbs(module_id_t module_id) {
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  protocol_ctxt_t ctxt;
+  ctxt.rntiMaybeUEid = mac->src_id;
+  ctxt.module_id = module_id;
+  NR_RadioBearerConfig_t *radioBearerConfig = CALLOC(1, sizeof(NR_RadioBearerConfig_t));
+  // NR_SL_RadioBearerConfig_r16
+  NR_UE_rrc_inst[module_id].sl_Srb1[0].Active = 1;
+
+  uint8_t priority = 3; // TODO: Check priorities from standard
+  NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig = get_SRB_RLC_BearerConfig_sl(priority, NR_SL_LogicalChannelConfig_r16__sl_BucketSizeDuration_r16_ms5);
+
+  uint8_t ue_index = 0; // TODO: Currently we are assuming each UE is connected to only one UE
+  NR_SRB_ToAddModList_t *SRB_configList = createSRBlist_sl(&NR_UE_rrc_inst[module_id], ue_index, false);
+  // initialisation by RRC
+  radioBearerConfig->srb_ToAddModList = SRB_configList;
+  LOG_D(NR_RRC, "array[0].srb_Identity %ld\n", radioBearerConfig->srb_ToAddModList->list.array[0]->srb_Identity);
+  radioBearerConfig-> drb_ToAddModList = NULL; // Adding Sidelink drb from "nr_UE_configure_Sidelink" function
+  radioBearerConfig->securityConfig = CALLOC(1, sizeof(NR_SecurityConfig_t));
+  radioBearerConfig->securityConfig->keyToUse = CALLOC(1, sizeof(long));
+  *radioBearerConfig->securityConfig->keyToUse = NR_SecurityConfig__keyToUse_master;
+  radioBearerConfig->securityConfig->securityAlgorithmConfig = CALLOC(1, sizeof(NR_SecurityAlgorithmConfig_t));
+  radioBearerConfig->securityConfig->securityAlgorithmConfig->cipheringAlgorithm = NR_CipheringAlgorithm_nea2;
+  radioBearerConfig->securityConfig->securityAlgorithmConfig->integrityProtAlgorithm = CALLOC(1, sizeof(NR_IntegrityProtAlgorithm_t));
+  *radioBearerConfig->securityConfig->securityAlgorithmConfig->integrityProtAlgorithm = NR_IntegrityProtAlgorithm_nia2;
+  if (radioBearerConfig->securityConfig != NULL) {
+    if (*radioBearerConfig->securityConfig->keyToUse == NR_SecurityConfig__keyToUse_master) {
+      nr_rrc_ue_process_RadioBearerConfig_sl(&ctxt, ue_index, radioBearerConfig, sl_RLC_BearerConfig);
+    }
+  }
+}
+
 /*
 * This functions configures SIdelink operation in the UE.
 * RRC configures MAC with sidelink parameters
@@ -628,6 +718,7 @@ void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *uein
   nr_rrc_mac_config_req_sl_preconfig(id, sl_preconfig, sync_source);
 
   if (get_softmodem_params()->sl_mode == 2) {
+    add_sl_srbs(id);
     // SL RadioBearers
     for (int i = 0; i < sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.count; i++) {
       add_drb_sl(ueinfo->srcid, (NR_SL_RadioBearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i], 0, 0, NULL, NULL);
@@ -685,8 +776,8 @@ void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, 
 
   AssertFatal(rrc, "Check if rrc instance was created.");
 
-  NR_SL_ConfigDedicatedNR_r16_t *nr_sl_dedicated_cfg = rrc->nr_sl_dedicated_cfg;
-  AssertFatal(nr_sl_dedicated_cfg, "Check if SL dedicated config was created.");
+  NR_SL_ConfigDedicatedNR_r16_t *sl_dedicated_cfg = rrc->sl_dedicated_cfg;
+  AssertFatal(sl_dedicated_cfg, "Check if SL dedicated config was created.");
 
   uint8_t sync_source = SL_SYNC_SOURCE_NONE;
 
@@ -694,13 +785,14 @@ void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, 
     sync_source = SL_SYNC_SOURCE_GNBENB;
   }
 
-  nr_rrc_mac_config_req_sl_dedicated_config(0, rrc->nr_sl_dedicated_cfg, sync_source);
+  nr_rrc_mac_config_req_sl_dedicated_config(0, rrc->sl_dedicated_cfg, sync_source);
   if (get_softmodem_params()->sl_mode == 1) {
+    add_sl_srbs(id);
     // SL RadioBearers
     add_srap_entity(src_id);
     // configure RLC
-    for (int i = 0; i < nr_sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.count; i++) {
-      nr_rlc_add_drb_sl(src_id, 1, (NR_SL_RLC_BearerConfig_r16_t *)nr_sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.array[i]);
+    for (int i = 0; i < sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.count; i++) {
+      nr_rlc_add_drb_sl(src_id, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.array[i]);
     }
   }
   // TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.
@@ -714,7 +806,7 @@ void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, 
   NR_SL_SSB_TimeAllocation_r16_t *ssb_ta = NULL;
   NR_SL_FreqConfig_r16_t *fcfg = NULL;
   NR_SL_SyncConfig_r16_t *synccfg = NULL;
-  struct NR_SL_PHY_MAC_RLC_Config_r16__sl_FreqInfoToAddModList_r16 *sl_FreqInfoToAddModList = rrc->nr_sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_FreqInfoToAddModList_r16;
+  struct NR_SL_PHY_MAC_RLC_Config_r16__sl_FreqInfoToAddModList_r16 *sl_FreqInfoToAddModList = rrc->sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_FreqInfoToAddModList_r16;
   if (sl_FreqInfoToAddModList)
     fcfg = sl_FreqInfoToAddModList->list.array[0];
   AssertFatal(fcfg, "Fcfg cannot be NULL\n");

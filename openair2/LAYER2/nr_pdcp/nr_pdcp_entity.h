@@ -32,7 +32,8 @@
 typedef enum {
   NR_PDCP_DRB_AM,
   NR_PDCP_DRB_UM,
-  NR_PDCP_SRB
+  NR_PDCP_SRB,
+  NR_PDCP_SL_SRB
 } nr_pdcp_entity_type_t;
 
 typedef struct {

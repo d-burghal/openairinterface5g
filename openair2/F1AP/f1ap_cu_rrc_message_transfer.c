@@ -308,6 +308,6 @@ int CU_handle_UL_RRC_MESSAGE_TRANSFER(instance_t       instance,
                  0, // embms_flag
                  srb_id,
                  ie->value.choice.RRCContainer.size,
-                 mb, NULL, NULL);
+                 mb, NULL, NULL, UU);
   return 0;
 }

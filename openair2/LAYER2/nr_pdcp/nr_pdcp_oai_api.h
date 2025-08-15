@@ -25,7 +25,7 @@
 #include "pdcp.h"
 #include "nr_pdcp_ue_manager.h"
 
-void nr_pdcp_layer_init(void);
+void nr_pdcp_layer_init(bool gNB_flag);
 uint64_t nr_pdcp_module_init(uint64_t _pdcp_optmask, int id);
 
 void du_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
@@ -44,7 +44,8 @@ bool pdcp_data_ind(const protocol_ctxt_t *const  ctxt_pP,
                    const sdu_size_t sdu_buffer_size,
                    mem_block_t *const sdu_buffer,
                    const uint32_t *const srcID,
-                   const uint32_t *const dstID);
+                   const uint32_t *const dstID,
+                   nr_intf_type_t intf_type);
 
 void nr_pdcp_add_drbs(eNB_flag_t enb_flag,
                       ue_id_t rntiMaybeUEid,

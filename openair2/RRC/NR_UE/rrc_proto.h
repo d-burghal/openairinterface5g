@@ -229,6 +229,20 @@ void extract_nr_sl_PSSCH_Config(NR_SL_PSSCH_Config_r16_t *recvd_sl_PSSCH_Config,
 
 void extract_nr_sl_PSFCH_Config(NR_SL_PSFCH_Config_r16_t *recvd_sl_PSFCH_Config,
                                 NR_SL_PSFCH_Config_r16_t *targeted_sl_PSFCH_Config);
+
+int32_t nr_rrc_ue_establish_srb1(module_id_t ue_mod_idP,
+                                 frame_t frameP,
+                                 uint8_t remote_ue_index,
+                                 NR_SRB_ToAddMod_t *SRB_config);
+
+int32_t nr_rrc_ue_establish_sl_srb1(module_id_t ue_mod_idP,
+                                    frame_t frameP,
+                                    uint8_t remote_ue_index);
+
+void nr_rrc_ue_process_RadioBearerConfig_sl(const protocol_ctxt_t *const ctxt_pP,
+                                            const uint8_t ue_index,
+                                            NR_RadioBearerConfig_t *const radioBearerConfig,
+                                            NR_SL_RLC_BearerConfig_r16_t *nr_rlc_BearerConfig);
 /** @}*/
 #endif
 

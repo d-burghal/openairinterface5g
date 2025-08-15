@@ -610,7 +610,7 @@ static void add_srb(int rnti, int module_id, struct LTE_SRB_ToAddMod *s)
   rlc_manager_lock(rlc_ue_manager);
   ue = rlc_manager_get_ue(rlc_ue_manager, rnti);
   ue->module_id = module_id;
-  if (ue->srb[srb_id-1] != NULL) {
+  if (ue->srb[srb_id - 1] != NULL) {
     LOG_D(RLC, "%s:%d:%s: warning SRB %d already exist for ue %d, do nothing\n",
           __FILE__, __LINE__, __FUNCTION__, srb_id, rnti);
   } else {
