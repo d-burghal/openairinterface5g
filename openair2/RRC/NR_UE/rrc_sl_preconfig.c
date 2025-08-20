@@ -678,13 +678,7 @@ void add_sl_srbs(module_id_t module_id) {
   radioBearerConfig->srb_ToAddModList = SRB_configList;
   LOG_D(NR_RRC, "array[0].srb_Identity %ld\n", radioBearerConfig->srb_ToAddModList->list.array[0]->srb_Identity);
   radioBearerConfig-> drb_ToAddModList = NULL; // Adding Sidelink drb from "nr_UE_configure_Sidelink" function
-  radioBearerConfig->securityConfig = CALLOC(1, sizeof(NR_SecurityConfig_t));
-  radioBearerConfig->securityConfig->keyToUse = CALLOC(1, sizeof(long));
-  *radioBearerConfig->securityConfig->keyToUse = NR_SecurityConfig__keyToUse_master;
-  radioBearerConfig->securityConfig->securityAlgorithmConfig = CALLOC(1, sizeof(NR_SecurityAlgorithmConfig_t));
-  radioBearerConfig->securityConfig->securityAlgorithmConfig->cipheringAlgorithm = NR_CipheringAlgorithm_nea2;
-  radioBearerConfig->securityConfig->securityAlgorithmConfig->integrityProtAlgorithm = CALLOC(1, sizeof(NR_IntegrityProtAlgorithm_t));
-  *radioBearerConfig->securityConfig->securityAlgorithmConfig->integrityProtAlgorithm = NR_IntegrityProtAlgorithm_nia2;
+  radioBearerConfig->securityConfig = NULL;
   if (radioBearerConfig->securityConfig != NULL) {
     if (*radioBearerConfig->securityConfig->keyToUse == NR_SecurityConfig__keyToUse_master) {
       nr_rrc_ue_process_RadioBearerConfig_sl(&ctxt, ue_index, radioBearerConfig, sl_RLC_BearerConfig);
