@@ -83,7 +83,7 @@ void nr_srap_entity_recv_pdu(protocol_ctxt_t *const  ctxt_pP,
       forwarding_entity = nr_srap_get_entity(m, NR_SRAP_PC5);
     }
     AssertFatal(forwarding_entity != NULL, "Forwarding entity is NULL!!!");
-    LOG_D(NR_SRAP, "%s: Received SRAP SDU on %s; forwarding on %s\n", __FUNCTION__, entity_types[entity->type], entity_types[forwarding_entity->type]);
+    LOG_D(NR_SRAP, "%s: Received SRAP SDU from %s; forwarding to %s with rb_id %ld.\n", __FUNCTION__, entity_types[entity->type], entity_types[forwarding_entity->type], rb_id);
     ctxt_pP->rntiMaybeUEid = forwarding_entity->rnti;
     srap_forward_sdu_drb(ctxt_pP, forwarding_entity, srb_flagP, MBMS_flagP, buffer, size, rb_id, src_id, dest_id);
   }

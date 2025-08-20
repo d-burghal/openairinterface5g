@@ -210,7 +210,6 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
                           const NR_SL_ResourcePool_r16_t *sl_res_pool,
                           nr_sci_pdu_t *sci_pdu,
                           nr_sci_pdu_t *sci2_pdu,
-                          uint16_t slsch_pdu_length,
                           const nr_sci_format_t format1,
                           const nr_sci_format_t format2,
                           uint16_t slot,
@@ -477,7 +476,6 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
           AssertFatal(1==0,"Unknown format %d for sci2\n",format2);
           break;
   }
-  nr_sl_pssch_pscch_pdu->slsch_payload_length = slsch_pdu_length;
 };
 
 void config_pscch_pdu_rx(sl_nr_rx_config_pscch_pdu_t *nr_sl_pscch_pdu,

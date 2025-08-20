@@ -88,14 +88,14 @@ static void monitor_trafffic_pattern(const module_id_t         module_idP,
   bool status = false;
   if (now - nr_rlc_last_check_time >= 1000) {  // 1000 ms window
     int old_pattern_type;
-    if (nr_rlc_packet_counter < 2) {
+    if (nr_rlc_packet_counter < 10) {
       if (traffic_pattern_type != 0) {
         old_pattern_type = traffic_pattern_type;
         traffic_pattern_type = 0;
         status = true;
       }
     }
-    else if (nr_rlc_packet_counter < 10) {
+    else if (nr_rlc_packet_counter < 50) {
       if (traffic_pattern_type != 1) {
         old_pattern_type = traffic_pattern_type;
         traffic_pattern_type = 1;
@@ -119,7 +119,7 @@ static void monitor_trafffic_pattern(const module_id_t         module_idP,
     if (status) {
       int md = rb->stats.mode;
       LOG_W(RLC, "Traffic pattern has been changed from %d to %d\n", old_pattern_type, traffic_pattern_type);
-      LOG_I(RLC, "is_pc5_link %d channel_idP %u rxpdu_pkts %u mode %s Packet count in last 1000ms: %d\n",
+      LOG_D(RLC, "is_pc5_link %d channel_idP %u rxpdu_pkts %u mode %s Packet count in last 1000ms: %d\n",
             is_pc5_link, channel_idP, rb->stats.rxpdu_pkts,
             md == 0 ? "AM" : (md == 1 ? "UM" : "TM"), nr_rlc_packet_counter);
       nr_ue_SL_UEAsistance_trigger(module_idP, frameP, channel_idP, is_pc5_link, traffic_pattern_type);
@@ -419,11 +419,16 @@ rlc_op_status_t rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
     }
   }
 
+  if(rb_idP == 1)
+    LOG_D(RLC, "Sending traffic with UE-specific drb rb_idP 1.\n");
+  if(rb_idP == 2)
+    LOG_D(RLC, "Sending traffic with Relay-specific drb rb_idP 2.\n");
+
   if (rb != NULL) {
     rb->set_time(rb, nr_rlc_current_time);
     rb->recv_sdu(rb, (char *)sdu_pP->data, sdu_sizeP, muiP);
   } else {
-    LOG_E(RLC, "%s:%d:%s: fatal: SDU sent to unknown RB\n", __FILE__, __LINE__, __FUNCTION__);
+    LOG_E(RLC, "%s:%d:%s: fatal: SDU sent to unknown RB %ld\n", __FILE__, __LINE__, __FUNCTION__, rb_idP);
   }
 
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
@@ -607,11 +612,14 @@ rb_found:
   memcpy(memblock->data, buf, size);
   bool srap_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
   srap_enabled = is_srb ? false : srap_enabled;
-  if (srap_enabled) {
+
+  if (srap_enabled && (rb_id > 1)) { // rb_id 2 enters into srap_data_ind !!!
+    LOG_D(RLC, "Deliver from RLC to SRAP for rb_id %d\n", rb_id);
     if (!srap_data_ind(&ctx, is_srb, 0, rb_id, size, memblock, NULL, NULL, entity->intf_type)) {
       LOG_E(RLC, "%s:%d:%s: ERROR: srap_data_ind failed\n", __FILE__, __LINE__, __FUNCTION__);
     }
   } else {
+    LOG_D(RLC, "Deliver directly from RLC to PDCP for rb_id %d\n", rb_id);
     if (!pdcp_data_ind(&ctx, is_srb, 0, rb_id, size, memblock, NULL, NULL, entity->intf_type)) {
       LOG_E(RLC, "%s:%d:%s: ERROR: pdcp_data_ind failed\n", __FILE__, __LINE__, __FUNCTION__);
       /* what to do in case of failure? for the moment: nothing */
@@ -934,7 +942,6 @@ static void add_drb_am(int rnti, int drb_id, const NR_RLC_BearerConfig_t *rlc_Be
 
   struct NR_RLC_Config *r = rlc_BearerConfig->rlc_Config;
   struct NR_LogicalChannelConfig *l = rlc_BearerConfig->mac_LogicalChannelConfig;
-  int channel_id = rlc_BearerConfig->logicalChannelIdentity;
   int logical_channel_group;
 
   int t_status_prohibit;
@@ -948,12 +955,6 @@ static void add_drb_am(int rnti, int drb_id, const NR_RLC_BearerConfig_t *rlc_Be
   if (!(drb_id >= 1 && drb_id <= MAX_DRBS_PER_UE)) {
     LOG_E(RLC, "%s:%d:%s: fatal, bad srb id %d\n",
           __FILE__, __LINE__, __FUNCTION__, drb_id);
-    exit(1);
-  }
-
-  if (channel_id != drb_id + 3) {
-    LOG_E(RLC, "%s:%d:%s: todo, remove this limitation\n",
-          __FILE__, __LINE__, __FUNCTION__);
     exit(1);
   }
 

@@ -208,8 +208,7 @@ uint32_t compute_FRIV(uint8_t sl_max_num_per_reserve,
 void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_t *sci_pdu,
                        nr_sci_pdu_t *sci2_pdu, nr_sci_format_t format2,
                        NR_SL_UE_info_t *UE,
-                       uint16_t *slsch_pdu_length_max, NR_UE_sl_harq_t *cur_harq,
-                       mac_rlc_status_resp_t *rlc_status,
+                       NR_UE_sl_harq_t *cur_harq,
                        sl_resource_info_t *resource) {
   uid_t dest_id = UE->uid;
   NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -224,7 +223,6 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   psfch_period = (mac->sl_tx_res_pool->sl_PSFCH_Config_r16 &&
                   mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16)
                   ? psfch_periods[*mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16] : 0;
-  *slsch_pdu_length_max = 0;
 
   NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
   int period = 0, offset = 0;
@@ -352,7 +350,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   sci2_pdu->source_id = mac->src_id;
   sci2_pdu->dest_id = dest_id;
   sci2_pdu->harq_feedback = cur_harq->is_waiting;
-  LOG_D(NR_MAC, "%4d.%2d Comparing Setting harq_feedback %d bytes_in_buffer %d sl_harq_pid %d\n", frameP, slotP, sci2_pdu->harq_feedback, rlc_status->bytes_in_buffer, cur_harq ? cur_harq->sl_harq_pid : 0);
+  LOG_D(NR_MAC, "%4d.%2d Comparing Setting harq_feedback %d sl_harq_pid %d\n", frameP, slotP, sci2_pdu->harq_feedback, cur_harq ? cur_harq->sl_harq_pid : 0);
   sci2_pdu->cast_type = 1;
   if (format2 == NR_SL_SCI_FORMAT_2C || format2 == NR_SL_SCI_FORMAT_2A) {
     sci2_pdu->csi_req = (csi_acq && csi_req_slot) ? 1 : 0;
@@ -374,8 +372,6 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
     // Fill in for R17 : lowest_subchannel_indices
     sci2_pdu->lowest_subchannel_indices.val = 0;
   }
-  // Set SLSCH
-  *slsch_pdu_length_max = rlc_status->bytes_in_buffer;
 }
 
 SL_CSI_Report_t* set_nr_ue_sl_csi_meas_periodicity(const NR_TDD_UL_DL_Pattern_t *tdd,
