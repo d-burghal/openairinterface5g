@@ -617,8 +617,11 @@ static void *ue_tun_read_thread(void *_)
   ue_id_t rntiMaybeUEid;
   int has_ue;
 
+  bool relay_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
+  bool is_relay_ue = get_softmodem_params()->is_relay_ue;
   int rb_id = 1;
-  pthread_setname_np( pthread_self(),"ue_tun_read"); 
+  rb_id = ((get_softmodem_params()->sl_mode == 2) && relay_enabled && !is_relay_ue) ? 2 : rb_id;
+  pthread_setname_np( pthread_self(),"ue_tun_read");
   LOG_I(PDCP,"ue_tun_read_thread created on core %d\n",sched_getcpu());
   while (1) {
     len = read(nas_sock_fd[0], &rx_buf, NL_MAX_PAYLOAD);
@@ -647,17 +650,7 @@ static void *ue_tun_read_thread(void *_)
     bool dc = SDAP_HDR_UL_DATA_PDU;
     extern uint8_t nas_qfi;
     extern uint8_t nas_pduid;
-    bool srap_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
-    if (srap_enabled) {
-      if (!get_softmodem_params()->is_relay_ue) {
-        sdap_data_req(&ctxt, rntiMaybeUEid, SRB_FLAG_NO, rb_id, RLC_MUI_UNDEFINED, RLC_SDU_CONFIRM_NO, len, (unsigned char *)rx_buf, PDCP_TRANSMISSION_MODE_DATA, NULL, NULL, nas_qfi, dc, nas_pduid);
-      } else {
-        // TODO: add the Relay UE transmission support
-        LOG_D(PDCP, "Relay UE transmission on PDCP is not supported yet!!!\n");
-      }
-    } else {
-      sdap_data_req(&ctxt, rntiMaybeUEid, SRB_FLAG_NO, rb_id, RLC_MUI_UNDEFINED, RLC_SDU_CONFIRM_NO, len, (unsigned char *)rx_buf, PDCP_TRANSMISSION_MODE_DATA, NULL, NULL, nas_qfi, dc, nas_pduid);
-    }
+    sdap_data_req(&ctxt, rntiMaybeUEid, SRB_FLAG_NO, rb_id, RLC_MUI_UNDEFINED, RLC_SDU_CONFIRM_NO, len, (unsigned char *)rx_buf, PDCP_TRANSMISSION_MODE_DATA, NULL, NULL, nas_qfi, dc, nas_pduid);
   }
 
   return NULL;
@@ -818,7 +811,8 @@ static void deliver_sdu_drb(void *_ue, nr_pdcp_entity_t *entity,
 
     rb_found:
     {
-      LOG_D(PDCP, "%s() (drb %d) sending message to SDAP size %d\n", __func__, rb_id, size);
+      LOG_D(PDCP, "%s() (drb %d) sending message to SDAP size %d with pdusession_id %d \n",
+                  __func__, rb_id, size, ue->drb[rb_id - 1]->pdusession_id);
       sdap_data_ind(rb_id, ue->drb[rb_id - 1]->is_gnb, ue->drb[rb_id - 1]->has_sdap_rx, ue->drb[rb_id - 1]->pdusession_id, ue->rntiMaybeUEid, buf, size);
     }
   }
@@ -857,9 +851,7 @@ static void deliver_pdu_drb(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
     itti_send_msg_to_task(TASK_GTPV1_U, CUuniqInstance, message_p);
   } else if (remote_UE_flag && srap_enabled) { // only remote UE should send PDCP traffic
     nr_srap_data_req_drb(&ctxt, rb_id, sdu_id, size, buf, PC5);
-  } else if (is_relay_ue && srap_enabled) {
-    nr_srap_data_req_drb(&ctxt, rb_id, sdu_id, size, buf, UU); // TODO: Interface type can be PC5 as well.
-  } else if (gNB_flag && srap_enabled) { // gNB
+  } else if (gNB_flag && srap_enabled && rb_id > 1) {
     nr_srap_data_req_drb(&ctxt, rb_id, sdu_id, size, buf, UU);
   } else { // without srap
     mem_block_t *memblock = get_free_mem_block(size, __FUNCTION__);
@@ -1201,6 +1193,16 @@ void nr_pdcp_add_drbs(eNB_flag_t enb_flag,
   if (drb2add_list != NULL) {
     for (int i = 0; i < drb2add_list->list.count; i++) {
       add_drb(enb_flag, rntiMaybeUEid, reestablish_ue_id, drb2add_list->list.array[i], rlc_bearer2add_list->list.array[i]->rlc_Config, security_modeP & 0x0f, (security_modeP >> 4) & 0x0f, kUPenc, kUPint);
+#if 1
+      bool relay_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
+      if (relay_enabled && enb_flag) {
+        drb2add_list->list.array[i]->drb_Identity = drb2add_list->list.array[i]->drb_Identity + 1;
+        LOG_D(NR_RRC, "Calling add_drb from nr_pdcp_add_drbs for relay specific drb %ld.\n",
+                      drb2add_list->list.array[i]->drb_Identity);
+        add_drb(enb_flag, rntiMaybeUEid, reestablish_ue_id, drb2add_list->list.array[i], rlc_bearer2add_list->list.array[i]->rlc_Config, security_modeP & 0x0f, (security_modeP >> 4) & 0x0f, kUPenc, kUPint);
+        drb2add_list->list.array[i]->drb_Identity = drb2add_list->list.array[i]->drb_Identity - 1;
+      }
+#endif
     }
   } else
     LOG_W(PDCP, "nr_pdcp_add_drbs() with void list\n");

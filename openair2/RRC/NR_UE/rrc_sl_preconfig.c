@@ -479,7 +479,7 @@ NR_SL_PreconfigurationNR_r16_t *prepare_NR_SL_PRECONFIGURATION(uint16_t num_tx_p
   struct NR_SL_MappedQoS_FlowsListDedicated_r16 *sl_MappedQoS_FlowsListDedicated = sl_SDAP_Config->sl_MappedQoS_Flows_r16->choice.sl_MappedQoS_FlowsListDedicated_r16;
   sl_MappedQoS_FlowsListDedicated->sl_MappedQoS_FlowsToAddList_r16 = calloc(1, sizeof(*sl_MappedQoS_FlowsListDedicated->sl_MappedQoS_FlowsToAddList_r16));
   NR_SL_QoS_FlowIdentity_r16_t *sl_qfi = calloc(1, sizeof(*sl_qfi));
-  *sl_qfi = 1;
+  *sl_qfi = 2;
   ASN_SEQUENCE_ADD(&sl_MappedQoS_FlowsListDedicated->sl_MappedQoS_FlowsToAddList_r16->list, sl_qfi);
   LOG_D(SDAP, "SDAP qfi %ld\n", *sl_MappedQoS_FlowsListDedicated->sl_MappedQoS_FlowsToAddList_r16->list.array[0]);
 
@@ -713,17 +713,36 @@ void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *uein
 
   if (get_softmodem_params()->sl_mode == 2) {
     add_sl_srbs(id);
+    bool relay_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
     // SL RadioBearers
     for (int i = 0; i < sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.count; i++) {
       add_drb_sl(ueinfo->srcid, (NR_SL_RadioBearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i], 0, 0, NULL, NULL);
+      if (relay_enabled) {
+        sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i]->slrb_Uu_ConfigIndex_r16 += 1;
+        add_drb_sl(ueinfo->srcid, (NR_SL_RadioBearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i], 0, 0, NULL, NULL);
+        sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i]->slrb_Uu_ConfigIndex_r16 -= 1;
+      }
     }
     // configure RLC
     for (int i = 0; i < sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.count; i++) {
+      LOG_D(NR_RRC, "Calling nr_rlc_add_drb_sl from nr_UE_configure_Sidelink for UE specific drb.\n");
       nr_rlc_add_drb_sl(ueinfo->srcid, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
+      if (relay_enabled) {
+        int relay_specific_drb_id = 2;
+        LOG_D(NR_RRC, "Calling nr_rlc_add_drb_sl from nr_UE_configure_Sidelink_Dedicated_Cfg for relay specific drb.\n");
+        nr_rlc_add_drb_sl(ueinfo->srcid, relay_specific_drb_id, (NR_SL_RLC_BearerConfig_r16_t *) sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
+        // TODO: Need to update configuration with the following after receiving SL RRCReconfiguration message from relay UE.
+        // nr_sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.array[i]);
+        relay_specific_drb_id++;
+      }
     }
   } else if (get_softmodem_params()->sl_mode == 1) {
     // SL RadioBearers
     add_srap_entity(ueinfo->srcid);
+    // configure RLC
+    for (int i = 0; i < sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.count; i++) {
+      nr_rlc_add_drb_sl(ueinfo->srcid, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
+    }
   }
 
   //TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.
@@ -785,8 +804,11 @@ void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, 
     // SL RadioBearers
     add_srap_entity(src_id);
     // configure RLC
+    int relay_specific_drb_id = 2;
+    int drb_id = get_softmodem_params()->relay_type > 0 ? relay_specific_drb_id : 1;
     for (int i = 0; i < sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.count; i++) {
-      nr_rlc_add_drb_sl(src_id, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.array[i]);
+      LOG_D(NR_RRC, "Calling nr_rlc_add_drb_sl from nr_UE_configure_Sidelink_Dedicated_Cfg for relay specific drb.\n");
+      nr_rlc_add_drb_sl(src_id, drb_id, (NR_SL_RLC_BearerConfig_r16_t *)sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.array[i]);
     }
   }
   // TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.

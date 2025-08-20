@@ -1111,7 +1111,7 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
     LOG_D(NR_MAC, "[UE %x] LCID %d, remaining pdu length %d byte(s)\n", mac->src_id, rx_lcid, pdu_len);
     switch (rx_lcid) {
       //  MAC CE
-      case SL_SCH_LCID_4_19:
+      case SL_SCH_LCID_4_19 ... (SL_SCH_LCID_4_19 + 15):
         if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len))
           return;
         LOG_D(NR_MAC, "%4d.%2d : SLSCH -> LCID %d %d bytes with subheader %d\n", frame, slot, rx_lcid, mac_len, mac_subheader_len);

@@ -3294,21 +3294,22 @@ static void nr_store_slsch_buffer(NR_UE_MAC_INST_t *mac, frame_t frame, sub_fram
     sched_ctrl->num_total_bytes = 0;
     sched_ctrl->sl_pdus_total = 0;
 
-    const int lcid = 4;
-    sched_ctrl->rlc_status[lcid] = mac_rlc_status_ind(0, mac->src_id, 0, frame, slot, ENB_FLAG_NO, MBMS_FLAG_NO, 4, mac->src_id, UE->uid);
+    for (int lcid = 4; lcid <= 5; lcid++) {
+      sched_ctrl->rlc_status[lcid] = mac_rlc_status_ind(0, mac->src_id, 0, frame, slot, ENB_FLAG_NO, MBMS_FLAG_NO, lcid, mac->src_id, UE->uid);
 
-    if (sched_ctrl->rlc_status[lcid].bytes_in_buffer == 0)
-        continue;
+      if (sched_ctrl->rlc_status[lcid].bytes_in_buffer == 0)
+          continue;
 
-    sched_ctrl->sl_pdus_total += sched_ctrl->rlc_status[lcid].pdus_in_buffer;
-    sched_ctrl->num_total_bytes += sched_ctrl->rlc_status[lcid].bytes_in_buffer;
-    LOG_D(MAC,
-          "[%4d.%2d] SLSCH, RLC status for UE: %d bytes in buffer, total DL buffer size = %d bytes, %d total PDU bytes\n",
-          frame,
-          slot,
-          sched_ctrl->rlc_status[lcid].bytes_in_buffer,
-          sched_ctrl->num_total_bytes,
-          sched_ctrl->sl_pdus_total);
+      sched_ctrl->sl_pdus_total += sched_ctrl->rlc_status[lcid].pdus_in_buffer;
+      sched_ctrl->num_total_bytes += sched_ctrl->rlc_status[lcid].bytes_in_buffer;
+      LOG_D(MAC,
+            "[%4d.%2d] SLSCH, RLC status for UE: %d bytes in buffer, total DL buffer size = %d bytes, %d total PDU bytes\n",
+            frame,
+            slot,
+            sched_ctrl->rlc_status[lcid].bytes_in_buffer,
+            sched_ctrl->num_total_bytes,
+            sched_ctrl->sl_pdus_total);
+    }
   }
 }
 
@@ -3453,7 +3454,6 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
   LOG_D(NR_MAC,"[UE%d] SL-PSSCH SCHEDULER: Frame:SLOT %d:%d, slot_type:%d\n",
         sl_ind->module_id, frame, slot,sl_ind->slot_type);
 
-  uint16_t slsch_pdu_length_max;
   tx_config->tx_config_list[0].tx_pscch_pssch_config_pdu.slsch_payload = mac->slsch_payload;
 
   NR_SL_UEs_t *UE_info = &mac->sl_info;
@@ -3514,7 +3514,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
     cur_harq->ndi ^= 1;
 
     nr_schedule_slsch(mac, frame, slot, &mac->sci1_pdu, &mac->sci2_pdu, NR_SL_SCI_FORMAT_2A,
-                      UE, &slsch_pdu_length_max, cur_harq, &sched_ctrl->rlc_status[lcid], resource);
+                      UE, cur_harq, resource);
 
     *config_type = SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH;
     tx_config->number_pdus = 1;
@@ -3527,7 +3527,6 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
                         sl_res_pool,
                         &mac->sci1_pdu,
                         &mac->sci2_pdu,
-                        slsch_pdu_length_max,
                         NR_SL_SCI_FORMAT_1A,
                         NR_SL_SCI_FORMAT_2A,
                         slot,
@@ -3599,7 +3598,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
       const uint8_t sh_size = sizeof(NR_MAC_SUBHEADER_LONG);
 
       int num_sdus=0;
-      if (sched_ctrl->num_total_bytes > 0) {
+      for (lcid = 4; lcid <= 5; lcid++) {
         if (sched_ctrl->rlc_status[lcid].bytes_in_buffer > 0) {
           while (buflen_remain > sh_size + 1) {
 

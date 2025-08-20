@@ -775,6 +775,9 @@ void rrc_gNB_process_NGAP_PDUSESSION_SETUP_REQ(MessageDef *msg_p, instance_t ins
     pdu->teId = session->gtp_teid;
     memcpy(&pdu->tlAddress, session->upf_addr.buffer, 4); // Fixme: dirty IPv4 target
     pdu->numDRB2Setup = 1; // One DRB per PDU Session. TODO: Remove hardcoding
+    if (get_softmodem_params()->relay_type > 0)
+      pdu->numDRB2Setup = 2; // Two DRBs per PDU Session.
+
     for (int j=0; j < pdu->numDRB2Setup; j++) {
       DRB_nGRAN_to_setup_t *drb = pdu->DRBnGRanList + j;
 

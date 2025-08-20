@@ -217,6 +217,10 @@ static void nr_rrc_addmod_drbs(int rnti,
           && bearer->servedRadioBearer->present == NR_RLC_BearerConfig__servedRadioBearer_PR_drb_Identity
           && drb->drb_Identity == bearer->servedRadioBearer->choice.drb_Identity) {
         nr_rlc_add_drb(rnti, drb->drb_Identity, bearer);
+        bool relay_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
+        if (relay_enabled) {
+          nr_rlc_add_drb(rnti, drb->drb_Identity + 1, bearer);
+        }
       }
     }
   }
