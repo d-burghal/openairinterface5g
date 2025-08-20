@@ -187,7 +187,7 @@ void nr_rlc_ue_add_srb_rlc_entity(nr_rlc_ue_t *ue, int srb_id, nr_rlc_entity_t *
   }
 
   if (entity->intf_type == PC5)
-    ue->sl_srb[srb_id - 1] = entity;
+    ue->sl_srb[srb_id] = entity;
   else
     ue->srb[srb_id] = entity;
 }

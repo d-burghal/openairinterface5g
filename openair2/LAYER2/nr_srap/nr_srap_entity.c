@@ -90,12 +90,12 @@ void nr_srap_entity_recv_pdu(protocol_ctxt_t *const  ctxt_pP,
   if (!is_relay_ue || (!is_relay_ue && (entity->type == NR_SRAP_UU))) {
     LOG_W(NR_SRAP, "Sending upstream: src_id = %d  dest_id = %d\n", src_id, dest_id);
     if (entity->type == NR_SRAP_PC5) {
-      entity->deliver_sdu(ctxt_pP, entity->deliver_sdu_data, entity, sdu->buffer, sdu->size, srb_flagP, MBMS_flagP, rb_id);
       LOG_D(NR_SRAP, "Sending PC5 SRAP indication to above layer from SRAP %s\n", __FUNCTION__);
     } else {
-      entity->deliver_sdu(ctxt_pP, entity->deliver_sdu_data, entity, sdu->buffer, sdu->size, srb_flagP, MBMS_flagP, rb_id);
       LOG_D(NR_SRAP, "Sending Uu SRAP indication to above layer from SRAP %s\n", __FUNCTION__);
     }
+
+    entity->deliver_sdu(ctxt_pP, entity->deliver_sdu_data, entity, sdu->buffer, sdu->size, srb_flagP, MBMS_flagP, rb_id);
     entity->stats.txsdu_pkts++;
     entity->stats.txsdu_bytes += sdu->size;
   }
