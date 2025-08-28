@@ -258,7 +258,7 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   sl_res_pool->ext1->sl_TimeResource_r16 = CALLOC(1, sizeof(*sl_res_pool->ext1->sl_TimeResource_r16));
   // FIXIT: Due to asn encoding/decoding error, extra 1 byte has to send, otherwise size is 8
   sl_res_pool->ext1->sl_TimeResource_r16->size = 9;
-  sl_res_pool->ext1->sl_TimeResource_r16->bits_unused = 0;
+  sl_res_pool->ext1->sl_TimeResource_r16->bits_unused = 4;
   sl_res_pool->ext1->sl_TimeResource_r16->buf = CALLOC(sl_res_pool->ext1->sl_TimeResource_r16->size, sizeof(uint8_t));
   // EX: BITMAP 10101010.. indicating every alternating slot supported for sidelink
   for (int i = 0; i < sl_res_pool->ext1->sl_TimeResource_r16->size - 1; i++) {
@@ -364,12 +364,16 @@ void prepare_NR_SL_BWPConfig(NR_SL_BWP_Config_r16_t *sl_bwp,
   AssertFatal(SL_RxPoolParamList.numelt <= 1 && num_rx_pools <= 1, "Only Max 1 RX Respool Supported now\n");
 
   if (num_rx_pools || SL_RxPoolParamList.numelt) {
-    // Receiving resource pool.
-    NR_SL_ResourcePool_r16_t *respool = CALLOC(1, sizeof(*respool));
+    uint8_t num_of_ues = 2; // remote ue and relay ue TODO: Replace constant
     sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16 = CALLOC(1, sizeof(*sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16));
-    ASN_SEQUENCE_ADD(&sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list, respool);
-    // Fill RX resource pool
-    prepare_NR_SL_ResourcePool(sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[0], 0, sl_syncsource, trafficPatternList);
+    for (int i = 0; i < num_of_ues; i++) {
+      // Receiving resource pool.
+      NR_SL_ResourcePool_r16_t *respool = CALLOC(1, sizeof(*respool));
+      ASN_SEQUENCE_ADD(&sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list, respool);
+      // Fill RX resource pool
+      sl_syncsource = i == 0 ? true : false;
+      prepare_NR_SL_ResourcePool(sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[i], 0, sl_syncsource, trafficPatternList);
+    }
   } else
     sl_bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16 = NULL;
 
@@ -390,13 +394,17 @@ void prepare_NR_SL_BWPConfig(NR_SL_BWP_Config_r16_t *sl_bwp,
 
     sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_TxPoolDedicated_r16__sl_PoolToAddModList_r16));
 
-    NR_SL_ResourcePoolConfig_r16_t *respoolcfg = CALLOC(1, sizeof(*respoolcfg));
-    respoolcfg->sl_ResourcePoolID_r16 = 1;
-    respoolcfg->sl_ResourcePool_r16 = CALLOC(1, sizeof(*respoolcfg->sl_ResourcePool_r16));
-    ASN_SEQUENCE_ADD(&sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list, respoolcfg);
+    uint8_t num_of_ues = 2; // remote ue and relay ue TODO: Replace constant
+    for (int i = 0; i < num_of_ues; i++) {
+      NR_SL_ResourcePoolConfig_r16_t *respoolcfg = CALLOC(1, sizeof(*respoolcfg));
+      respoolcfg->sl_ResourcePoolID_r16 = 1;
+      respoolcfg->sl_ResourcePool_r16 = CALLOC(1, sizeof(*respoolcfg->sl_ResourcePool_r16));
+      ASN_SEQUENCE_ADD(&sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list, respoolcfg);
 
-    // Fill tx resource pool
-    prepare_NR_SL_ResourcePool(sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[0]->sl_ResourcePool_r16, 1, sl_syncsource, trafficPatternList);
+      // Fill tx resource pool
+      sl_syncsource = i == 0 ? true : false;
+      prepare_NR_SL_ResourcePool(sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[i]->sl_ResourcePool_r16, 1, sl_syncsource, trafficPatternList);
+    }
   } else
     sl_bwp->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16 = NULL;
 

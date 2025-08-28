@@ -663,24 +663,37 @@ int nr_rrc_mac_config_req_sl_dedicated_config(module_id_t module_id,
   AssertFatal(bwp != NULL, "BWP config dedicated cannot be NULL\n");
   if (bwp->sl_BWP_PoolConfig_r16) {
     if (bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16) {
+      int k = 0;
       for (int i = 0; i < bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.count; i++) {
+        if (get_softmodem_params()->is_relay_ue && (i != 0)) // only index 0 contains resource for relay UE
+          continue;
+        else if (!get_softmodem_params()->is_relay_ue && (i != 1)) // only index 1 contains resource for remote UE
+          continue;
+
         NR_SL_ResourcePool_r16_t *rxpool = bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[i];
         if (rxpool) {
-          if (sl_mac->sl_RxPool[i] == NULL)
-            sl_mac->sl_RxPool[i] = malloc16_clear(sizeof(SL_ResourcePool_params_t));
+          if (sl_mac->sl_RxPool[k] == NULL)
+            sl_mac->sl_RxPool[k] = malloc16_clear(sizeof(SL_ResourcePool_params_t));
           mac->sl_rx_res_pool = rxpool;
-          sl_mac->sl_RxPool[i]->respool = rxpool;
+          sl_mac->sl_RxPool[k]->respool = rxpool;
           uint16_t sci_1a_len = 0, num_subch = 0;
           sci_1a_len = sl_determine_sci_1a_len(&num_subch,
-                                               sl_mac->sl_RxPool[i]->respool,
-                                               &sl_mac->sl_RxPool[i]->sci_1a);
-          sl_mac->sl_RxPool[i]->num_subch = num_subch;
-          sl_mac->sl_RxPool[i]->sci_1a_len = sci_1a_len;
+                                               sl_mac->sl_RxPool[k]->respool,
+                                               &sl_mac->sl_RxPool[k]->sci_1a);
+          sl_mac->sl_RxPool[k]->num_subch = num_subch;
+          sl_mac->sl_RxPool[k]->sci_1a_len = sci_1a_len;
+          k++;
         }
       }
     }
     if (bwp->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16) {
+      int k = 0;
       for (int i = 0; i < bwp->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.count; i++) {
+        if (get_softmodem_params()->is_relay_ue && (i != 0)) // only index 0 contains resource for relay UE
+          continue;
+        else if (!get_softmodem_params()->is_relay_ue && (i != 1)) // only index 1 contains resource for remote UE
+          continue;
+
         NR_SL_ResourcePool_r16_t *txpool =
                 bwp->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[i]->sl_ResourcePool_r16;
         if (txpool) {
@@ -692,39 +705,41 @@ int nr_rrc_mac_config_req_sl_dedicated_config(module_id_t module_id,
             sl_mac->sl_bler.max_mcs = MAX_MCS;
           }
           mac->sl_tx_res_pool = txpool;
-          if (sl_mac->sl_TxPool[i] == NULL)
-            sl_mac->sl_TxPool[i] = malloc16_clear(sizeof(SL_ResourcePool_params_t));
-          sl_mac->sl_TxPool[i]->respool = txpool;
+          if (sl_mac->sl_TxPool[k] == NULL)
+            sl_mac->sl_TxPool[k] = malloc16_clear(sizeof(SL_ResourcePool_params_t));
+          sl_mac->sl_TxPool[k]->respool = txpool;
           uint16_t sci_1a_len = 0, num_subch = 0;
           sci_1a_len = sl_determine_sci_1a_len(&num_subch,
-                                               sl_mac->sl_TxPool[i]->respool,
-                                               &sl_mac->sl_TxPool[i]->sci_1a);
+                                               sl_mac->sl_TxPool[k]->respool,
+                                               &sl_mac->sl_TxPool[k]->sci_1a);
 
-          sl_mac->sl_TxPool[i]->num_subch = num_subch;
-          sl_mac->sl_TxPool[i]->sci_1a_len = sci_1a_len;
+          sl_mac->sl_TxPool[k]->num_subch = num_subch;
+          sl_mac->sl_TxPool[k]->sci_1a_len = sci_1a_len;
 
+          NR_TDD_UL_DL_ConfigCommon_t *tdd_uldl_config = NULL;
+          if (txpool &&
+              txpool->sl_RxParametersNcell_r16 &&
+              txpool->sl_RxParametersNcell_r16->sl_TDD_Configuration_r16)
+            tdd_uldl_config = txpool->sl_RxParametersNcell_r16->sl_TDD_Configuration_r16;
+          LOG_D(NR_RRC, "Configured %s %d, nrofDownlinkSlots %ld, nrofDownlinkSymbols %ld, nrofUplinkSlots %ld, nrofUplinkSymbols %ld\n",
+                __FUNCTION__,
+                __LINE__,
+                tdd_uldl_config->pattern1.nrofDownlinkSlots,
+                tdd_uldl_config->pattern1.nrofDownlinkSymbols,
+                tdd_uldl_config->pattern1.nrofUplinkSlots,
+                tdd_uldl_config->pattern1.nrofUplinkSymbols
+                );
+          AssertFatal((tdd_uldl_config != NULL), "Sidelink MAC CFG: TDD Config cannot be NULL");
+          AssertFatal((tdd_uldl_config->pattern2 == NULL), "Sidelink MAC CFG: pattern2 not yet supported");
+          sl_mac->sl_TDD_config = tdd_uldl_config;
           if (sync_source == SL_SYNC_SOURCE_GNBENB) {
-            NR_TDD_UL_DL_ConfigCommon_t *tdd_uldl_config = NULL;
-            if (txpool &&
-                txpool->sl_RxParametersNcell_r16 &&
-                txpool->sl_RxParametersNcell_r16->sl_TDD_Configuration_r16)
-                tdd_uldl_config = txpool->sl_RxParametersNcell_r16->sl_TDD_Configuration_r16;
-              AssertFatal((tdd_uldl_config != NULL), "Sidelink MAC CFG: TDD Config cannot be NULL");
-              AssertFatal((tdd_uldl_config->pattern2 == NULL), "Sidelink MAC CFG: pattern2 not yet supported");
-              sl_mac->sl_TDD_config = tdd_uldl_config;
               // Sync source is identified, timing needs to be adjusted.
               sl_mac->adjust_timing = 1;
           }
+          k++;
         }
       }
     }
-  }
-
-  // Do not copy TDD config yet as SYNC source is not yet found
-  if (sync_source == SL_SYNC_SOURCE_NONE) {
-    if (sl_mac->sl_TDD_config)
-      ASN_STRUCT_FREE(asn_DEF_NR_TDD_UL_DL_ConfigCommon, sl_mac->sl_TDD_config);
-    sl_mac->sl_TDD_config = NULL;
   }
 
   if (get_nrUE_params()->sync_ref) {
@@ -754,7 +769,7 @@ int nr_rrc_mac_config_req_sl_dedicated_config(module_id_t module_id,
     int total_downlink_slots_in_bitmap = (((sl_tx_time_rsrc->size << 3) - sl_tx_time_rsrc->bits_unused) / n_ul_slots_period) * (nr_slots_period - n_ul_slots_period);
     int total_uplink_slots_in_bitmap = (((sl_tx_time_rsrc->size << 3) - sl_tx_time_rsrc->bits_unused) / n_ul_slots_period) * (n_ul_slots_period);
     int phy_sl_size = ((sl_tx_time_rsrc->size << 3) - sl_tx_time_rsrc->bits_unused) + total_downlink_slots_in_bitmap;
-    LOG_W(NR_MAC, "size of phy_sl_map  %d total_downlink_slots %d, sl_tx_time_rsrc.size %ld, n_ul_slots_period %d, (nr_slots_period - n_ul_slots_period) %d\n",
+    LOG_D(NR_MAC, "size of phy_sl_map  %d total_downlink_slots %d, sl_tx_time_rsrc.size %ld, n_ul_slots_period %d, (nr_slots_period - n_ul_slots_period) %d\n",
           phy_sl_size, total_downlink_slots_in_bitmap, ((sl_tx_time_rsrc->size << 3) - sl_tx_time_rsrc->bits_unused), n_ul_slots_period, (nr_slots_period - n_ul_slots_period));
 
     AssertFatal(((sl_tx_time_rsrc->size << 3) - sl_tx_time_rsrc->bits_unused) == total_uplink_slots_in_bitmap, "The computation for total uplink slots is invalid. %ld != %d\n",
@@ -823,7 +838,9 @@ void nr_rrc_mac_transmit_slss_req(module_id_t module_id,
                                   NR_SL_SSB_TimeAllocation_r16_t *ssb_ta)
 {
 
-  sl_nr_ue_mac_params_t *sl_mac = get_mac_inst(module_id)->SL_MAC_PARAMS;
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  if (get_softmodem_params()->relay_type > 0 && mac->is_synced_sl) return;
+  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
   AssertFatal(sl_mac,"sidelink MAC cannot be NULL");
   AssertFatal(tx_slss_id < 672,"SLSS id cannot be >= 672. id:%d", tx_slss_id);
   AssertFatal(ssb_ta,"ssb_ta cannot be NULL");

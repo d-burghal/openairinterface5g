@@ -260,7 +260,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   NR_bler_options_t *sl_bo = &sl_mac->sl_bler;
   sl_bo->lower = LOWER_BLER;
   sl_bo->upper = UPPER_BLER;
-  if (get_softmodem_params()->sl_mode == 2)
+  if (get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0)
     sl_bo->max_mcs = MAX_MCS;
 
   const int max_mcs_table = mcs_tb_ind == 1 ? 27 : 28;
@@ -269,7 +269,8 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
     sched_pssch->mcs = max_mcs;
   else {
     sched_pssch->mcs = get_mcs_from_bler(sl_bo, stats, &sched_ctrl->sl_bler_stats, max_mcs, frameP);
-    LOG_D(MAC, "frame %4d MCS %u\n", frameP, sched_pssch->mcs);
+    if ((frameP & 127) == 0)
+      LOG_I(MAC, "frame %4d MCS %u\n", frameP, sched_pssch->mcs);
   }
 
   uint16_t sl_max_num_reserve = *mac->sl_tx_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16;
@@ -341,7 +342,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
       sci_pdu->psfch_overhead.val = 0;
   }
 
-  sci_pdu->reserved.val = mac->is_synced ? 1 : 0;
+  sci_pdu->reserved.val = mac->is_synced_sl ? 1 : 0;
   sci_pdu->conflict_information_receiver.val = 0;
   sci_pdu->beta_offset_indicator = 0;
   sci2_pdu->harq_pid = cur_harq->sl_harq_pid;

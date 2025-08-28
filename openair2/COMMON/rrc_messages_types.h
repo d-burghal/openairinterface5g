@@ -91,6 +91,8 @@
 #define NRRRC_SLOT_PROCESS(mSGpTR)      (mSGpTR)->ittiMsg.nr_rrc_slot_process
 #define NRRRC_SIDELINK_UE_INFO(mSGpTR)  (mSGpTR)->ittiMsg.nr_rrc_sl_ue_information
 
+#define NR_RRC_RECONFIGURATION_IND(mSGpTR) (mSGpTR)->ittiMsg.nr_rrc_reconfiguration_indication
+
 #define RLC_SDU_INDICATION(mSGpTR)      (mSGpTR)->ittiMsg.rlc_sdu_indication
 #define RLC_TRAFFIC_PTN_CHG_IND(mSGpTR) (mSGpTR)->ittiMsg.rlc_traffic_ptn_chg_indication
 
@@ -493,5 +495,11 @@ typedef struct NRRrcSlUEInformation_s {
   uint8_t   slot;
   uint8_t   gnb_id;
 } NRRrcSlUEInformation;
+
+typedef struct NRRrcReconfiguration_ind_s {
+  uint32_t  frame;
+  uint8_t   slot;
+  uint8_t   gnb_id;
+} NRRrcReconfiguration_ind;
 
 #endif /* RRC_MESSAGES_TYPES_H_ */

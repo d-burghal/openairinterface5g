@@ -771,7 +771,7 @@ typedef struct {
   time_stats_t rlc_data_req;
   int src_id;
   pthread_mutex_t sl_sched_lock;
-  bool is_synced;
+  bool is_synced_sl;
 
   allowed_rsc_selection_t rsc_selection_method; // Flag to enable NR Sidelink resource selection based on
                                                 // sensing; otherwise, use random selection
