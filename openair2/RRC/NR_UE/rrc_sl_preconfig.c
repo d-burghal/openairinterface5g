@@ -665,6 +665,7 @@ void add_sl_srbs(module_id_t module_id) {
   protocol_ctxt_t ctxt;
   ctxt.rntiMaybeUEid = mac->src_id;
   ctxt.module_id = module_id;
+  ctxt.enb_flag = 0;
   NR_RadioBearerConfig_t *radioBearerConfig = CALLOC(1, sizeof(NR_RadioBearerConfig_t));
   // NR_SL_RadioBearerConfig_r16
   NR_UE_rrc_inst[module_id].sl_Srb1[0].Active = 1;
@@ -679,11 +680,7 @@ void add_sl_srbs(module_id_t module_id) {
   LOG_D(NR_RRC, "array[0].srb_Identity %ld\n", radioBearerConfig->srb_ToAddModList->list.array[0]->srb_Identity);
   radioBearerConfig-> drb_ToAddModList = NULL; // Adding Sidelink drb from "nr_UE_configure_Sidelink" function
   radioBearerConfig->securityConfig = NULL;
-  if (radioBearerConfig->securityConfig != NULL) {
-    if (*radioBearerConfig->securityConfig->keyToUse == NR_SecurityConfig__keyToUse_master) {
-      nr_rrc_ue_process_RadioBearerConfig_sl(&ctxt, ue_index, radioBearerConfig, sl_RLC_BearerConfig);
-    }
-  }
+  nr_rrc_ue_process_RadioBearerConfig_sl(&ctxt, ue_index, radioBearerConfig, sl_RLC_BearerConfig);
 }
 
 /*
@@ -789,7 +786,7 @@ void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, 
 
   AssertFatal(rrc, "Check if rrc instance was created.");
 
-  NR_SL_ConfigDedicatedNR_r16_t *sl_dedicated_cfg = rrc->sl_dedicated_cfg;
+  NR_SL_ConfigDedicatedNR_r16_t *sl_dedicated_cfg = rrc->sl_dedicated_cfg ? rrc->sl_dedicated_cfg->choice.setup : NULL;
   AssertFatal(sl_dedicated_cfg, "Check if SL dedicated config was created.");
 
   uint8_t sync_source = SL_SYNC_SOURCE_NONE;
@@ -798,7 +795,7 @@ void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, 
     sync_source = SL_SYNC_SOURCE_GNBENB;
   }
 
-  nr_rrc_mac_config_req_sl_dedicated_config(0, rrc->sl_dedicated_cfg, sync_source);
+  nr_rrc_mac_config_req_sl_dedicated_config(0, sl_dedicated_cfg, sync_source);
   if (get_softmodem_params()->sl_mode == 1) {
     add_sl_srbs(id);
     // SL RadioBearers
@@ -822,7 +819,7 @@ void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, 
   NR_SL_SSB_TimeAllocation_r16_t *ssb_ta = NULL;
   NR_SL_FreqConfig_r16_t *fcfg = NULL;
   NR_SL_SyncConfig_r16_t *synccfg = NULL;
-  struct NR_SL_PHY_MAC_RLC_Config_r16__sl_FreqInfoToAddModList_r16 *sl_FreqInfoToAddModList = rrc->sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_FreqInfoToAddModList_r16;
+  struct NR_SL_PHY_MAC_RLC_Config_r16__sl_FreqInfoToAddModList_r16 *sl_FreqInfoToAddModList = sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_FreqInfoToAddModList_r16;
   if (sl_FreqInfoToAddModList)
     fcfg = sl_FreqInfoToAddModList->list.array[0];
   AssertFatal(fcfg, "Fcfg cannot be NULL\n");

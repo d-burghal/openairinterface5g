@@ -3293,8 +3293,8 @@ static void nr_store_slsch_buffer(NR_UE_MAC_INST_t *mac, frame_t frame, sub_fram
     NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     sched_ctrl->num_total_bytes = 0;
     sched_ctrl->sl_pdus_total = 0;
-
-    for (int lcid = 4; lcid <= 5; lcid++) {
+    for (int lcid = 1; lcid <= 5; lcid++) {
+      if ((lcid == 2) || (lcid == 3)) continue;
       sched_ctrl->rlc_status[lcid] = mac_rlc_status_ind(0, mac->src_id, 0, frame, slot, ENB_FLAG_NO, MBMS_FLAG_NO, lcid, mac->src_id, UE->uid);
 
       if (sched_ctrl->rlc_status[lcid].bytes_in_buffer == 0)
@@ -3598,7 +3598,8 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
       const uint8_t sh_size = sizeof(NR_MAC_SUBHEADER_LONG);
 
       int num_sdus=0;
-      for (lcid = 4; lcid <= 5; lcid++) {
+      for (lcid = 1; lcid <= 5; lcid++) {
+        if ((lcid == 2) || (lcid == 3)) continue;
         if (sched_ctrl->rlc_status[lcid].bytes_in_buffer > 0) {
           while (buflen_remain > sh_size + 1) {
 
@@ -4007,7 +4008,7 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind) {
       prev_slot = slot;
   }
 
-  if (mac->is_synced && !is_psbch_slot && tx_allowed && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
+  if (mac->is_synced_sl && !is_psbch_slot && tx_allowed && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
     //Check if reserved slot or a sidelink resource configured in Rx/Tx resource pool timeresource bitmap
     sl_resource_info_t *resource_p = NULL; // TODO: After fixing the resource allocation code, the resource variable should have the valid assigned resources
     bool is_resource_allocated = nr_ue_sl_pssch_scheduler(mac, sl_ind, mac->sl_bwp, mac->sl_tx_res_pool, &tx_config, resource_p, &tti_action);

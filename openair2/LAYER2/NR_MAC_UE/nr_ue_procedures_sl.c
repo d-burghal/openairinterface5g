@@ -798,7 +798,8 @@ void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
                           uint8_t ack_nack, psfch_params_t *psfch_params,
                           const int nr_slots_frame, int psfch_index) {
 
-  NR_SL_BWP_Generic_r16_t *sl_bwp = ((get_softmodem_params()->sl_mode == 2) || (mac->sl_bwp_dedicated == NULL))
+  bool non_relay = get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0;
+  NR_SL_BWP_Generic_r16_t *sl_bwp = (non_relay || (mac->sl_bwp_dedicated == NULL))
                                     ? mac->sl_bwp->sl_BWP_Generic_r16
                                     : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
   SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[psfch_index];
@@ -828,12 +829,10 @@ void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
   sched_psfch->start_symbol_index = *sl_bwp->sl_StartSymbol_r16 + sl_num_symbols - 2;
   LOG_D(NR_PHY, "sl_StartSymbol_r16 %ld, sl_num_symbols: %d, start sym index %d, mcs %d\n",
         *sl_bwp->sl_StartSymbol_r16, sl_num_symbols, sched_psfch->start_symbol_index, sched_psfch->mcs);
-  if ((get_softmodem_params()->sl_mode == 2) || (mac->sl_bwp_dedicated == NULL))
+  if (non_relay || (mac->sl_bwp_dedicated == NULL))
     sched_psfch->hopping_id = *mac->sl_bwp->sl_BWP_PoolConfigCommon_r16->sl_TxPoolSelectedNormal_r16->list.array[0]->sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
-  else if (get_softmodem_params()->sl_mode == 1)
-    sched_psfch->hopping_id = *mac->sl_bwp_dedicated->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[0]->sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
   else
-    AssertFatal(1 == 0, "Sidelink BWP is not configured properly!!!");
+    sched_psfch->hopping_id = *mac->sl_bwp_dedicated->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[0]->sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
 
   sched_psfch->prb = psfch_params->prbs_sets->start_prb[rx_ind->slot % psfch_period][0]; // FIXME [0] is based on assumption of number of subchannels = 1; 0 is channel id
   print_prb_set_allocation(psfch_params, psfch_period, 1);
@@ -1154,8 +1153,26 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
           done = 1;
           break;
         }
-      case SL_SCH_LCID_SCCH_PC5_NOT_PROT:
       case SL_SCH_LCID_SCCH_PC5_DSMC:
+        if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len))
+          return;
+        LOG_D(NR_MAC, "%4d.%2d : SLSCH -> LCID %d %d bytes with subheader %d\n", frame, slot, rx_lcid, mac_len, mac_subheader_len);
+
+        mac_rlc_data_ind(module_idP,
+                         mac->src_id,
+                         0,
+                         frame,
+                         ENB_FLAG_NO,
+                         MBMS_FLAG_NO,
+                         rx_lcid,
+                         (char *)(pduP + mac_subheader_len),
+                         mac_len,
+                         1,
+                         NULL,
+                         sl_sch_subheader->SRC,
+                         sl_sch_subheader->DST);
+        break;
+      case SL_SCH_LCID_SCCH_PC5_NOT_PROT:
       case SL_SCH_LCID_SCCH_PC5_PROT:
       case SL_SCH_LCID_SCCH_PC5_RRC:
       case SL_SCH_LCID_20_55:

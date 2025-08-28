@@ -182,16 +182,12 @@ void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, 
 int get_NAS_status();
 
 void extract_nr_sl_ResourcePool(struct NR_SL_ResourcePool_r16 *sl_ResourcePool,
-                                struct NR_SL_ResourcePool_r16 *recvd_sl_ResourcePool);
-
-void extract_nr_sl_ResourcePool(struct NR_SL_ResourcePool_r16 *sl_ResourcePool,
-                                struct NR_SL_ResourcePool_r16 *recvd_sl_ResourcePool);
+                                struct NR_SL_ResourcePool_r16 *recvd_sl_ResourcePool,
+                                bool relay_to_remote_ue);
 
 void extract_nr_sl_Rest_ResourcePool_Config(struct NR_SL_ResourcePool_r16 *sl_RxPool_r16,
-                                            struct NR_SL_ResourcePool_r16 *recvd_sl_RxPool);
-
-void extract_nr_sl_rlc_config(NR_SL_RLC_Config_r16_t *sl_RLC_Config,
-                              NR_SL_RLC_Config_r16_t *rcvd_sl_RLC_Config_r16);
+                                            struct NR_SL_ResourcePool_r16 *recvd_sl_RxPool,
+                                            bool relay_to_remote_ue);
 
 void extract_nr_sl_rlc_config(NR_SL_RLC_Config_r16_t *sl_RLC_Config,
                               NR_SL_RLC_Config_r16_t *rcvd_sl_RLC_Config_r16);
@@ -209,7 +205,8 @@ void extract_nr_sl_rlc_bearer_config(NR_SL_RLC_BearerConfig_r16_t *sl_RLC_Bearer
                                      NR_SL_RLC_BearerConfig_r16_t *rcvd_sl_RLC_BearerConfig);
 
 void extract_nr_sl_scheduled_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig,
-                                    NR_SetupRelease_SL_ScheduledConfig_r16_t *recv_sl_ScheduledConfig);
+                                    NR_SetupRelease_SL_ScheduledConfig_r16_t *recv_sl_ScheduledConfig,
+                                    NR_RNTI_Value_t sl_rnti);
 
 void extract_nr_sl_FreqInfoToAddMod(NR_SL_FreqConfig_r16_t *sl_FreqInfoToAddMod,
                                     NR_SL_FreqConfig_r16_t *recvd_sl_FreqInfoToAddMod);

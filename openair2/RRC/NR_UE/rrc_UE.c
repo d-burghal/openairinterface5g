@@ -1076,8 +1076,7 @@ static void rrc_ue_generate_RRCSetupComplete(
 
   //for (int i=0;i<size;i++) printf("%02x ",buffer[i]);
   //printf("\n");
-
-  nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, size, buffer, deliver_pdu_srb_rlc, NULL);
+  nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, size, buffer, deliver_pdu_srb_rlc, NULL, UU);
 }
 
 int8_t nr_rrc_ue_decode_ccch( const protocol_ctxt_t *const ctxt_pP, const NR_SRB_INFO *const Srb_info, const uint8_t gNB_index ){
@@ -1380,8 +1379,7 @@ void nr_rrc_ue_process_securityModeCommand(const protocol_ctxt_t *const ctxt_pP,
     //TODO the SecurityModeCommand message needs to pass the integrity protection check
     // for the UE to declare AS security to be activated
     ue_rrc->as_security_activated = true;
-
-    nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, (enc_rval.encoded + 7) / 8, buffer, deliver_pdu_srb_rlc, NULL);
+    nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, (enc_rval.encoded + 7) / 8, buffer, deliver_pdu_srb_rlc, NULL, UU);
   } else
     LOG_W(NR_RRC,"securityModeCommand->criticalExtensions.present (%d) != NR_SecurityModeCommand__criticalExtensions_PR_securityModeCommand\n",
           securityModeCommand->criticalExtensions.present);
@@ -2015,13 +2013,18 @@ void extract_nr_sl_SyncConfig(NR_SL_SyncConfig_r16_t *sl_syncconfig, NR_SL_SyncC
   }
 }
 
-void extract_nr_sl_scheduled_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig, NR_SetupRelease_SL_ScheduledConfig_r16_t *recv_sl_ScheduledConfig) {
+void extract_nr_sl_scheduled_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig,
+                                    NR_SetupRelease_SL_ScheduledConfig_r16_t *recv_sl_ScheduledConfig,
+                                    NR_RNTI_Value_t sl_rnti)
+{
   sl_ScheduledConfig->present = recv_sl_ScheduledConfig->present;
   sl_ScheduledConfig->choice.setup = CALLOC(1, sizeof(NR_SL_ScheduledConfig_r16_t));
   if (recv_sl_ScheduledConfig->choice.setup) {
-    sl_ScheduledConfig->choice.setup->sl_RNTI_r16 = recv_sl_ScheduledConfig->choice.setup->sl_RNTI_r16;
-    sl_ScheduledConfig->choice.setup->sl_CS_RNTI_r16 = CALLOC(1, sizeof(NR_RNTI_Value_t));
-    *sl_ScheduledConfig->choice.setup->sl_CS_RNTI_r16 = *recv_sl_ScheduledConfig->choice.setup->sl_CS_RNTI_r16;
+    sl_ScheduledConfig->choice.setup->sl_RNTI_r16 = (sl_rnti == -1) ? recv_sl_ScheduledConfig->choice.setup->sl_RNTI_r16 : sl_rnti;
+    if (recv_sl_ScheduledConfig->choice.setup->sl_CS_RNTI_r16) {
+      sl_ScheduledConfig->choice.setup->sl_CS_RNTI_r16 = CALLOC(1, sizeof(NR_RNTI_Value_t));
+      *sl_ScheduledConfig->choice.setup->sl_CS_RNTI_r16 = *recv_sl_ScheduledConfig->choice.setup->sl_CS_RNTI_r16;
+    }
   }
 }
 
@@ -2101,101 +2104,120 @@ void extract_nr_sl_bwp_generic(NR_SL_BWP_Config_r16_t *sl_BWP_ToAddMod, NR_SL_BW
   }
 }
 
+void extract_sl_phy_mac_rlc_config(NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RLC_Config,
+                                   NR_SL_PHY_MAC_RLC_Config_r16_t *rcvd_sl_PHY_MAC_RLC_Config,
+                                   NR_RNTI_Value_t sl_rnti,
+                                   bool relay_to_remote_ue) {
+  // extract sl_ScheduledConfig
+  if (rcvd_sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16) {
+    *sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = *rcvd_sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16;
+    sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ScheduledConfig_r16_t));
+    NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig = sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
+    NR_SetupRelease_SL_ScheduledConfig_r16_t *recv_sl_ScheduledConfig = rcvd_sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
+    extract_nr_sl_scheduled_config(sl_ScheduledConfig, recv_sl_ScheduledConfig, sl_rnti);
+  }
+  // extract sl_RLC_BearerConfig
+  if (rcvd_sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16) {
+    for (int i = 0; i < rcvd_sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list.count; i++) {
+      NR_SL_RLC_BearerConfig_r16_t *rcvd_sl_RLC_BearerConfig = rcvd_sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list.array[i];
+      if (rcvd_sl_RLC_BearerConfig) {
+        sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16__sl_RLC_BearerToAddModList_r16));
+        NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig = CALLOC(1, sizeof(NR_SL_RLC_BearerConfig_r16_t));
+        extract_nr_sl_rlc_bearer_config(sl_RLC_BearerConfig, rcvd_sl_RLC_BearerConfig);
+        ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list, sl_RLC_BearerConfig);
+      }
+    }
+  }
+  // extract sl_FreqInfoToAddMod
+  NR_SL_FreqConfig_r16_t *sl_FreqInfoToAddMod = CALLOC(1, sizeof(NR_SL_FreqConfig_r16_t));
+  for (int i = 0; i < rcvd_sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.count; i++) {
+    NR_SL_FreqConfig_r16_t *recvd_sl_FreqInfoToAddMod = rcvd_sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.array[i];
+    if (recvd_sl_FreqInfoToAddMod) {
+      extract_nr_sl_FreqInfoToAddMod(sl_FreqInfoToAddMod, recvd_sl_FreqInfoToAddMod);
+      if (recvd_sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list.count > 0) {
+        extract_nr_sl_scs_specific_carrier(sl_FreqInfoToAddMod, recvd_sl_FreqInfoToAddMod);
+      }
+
+      if (recvd_sl_FreqInfoToAddMod->sl_SyncConfigList_r16) {
+        sl_FreqInfoToAddMod->sl_SyncConfigList_r16 = CALLOC(1, sizeof(NR_SL_SyncConfigList_r16_t));
+        for (int k = 0; k < recvd_sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list.count; k++) {
+          struct NR_SL_SyncConfig_r16 *recvd_sl_SyncConfig = recvd_sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list.array[k];
+          if (recvd_sl_SyncConfig) {
+            NR_SL_SyncConfig_r16_t *sl_SyncConfig = CALLOC(1, sizeof(NR_SL_SyncConfig_r16_t));
+            ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list, sl_SyncConfig);
+            // extract config info related to rx and tx of SL SYNC SIGNALS (SLSS)
+            extract_nr_sl_SyncConfig(sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list.array[k], recvd_sl_SyncConfig);
+          }
+        }
+      }
+
+      sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16__sl_FreqInfoToAddModList_r16));
+      ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list, sl_FreqInfoToAddMod);
+      for (int j = 0; j < recvd_sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list.count; j++) {
+        NR_SL_BWP_Config_r16_t *recvd_sl_BWP_ToAddMod = recvd_sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list.array[j];
+        NR_SL_BWP_Config_r16_t *sl_BWP_ToAddMod = CALLOC(1, sizeof(NR_SL_FreqConfig_r16_t));
+
+        if (recvd_sl_BWP_ToAddMod) {
+          // extract config info related to nr_sl_bwp_generic
+          extract_nr_sl_bwp_generic(sl_BWP_ToAddMod, recvd_sl_BWP_ToAddMod);
+
+          // sl_RxPool
+          sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16 = CALLOC(1, sizeof(NR_SL_BWP_PoolConfig_r16_t));
+          sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_RxPool_r16 = CALLOC(1, sizeof(struct NR_SL_BWP_PoolConfig_r16__sl_RxPool_r16));
+          for (int k = 0; k < recvd_sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.count; k++) {
+            NR_SL_ResourcePool_r16_t *recvd_sl_RxPool = recvd_sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[k];
+            NR_SL_ResourcePool_r16_t *sl_RxPool_r16 = CALLOC(1, sizeof(NR_SL_ResourcePool_r16_t));
+            LOG_D(RRC, "Extracting nr rx sl resource pool\n");
+            extract_nr_sl_ResourcePool(sl_RxPool_r16, recvd_sl_RxPool, relay_to_remote_ue);
+            ASN_SEQUENCE_ADD(&sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list, sl_RxPool_r16);
+          }
+          // sl_TxPool
+          sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16 = CALLOC(1, sizeof(NR_SL_TxPoolDedicated_r16_t));
+          sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_TxPoolDedicated_r16__sl_PoolToAddModList_r16));
+          for (int k = 0; k < recvd_sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.count; k++) {
+            struct NR_SL_ResourcePoolConfig_r16 *recvd_sl_TxPoolConfig = recvd_sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[k];
+            NR_SL_ResourcePoolConfig_r16_t *sl_ResourcePoolConfig = CALLOC(1, sizeof(NR_SL_ResourcePoolConfig_r16_t));
+            sl_ResourcePoolConfig->sl_ResourcePool_r16 = CALLOC(1, sizeof(NR_SL_ResourcePool_r16_t));
+            sl_ResourcePoolConfig->sl_ResourcePoolID_r16 = recvd_sl_TxPoolConfig->sl_ResourcePoolID_r16;
+            LOG_D(RRC, "Extracting nr rx sl resource pool\n");
+            extract_nr_sl_ResourcePool(sl_ResourcePoolConfig->sl_ResourcePool_r16, recvd_sl_TxPoolConfig->sl_ResourcePool_r16, relay_to_remote_ue);
+            ASN_SEQUENCE_ADD(&sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list, sl_ResourcePoolConfig);
+          }
+        }
+        sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.array[i]->sl_BWP_ToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_FreqConfig_r16__sl_BWP_ToAddModList_r16));
+        ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.array[i]->sl_BWP_ToAddModList_r16->list, sl_BWP_ToAddMod);
+      } // sl_BWP_ToAddModList_r16->list.count
+    }
+  } // sl_FreqInfoToAddMod
+}
+
 void nr_rrc_ue_process_sl_ConfigDedicatedNR(const protocol_ctxt_t *const ctxt_pP,
                                             const uint8_t gNB_index,
                                             NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_conf) {
-  LOG_W(NR_RRC,"[UE %d] SFN/SF %d/%d: Processing sl_ConfigDedicatedNR %p\n",
+  LOG_D(NR_RRC,"[UE %d] SFN/SF %d/%d: Processing sl_ConfigDedicatedNR %p\n",
         ctxt_pP->module_id, ctxt_pP->frame, ctxt_pP->subframe, sl_conf);
   NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[ctxt_pP->module_id];
-  rrc->sl_dedicated_cfg = CALLOC(1, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
-  rrc->sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16 = CALLOC(1, sizeof(NR_SL_PHY_MAC_RLC_Config_r16_t));
-  NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RLC_Config = rrc->sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16;
-  NR_SL_PHY_MAC_RLC_Config_r16_t *rcvd_SL_PHY_MAC_RLC_Config = sl_conf->choice.setup->sl_PHY_MAC_RLC_Config_r16;
-  sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = CALLOC(1, sizeof(long));
   if (sl_conf) {
-    if (sl_conf->choice.setup) {
-      if (rcvd_SL_PHY_MAC_RLC_Config) {
-        // extract sl_ScheduledConfig
-        if (rcvd_SL_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16) {
-          *sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = *rcvd_SL_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16;
-          sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ScheduledConfig_r16_t));
-          NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig = sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
-          NR_SetupRelease_SL_ScheduledConfig_r16_t *recv_sl_ScheduledConfig = rcvd_SL_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
-          extract_nr_sl_scheduled_config(sl_ScheduledConfig, recv_sl_ScheduledConfig);
-          LOG_I(NR_RRC, "sl_RNTI_r16 %ld, sl_CS_RNTI_r16 %ld sl_CSI_Acquisition_r16 %ld\n", sl_ScheduledConfig->choice.setup->sl_RNTI_r16, *sl_ScheduledConfig->choice.setup->sl_CS_RNTI_r16, *sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16);
-        }
-        // extract sl_RLC_BearerConfig
-        if (rcvd_SL_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16) {
-          for (int i = 0; i < rcvd_SL_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list.count; i++) {
-            NR_SL_RLC_BearerConfig_r16_t *rcvd_sl_RLC_BearerConfig = rcvd_SL_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list.array[i];
-            sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16__sl_RLC_BearerToAddModList_r16));
-            NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig = CALLOC(1, sizeof(NR_SL_RLC_BearerConfig_r16_t));
-            extract_nr_sl_rlc_bearer_config(sl_RLC_BearerConfig, rcvd_sl_RLC_BearerConfig);
-            ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list, sl_RLC_BearerConfig);
+    rrc->sl_dedicated_cfg = CALLOC(1, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
+    if (sl_conf->present == NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_setup) {
+      rrc->sl_dedicated_cfg->present = sl_conf->present;
+      if (sl_conf->choice.setup) {
+        rrc->sl_dedicated_cfg->choice.setup = CALLOC(1, sizeof(NR_SL_ConfigDedicatedNR_r16_t));
+        if (sl_conf->choice.setup->sl_PHY_MAC_RLC_Config_r16) {
+          rrc->sl_dedicated_cfg->choice.setup->sl_PHY_MAC_RLC_Config_r16 = CALLOC(1, sizeof(NR_SL_PHY_MAC_RLC_Config_r16_t));
+          NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RLC_Config = rrc->sl_dedicated_cfg->choice.setup->sl_PHY_MAC_RLC_Config_r16;
+          NR_SL_PHY_MAC_RLC_Config_r16_t *rcvd_sl_PHY_MAC_RLC_Config = sl_conf->choice.setup->sl_PHY_MAC_RLC_Config_r16;
+          sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = CALLOC(1, sizeof(long));
+          NR_RNTI_Value_t sl_rnti = -1; // -1 means read from rcvd_sl_PHY_MAC_RLC_Config otherwise it is set to remote UE sl_rnti on relay UE
+          bool relay_to_remote_ue = false;
+          extract_sl_phy_mac_rlc_config(sl_PHY_MAC_RLC_Config, rcvd_sl_PHY_MAC_RLC_Config, sl_rnti, relay_to_remote_ue);
+          if ( LOG_DEBUGFLAG(DEBUG_ASN1) ) {
+            xer_fprint(stdout, &asn_DEF_NR_SL_PHY_MAC_RLC_Config_r16, (void *)sl_PHY_MAC_RLC_Config);
           }
-        }
-        // extract sl_FreqInfoToAddMod
-        NR_SL_FreqConfig_r16_t *sl_FreqInfoToAddMod = CALLOC(1, sizeof(NR_SL_FreqConfig_r16_t));
-        for (int i = 0; i < rcvd_SL_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.count; i++) {
-          NR_SL_FreqConfig_r16_t *recvd_sl_FreqInfoToAddMod = rcvd_SL_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.array[i];
-          extract_nr_sl_FreqInfoToAddMod(sl_FreqInfoToAddMod, recvd_sl_FreqInfoToAddMod);
-          if (recvd_sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list.count > 0) {
-            extract_nr_sl_scs_specific_carrier(sl_FreqInfoToAddMod, recvd_sl_FreqInfoToAddMod);
-          }
-
-          sl_FreqInfoToAddMod->sl_SyncConfigList_r16 = CALLOC(1, sizeof(NR_SL_SyncConfigList_r16_t));
-
-          for (int k = 0; k < recvd_sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list.count; k++) {
-            struct NR_SL_SyncConfig_r16 *recvd_sl_SyncConfig = recvd_sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list.array[k];
-            if (recvd_sl_SyncConfig) {
-              NR_SL_SyncConfig_r16_t *sl_SyncConfig = CALLOC(1, sizeof(NR_SL_SyncConfig_r16_t));
-              ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list, sl_SyncConfig);
-
-              // extract config info related to rx and tx of SL SYNC SIGNALS (SLSS)
-              extract_nr_sl_SyncConfig(sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list.array[k], recvd_sl_SyncConfig);
-            }
-          }
-
-          sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16__sl_FreqInfoToAddModList_r16));
-          ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list, sl_FreqInfoToAddMod);
-          for (int j = 0; j < recvd_sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list.count; j++) {
-            NR_SL_BWP_Config_r16_t *recvd_sl_BWP_ToAddMod = recvd_sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list.array[j];
-            NR_SL_BWP_Config_r16_t *sl_BWP_ToAddMod = CALLOC(1, sizeof(NR_SL_FreqConfig_r16_t));
-
-            if (recvd_sl_BWP_ToAddMod) {
-              // extract config info related to nr_sl_bwp_generic
-              extract_nr_sl_bwp_generic(sl_BWP_ToAddMod, recvd_sl_BWP_ToAddMod);
-
-              // sl_RxPool
-              for (int k = 0; k < recvd_sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.count; k++) {
-                NR_SL_ResourcePool_r16_t *recvd_sl_RxPool = recvd_sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[k];
-                sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16 = CALLOC(1, sizeof(NR_SL_BWP_PoolConfig_r16_t));
-                sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_RxPool_r16 = CALLOC(1, sizeof(struct NR_SL_BWP_PoolConfig_r16__sl_RxPool_r16));
-                NR_SL_ResourcePool_r16_t *sl_RxPool_r16 = CALLOC(1, sizeof(NR_SL_ResourcePool_r16_t));
-                extract_nr_sl_ResourcePool(sl_RxPool_r16, recvd_sl_RxPool);
-                ASN_SEQUENCE_ADD(&sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list, sl_RxPool_r16);
-              }
-
-              // sl_TxPool
-              for (int k = 0; k < recvd_sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.count; k++) {
-                struct NR_SL_ResourcePoolConfig_r16 *recvd_sl_TxPoolConfig = recvd_sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[k];
-                sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16 = CALLOC(1, sizeof(NR_SL_TxPoolDedicated_r16_t));
-                sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_TxPoolDedicated_r16__sl_PoolToAddModList_r16));
-                NR_SL_ResourcePoolConfig_r16_t *sl_ResourcePoolConfig = CALLOC(1, sizeof(NR_SL_ResourcePoolConfig_r16_t));
-                sl_ResourcePoolConfig->sl_ResourcePool_r16 = CALLOC(1, sizeof(NR_SL_ResourcePool_r16_t));
-                sl_ResourcePoolConfig->sl_ResourcePoolID_r16 = recvd_sl_TxPoolConfig->sl_ResourcePoolID_r16;
-                extract_nr_sl_ResourcePool(sl_ResourcePoolConfig->sl_ResourcePool_r16, recvd_sl_TxPoolConfig->sl_ResourcePool_r16);
-                ASN_SEQUENCE_ADD(&sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list, sl_ResourcePoolConfig);
-              }
-            }
-            sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.array[i]->sl_BWP_ToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_FreqConfig_r16__sl_BWP_ToAddModList_r16));
-            ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.array[i]->sl_BWP_ToAddModList_r16->list, sl_BWP_ToAddMod);
-          } // sl_BWP_ToAddModList_r16->list.count
-        } // sl_FreqInfoToAddMod
-      } // rcvd_SL_PHY_MAC_RLC_Config
+        } // rcvd_sl_PHY_MAC_RLC_Config
+      }
     }
   }
-  xer_fprint(stdout, &asn_DEF_NR_SL_PHY_MAC_RLC_Config_r16, (void *)sl_PHY_MAC_RLC_Config);
   uint8_t is_sync_source = get_nrUE_params()->sync_ref;
   NR_UE_MAC_INST_t *mac = get_mac_inst(ctxt_pP->module_id);
   nr_UE_configure_Sidelink_Dedicated_Cfg(0, is_sync_source, mac->src_id);
@@ -2290,7 +2312,7 @@ void extract_nr_sl_PSFCH_Config(NR_SL_PSFCH_Config_r16_t *recvd_sl_PSFCH_Config,
 }
 
 // Process PSFCH Configurations received from gNB
-void extract_nr_sl_Rest_ResourcePool_Config(struct NR_SL_ResourcePool_r16 *sl_ResourcePool, struct NR_SL_ResourcePool_r16 *recvd_sl_RxPool) {
+void extract_nr_sl_Rest_ResourcePool_Config(struct NR_SL_ResourcePool_r16 *sl_ResourcePool, struct NR_SL_ResourcePool_r16 *recvd_sl_RxPool, bool relay_to_remote_ue) {
   if (recvd_sl_RxPool->sl_SyncAllowed_r16) {
     sl_ResourcePool->sl_SyncAllowed_r16 = CALLOC(1, sizeof(NR_SL_SyncAllowed_r16_t));
     if (recvd_sl_RxPool->sl_SyncAllowed_r16->gnbEnb_Sync_r16) {
@@ -2402,15 +2424,30 @@ void extract_nr_sl_Rest_ResourcePool_Config(struct NR_SL_ResourcePool_r16 *sl_Re
       recvd_sl_RxPool->ext1->sl_TimeResource_r16) {
     sl_ResourcePool->ext1 = CALLOC(1, sizeof(*sl_ResourcePool->ext1));
     sl_ResourcePool->ext1->sl_TimeResource_r16 = CALLOC(1, sizeof(*sl_ResourcePool->ext1->sl_TimeResource_r16));
-    sl_ResourcePool->ext1->sl_TimeResource_r16->size = recvd_sl_RxPool->ext1->sl_TimeResource_r16->size - 1;
-    sl_ResourcePool->ext1->sl_TimeResource_r16->bits_unused = recvd_sl_RxPool->ext1->sl_TimeResource_r16->bits_unused;
+
+    if (!relay_to_remote_ue) { // nr_rrc_ue_process_sl_ConfigDedicatedNR function
+      sl_ResourcePool->ext1->sl_TimeResource_r16->size = recvd_sl_RxPool->ext1->sl_TimeResource_r16->size - 1; // FIXME: It should be fixed from ASN decoding.
+      sl_ResourcePool->ext1->sl_TimeResource_r16->bits_unused = recvd_sl_RxPool->ext1->sl_TimeResource_r16->bits_unused;
+    } else { // Relay UE - nr_rrc_copy_received_NR_SetupRelease_SL_ConfigDedicatedNR function
+      sl_ResourcePool->ext1->sl_TimeResource_r16->size = recvd_sl_RxPool->ext1->sl_TimeResource_r16->size + 1;
+      sl_ResourcePool->ext1->sl_TimeResource_r16->bits_unused = recvd_sl_RxPool->ext1->sl_TimeResource_r16->bits_unused;
+    }
     sl_ResourcePool->ext1->sl_TimeResource_r16->buf = CALLOC(sl_ResourcePool->ext1->sl_TimeResource_r16->size, sizeof(uint8_t));
+
+    size_t size = !relay_to_remote_ue ? recvd_sl_RxPool->ext1->sl_TimeResource_r16->size - 1
+                                      : recvd_sl_RxPool->ext1->sl_TimeResource_r16->size;
     // Copy all but the last byte to exclude ASN.1 workaround (0xFF) for trailing 0 bits
-    memcpy(sl_ResourcePool->ext1->sl_TimeResource_r16->buf, recvd_sl_RxPool->ext1->sl_TimeResource_r16->buf, recvd_sl_RxPool->ext1->sl_TimeResource_r16->size - 1);
+    memcpy(sl_ResourcePool->ext1->sl_TimeResource_r16->buf, recvd_sl_RxPool->ext1->sl_TimeResource_r16->buf, size);
+
+    // FIXIT: Due to asn encoding/decoding error, last four bits (0s) are being removed, so we are providing extra 1 byte with 0xFF
+    if (relay_to_remote_ue) {
+      int i = sl_ResourcePool->ext1->sl_TimeResource_r16->size - 1;
+      sl_ResourcePool->ext1->sl_TimeResource_r16->buf[i] = 0xFF;
+    }
   }
 }
 
-void extract_nr_sl_ResourcePool(struct NR_SL_ResourcePool_r16 *sl_ResourcePool, struct NR_SL_ResourcePool_r16 *recvd_sl_ResourcePool) {
+void extract_nr_sl_ResourcePool(struct NR_SL_ResourcePool_r16 *sl_ResourcePool, struct NR_SL_ResourcePool_r16 *recvd_sl_ResourcePool, bool relay_to_remote_ue) {
   // Processing sl_PSCCH_Config_r16
   if (recvd_sl_ResourcePool->sl_PSCCH_Config_r16 && recvd_sl_ResourcePool->sl_PSCCH_Config_r16->present == NR_SetupRelease_SL_PSCCH_Config_r16_PR_setup) {
     struct NR_SL_PSCCH_Config_r16 *recvd_sl_PSCCH_Config = recvd_sl_ResourcePool->sl_PSCCH_Config_r16->choice.setup;
@@ -2443,7 +2480,7 @@ void extract_nr_sl_ResourcePool(struct NR_SL_ResourcePool_r16 *sl_ResourcePool, 
       extract_nr_sl_PSFCH_Config(recvd_sl_PSFCH_Config, targeted_sl_PSFCH_Config);
     }
   } // End of sl_PSFCH_Config_r16 Extraction
-  extract_nr_sl_Rest_ResourcePool_Config(sl_ResourcePool, recvd_sl_ResourcePool);
+  extract_nr_sl_Rest_ResourcePool_Config(sl_ResourcePool, recvd_sl_ResourcePool, relay_to_remote_ue);
 } // sl_BWP_PoolConfig_r16->sl_RxPool_r16
 
  //-----------------------------------------------------------------------------
@@ -2512,6 +2549,8 @@ void extract_nr_sl_ResourcePool(struct NR_SL_ResourcePool_r16 *sl_ResourcePool, 
  //-----------------------------------------------------------------------------
  void nr_rrc_ue_generate_RRCReconfigurationComplete( const protocol_ctxt_t *const ctxt_pP, const uint8_t gNB_index, const uint8_t Transaction_id ) {
    uint8_t buffer[32], size;
+   bool is_remote_ue = get_softmodem_params()->relay_type > 0 && !get_softmodem_params()->is_relay_ue;
+   if (is_remote_ue) return;
    size = do_NR_RRCReconfigurationComplete(ctxt_pP, buffer, sizeof(buffer), Transaction_id);
    LOG_D(NR_RRC,PROTOCOL_RRC_CTXT_UE_FMT" Logical Channel UL-DCCH (SRB1), Generating RRCReconfigurationComplete (bytes %d, gNB_index %d)\n",
 	 PROTOCOL_RRC_CTXT_UE_ARGS(ctxt_pP), size, gNB_index);
@@ -2524,7 +2563,7 @@ void extract_nr_sl_ResourcePool(struct NR_SL_ResourcePool_r16 *sl_ResourcePool, 
 	 nr_rrc_mui,
 	 UE_MODULE_ID_TO_INSTANCE(ctxt_pP->module_id),
 	 DCCH);
-   nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, size, buffer, deliver_pdu_srb_rlc, NULL);
+   nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, size, buffer, deliver_pdu_srb_rlc, NULL, UU);
  }
 
  // from NR SRB1
@@ -2578,6 +2617,8 @@ void extract_nr_sl_ResourcePool(struct NR_SL_ResourcePool_r16 *sl_ResourcePool, 
          rrc_ue_process_rrcReconfiguration(ctxt_pP,
            dl_dcch_msg->message.choice.c1->choice.rrcReconfiguration,
            gNB_indexP);
+        bool is_remote_ue = get_softmodem_params()->relay_type > 0 && !get_softmodem_params()->is_relay_ue;
+        if (is_remote_ue) return 0;
          nr_rrc_ue_generate_RRCReconfigurationComplete(ctxt_pP,
            gNB_indexP,
            dl_dcch_msg->message.choice.c1->choice.rrcReconfiguration->rrc_TransactionIdentifier);
@@ -2673,6 +2714,42 @@ void nr_rrc_handle_ra_indication(unsigned int mod_id, bool ra_succeeded)
   }
 }
 
+void nr_rrc_copy_received_NR_SetupRelease_SL_ConfigDedicatedNR(struct NR_SetupRelease_SL_ConfigDedicatedNR_r16 *sl_ConfigDedicatedNR_r16,
+                                                               rnti_t sl_rnti,
+                                                               NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *rcvd_sl_ConfigDedicatedNR_r16)
+{
+  if (rcvd_sl_ConfigDedicatedNR_r16) {
+    sl_ConfigDedicatedNR_r16->present = rcvd_sl_ConfigDedicatedNR_r16->present;
+    if (rcvd_sl_ConfigDedicatedNR_r16->choice.setup) {
+      sl_ConfigDedicatedNR_r16->choice.setup = CALLOC(1, sizeof(NR_SL_ConfigDedicatedNR_r16_t));
+      if (rcvd_sl_ConfigDedicatedNR_r16->choice.setup->sl_PHY_MAC_RLC_Config_r16) {
+        sl_ConfigDedicatedNR_r16->choice.setup->sl_PHY_MAC_RLC_Config_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16));
+        struct NR_SL_PHY_MAC_RLC_Config_r16 *sl_PHY_MAC_RLC_Config = sl_ConfigDedicatedNR_r16->choice.setup->sl_PHY_MAC_RLC_Config_r16;
+        if (rcvd_sl_ConfigDedicatedNR_r16->choice.setup->sl_PHY_MAC_RLC_Config_r16->sl_CSI_Acquisition_r16) {
+          sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = CALLOC(1, sizeof(long));
+          *sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = *rcvd_sl_ConfigDedicatedNR_r16->choice.setup->sl_PHY_MAC_RLC_Config_r16->sl_CSI_Acquisition_r16;
+        }
+        struct NR_SL_PHY_MAC_RLC_Config_r16 *rcvd_sl_PHY_MAC_RLC_Config = rcvd_sl_ConfigDedicatedNR_r16->choice.setup->sl_PHY_MAC_RLC_Config_r16;
+        if (rcvd_sl_PHY_MAC_RLC_Config) {
+          bool relay_to_remote_ue = true;
+          extract_sl_phy_mac_rlc_config(sl_PHY_MAC_RLC_Config, rcvd_sl_PHY_MAC_RLC_Config, sl_rnti, relay_to_remote_ue);
+        } // rcvd_sl_PHY_MAC_RLC_Config
+      }
+    }
+  }
+}
+
+NR_RRCReconfiguration_v1610_IEs_t* prepare_rrc_reconfiguration_for_Remote_UE(rnti_t remote_ue_rnti,
+                                                                             NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *rcvd_sl_ConfigDedicatedNR_r16)
+{
+  NR_RRCReconfiguration_v1610_IEs_t *v1610_ies = CALLOC(1, sizeof(NR_RRCReconfiguration_v1610_IEs_t));
+  v1610_ies->sl_ConfigDedicatedNR_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
+  nr_rrc_copy_received_NR_SetupRelease_SL_ConfigDedicatedNR(v1610_ies->sl_ConfigDedicatedNR_r16,
+                                                            remote_ue_rnti,
+                                                            rcvd_sl_ConfigDedicatedNR_r16);
+  return v1610_ies;
+}
+
 void *rrc_nrue_task(void *args_p)
 {
    MessageDef *msg_p;
@@ -2724,7 +2801,7 @@ void *rrc_nrue_task(void *args_p)
             length = do_NR_UEAssistanceInformation(&buffer, 1);
             PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, NRRRC_SLOT_PROCESS (msg_p).frame, NRRRC_SLOT_PROCESS (msg_p).slot, 0);
             rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
-            nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL);
+            nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL, UU);
          }
 #endif
          break;
@@ -2739,7 +2816,7 @@ void *rrc_nrue_task(void *args_p)
             length = do_NR_UEAssistanceInformation(&buffer, RLC_TRAFFIC_PTN_CHG_IND (msg_p).tp_type + 1);
             PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, RLC_TRAFFIC_PTN_CHG_IND (msg_p).frame, 0, 0);
             rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
-            nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL);
+            nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL, UU);
          }
          break;
 
@@ -2849,7 +2926,7 @@ void *rrc_nrue_task(void *args_p)
         PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, 0, 0,0);
         // check if SRB2 is created, if yes request data_req on DCCH1 (SRB2)
         rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
-        nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL);
+        nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL, UU);
         break;
       }
 
@@ -2863,10 +2940,51 @@ void *rrc_nrue_task(void *args_p)
         PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, NR_RRC_DCCH_DATA_REQ (msg_p).frame, 0, 0);
         // check if SRB2 is created, if yes request data_req on DCCH1 (SRB2)
         rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
-        nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL);
+        nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL, UU);
         break;
       }
 
+      case NR_RRC_RECONFIGURATION_IND: {
+        rnti_t remote_ue_rnti = 0x1; // remote UE ID
+        NR_RRCReconfiguration_v1610_IEs_t *rrc_ext_v1610 = prepare_rrc_reconfiguration_for_Remote_UE(remote_ue_rnti, NR_UE_rrc_inst[ue_mod_id].sl_dedicated_cfg);
+        uint8_t xid = 3;
+        protocol_ctxt_t ctxt_pP;
+        ctxt_pP.brOption = 0;
+        ctxt_pP.enb_flag = 0;
+        ctxt_pP.eNB_index = 0;
+        ctxt_pP.frame = 0;
+        ctxt_pP.instance = 0;
+        ctxt_pP.module_id = 0;
+        ctxt_pP.rntiMaybeUEid = 0x0;
+        ctxt_pP.subframe = 0;
+        uint8_t buffer[RRC_BUF_SIZE];
+        mui_t nr_rrc_mui = 5;
+        uint8_t srb_id = 1;
+        int size = do_RRCReconfiguration(&ctxt_pP,
+                                         buffer,
+                                         RRC_BUF_SIZE,
+                                         xid,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         rrc_ext_v1610,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL);
+
+        if (rrc_ext_v1610->sl_ConfigDedicatedNR_r16)
+          free_nr_sl_SetupRelease_SL_ConfigDedicatedNR_r16(rrc_ext_v1610->sl_ConfigDedicatedNR_r16);
+
+        NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[ue_mod_id];
+        nr_pdcp_data_req_srb(ctxt_pP.rntiMaybeUEid, srb_id, nr_rrc_mui++, size, buffer, deliver_pdu_srb_rlc, rrc, PC5);
+        break;
+      }
       default:
         LOG_E(NR_RRC, "[UE %d] Received unexpected message %s\n", ue_mod_id, ITTI_MSG_NAME (msg_p));
         break;
@@ -2886,11 +3004,18 @@ void nr_rrc_ue_process_sidelink_radioResourceConfig(const protocol_ctxt_t *const
   if (sl_ConfigDedicatedNR != NULL) {
     switch (sl_ConfigDedicatedNR->present){
       case NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_setup:
-        LOG_I(NR_RRC, "[UE %d] Received message sidelink_radioResourceConfig\n", ctxt_pP->module_id);
+        LOG_D(NR_RRC, "[UE %d] Received message sidelink_radioResourceConfig\n", ctxt_pP->module_id);
         nr_rrc_ue_process_sl_ConfigDedicatedNR(ctxt_pP,
                                                gNB_index,
                                                sl_ConfigDedicatedNR);
         NR_RNTI_Value_t sl_rnti = sl_ConfigDedicatedNR->choice.setup->sl_PHY_MAC_RLC_Config_r16->sl_ScheduledConfig_r16->choice.setup->sl_RNTI_r16;
+        if (get_softmodem_params()->is_relay_ue) {
+          MessageDef *message_p;
+          message_p = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_RRC_RECONFIGURATION_IND);
+          NR_RRC_RECONFIGURATION_IND(message_p).frame = ctxt_pP->frame;
+          NR_RRC_RECONFIGURATION_IND(message_p).slot = ctxt_pP->subframe;
+          itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(0), message_p);
+        }
         LOG_W(NR_RRC, "Received sl-RNTI-r16 = %lu\n", sl_rnti);
         //TODO
         break;
@@ -3012,7 +3137,7 @@ nr_rrc_ue_process_ueCapabilityEnquiry(
       }
 
       LOG_I(NR_RRC, "UECapabilityInformation Encoded %zd bits (%zd bytes)\n",enc_rval.encoded,(enc_rval.encoded+7)/8);
-      nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, (enc_rval.encoded + 7) / 8, buffer, deliver_pdu_srb_rlc, NULL);
+      nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, (enc_rval.encoded + 7) / 8, buffer, deliver_pdu_srb_rlc, NULL, UU);
     }
   }
 }

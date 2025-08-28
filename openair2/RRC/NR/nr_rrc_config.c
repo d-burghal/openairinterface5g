@@ -3004,7 +3004,8 @@ void nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(NR_SetupRelease_S
   config_get(SL_DEDICATED_CONF_PARAMS, sizeof(SL_DEDICATED_CONF_PARAMS) / sizeof(paramdef_t), aprefix);
 
   ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list, sl_RLC_BearerConfig);
-  xer_fprint(stdout, &asn_DEF_NR_SL_PHY_MAC_RLC_Config_r16, (void *)sl_PHY_MAC_RLC_Config);
+  if ( LOG_DEBUGFLAG(DEBUG_ASN1) )
+    xer_fprint(stdout, &asn_DEF_NR_SL_PHY_MAC_RLC_Config_r16, (void *)sl_PHY_MAC_RLC_Config);
 }
 
 // TODO: Later, we need following function to configure remote UE

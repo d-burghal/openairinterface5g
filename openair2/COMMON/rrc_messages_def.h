@@ -80,6 +80,9 @@ MESSAGE_DEF(NAS_DOWNLINK_DATA_IND,      MESSAGE_PRIORITY_MED,       NasDlDataInd
 // UE: Sidelink UEInfo -> RRC messages
 MESSAGE_DEF(NRRRC_SIDELINK_UE_INFO,     MESSAGE_PRIORITY_MED,       NRRrcSlUEInformation,       nr_rrc_sl_ue_information)
 
+// UE: Triggers RRC_RECONFIGURATION on relay UE for remote UE
+MESSAGE_DEF(NR_RRC_RECONFIGURATION_IND, MESSAGE_PRIORITY_MED,       NRRrcReconfiguration_ind,   nr_rrc_reconfiguration_indication)
+
 // eNB: realtime -> RRC messages
 MESSAGE_DEF(RRC_SUBFRAME_PROCESS,       MESSAGE_PRIORITY_MED,       RrcSubframeProcess,         rrc_subframe_process)
 MESSAGE_DEF(NRRRC_SLOT_PROCESS,         MESSAGE_PRIORITY_MED,       NRRrcSlotProcess,           nr_rrc_slot_process)

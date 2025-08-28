@@ -819,7 +819,7 @@ static void deliver_sdu_drb(void *_ue, nr_pdcp_entity_t *entity,
 }
 
 static void deliver_pdu_drb(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
-                            char *buf, int size, int sdu_id)
+                            char *buf, int size, int sdu_id, nr_intf_type_t intf_type)
 {
   DevAssert(deliver_pdu_data == NULL);
   protocol_ctxt_t ctxt = { .enb_flag = 1, .rntiMaybeUEid = ue_id };
@@ -912,18 +912,16 @@ srb_found:
 }
 
 void deliver_pdu_srb_rlc(void *deliver_pdu_data, ue_id_t ue_id, int srb_id,
-                         char *buf, int size, int sdu_id)
+                         char *buf, int size, int sdu_id, nr_intf_type_t intf_type)
 {
   protocol_ctxt_t ctxt = { .enb_flag = 1, .rntiMaybeUEid = ue_id };
   mem_block_t *memblock = get_free_mem_block(size, __FUNCTION__);
   memcpy(memblock->data, buf, size);
-  // TODO: intf_type will need to be updated for SL Mode 1
-  nr_intf_type_t intf_type = ((get_softmodem_params()->sl_mode == 2) && (node_type == -1)) ? PC5 : UU;
   enqueue_rlc_data_req(&ctxt, 1, MBMS_FLAG_NO, srb_id, sdu_id, 0, size, memblock, intf_type);
 }
 
 void deliver_pdu_srb_f1(void *deliver_pdu_data, ue_id_t ue_id, int srb_id,
-                        char *buf, int size, int sdu_id)
+                        char *buf, int size, int sdu_id, nr_intf_type_t intf_type)
 {
   DevAssert(deliver_pdu_data != NULL);
   gNB_RRC_INST *rrc = deliver_pdu_data;
@@ -1302,18 +1300,17 @@ bool nr_pdcp_data_req_srb(ue_id_t ue_id,
                           const sdu_size_t sdu_buffer_size,
                           unsigned char *const sdu_buffer,
                           deliver_pdu deliver_pdu_cb,
-                          void *data)
+                          void *data,
+                          nr_intf_type_t intf_type)
 {
   LOG_D(PDCP, "%s() called, size %d\n", __func__, sdu_buffer_size);
   nr_pdcp_ue_t *ue;
   nr_pdcp_entity_t *rb;
 
   bool srap_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
-  srap_enabled = false; // TODO: Temporary - We are not following standard; control messages are not passed through SRAP
+  // WE may need to keep control msgs on non-srap
+  srap_enabled = false;// FIXME: Temporary - We are not following standard; control messages are not passed through SRAP
   // We only send to SRAP from PDCP if we are CU (split occurs at PDCP/SRAP) or a standard gNB
-  bool gNB_flag = (NODE_IS_MONOLITHIC(node_type) || NODE_IS_CU(node_type));
-  bool is_relay_ue = get_softmodem_params()->is_relay_ue;
-  bool remote_UE_flag = ((node_type == -1) && !is_relay_ue);
 
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
 
@@ -1321,8 +1318,12 @@ bool nr_pdcp_data_req_srb(ue_id_t ue_id,
 
   if (rb_id < 1 || rb_id > 2)
     rb = NULL;
-  else
-    rb = ue->srb[rb_id - 1];
+  else {
+    if (intf_type == PC5)
+      rb = ue->sl_srb[rb_id - 1];
+    else
+      rb = ue->srb[rb_id - 1];
+  }
 
   if (rb == NULL) {
     LOG_E(PDCP, "%s:%d:%s: no SRB found (ue_id %ld, rb_id %ld)\n", __FILE__, __LINE__, __FUNCTION__, ue_id, rb_id);
@@ -1337,14 +1338,10 @@ bool nr_pdcp_data_req_srb(ue_id_t ue_id,
 
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
   protocol_ctxt_t ctxt = { .enb_flag = 1, .rntiMaybeUEid = ue_id };
-  if (remote_UE_flag && srap_enabled) { // Remote UE
-    nr_srap_data_req_srb(&ctxt, rb_id, pdu_size, pdu_buf, srap_deliver_pdu_srb, muiP, PC5);
-  } else if (is_relay_ue && srap_enabled) { // Relay UE
-    nr_srap_data_req_srb(&ctxt, rb_id, pdu_size, pdu_buf, srap_deliver_pdu_srb, muiP, UU);
-  } else if (gNB_flag && srap_enabled) { // Only gNB
-    nr_srap_data_req_srb(&ctxt, rb_id, pdu_size, pdu_buf, srap_deliver_pdu_srb, muiP, UU);
+  if (srap_enabled) {
+    nr_srap_data_req_srb(&ctxt, rb_id, pdu_size, pdu_buf, srap_deliver_pdu_srb, muiP, intf_type);
   } else { // Sending directly to RLC
-    deliver_pdu_cb(data, ue_id, rb_id, pdu_buf, pdu_size, muiP);
+    deliver_pdu_cb(data, ue_id, rb_id, pdu_buf, pdu_size, muiP, intf_type);
   }
 
   return 1;
@@ -1399,8 +1396,9 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
   deliver_pdu deliver_pdu_cb = rb->deliver_pdu;
 
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
-
-  deliver_pdu_cb(NULL, ue_id, rb_id, pdu_buf, pdu_size, muiP);
+  bool is_pc5_link = sourceL2Id != 0 || destinationL2Id != 0;
+  nr_intf_type_t intf_type = is_pc5_link ? PC5 : UU;
+  deliver_pdu_cb(NULL, ue_id, rb_id, pdu_buf, pdu_size, muiP, intf_type);
 
   return 1;
 }

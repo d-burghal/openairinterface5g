@@ -1429,7 +1429,6 @@ static void handle_sl_bch(module_id_t module_id,uint8_t *const sl_mib,
   frame_1 = ((frame_1 & 0x06) >> 1) << 8;
   uint16_t frame = frame_1 | frame_0;
   uint8_t slot =  ((sl_mib[2] & 0x01) << 6) | ((sl_mib[3] & 0xFC) >> 2);
-  mac->is_synced = true;
 
   LOG_D(NR_MAC, "%s[UE%d]In %d:%d Received SL-MIB:%x .Contents- SL-TDD config:%x, Incov:%d, FN:%d, Slot:%d\n",KRED,
                                       module_id, frame_rx, slot_rx,*((uint32_t *)sl_mib),
@@ -1439,7 +1438,9 @@ static void handle_sl_bch(module_id_t module_id,uint8_t *const sl_mib,
   sl_mac->decoded_slot = slot;
 
 #define NR_SBCCH_SL_BCH 5
-  nr_mac_rrc_sl_mib_ind(module_id,0,0,frame_rx, slot_rx, NR_SBCCH_SL_BCH, sl_mib, len, rx_slss_id);
+  if (!mac->is_synced_sl)
+    nr_mac_rrc_sl_mib_ind(module_id, 0, 0, frame_rx, slot_rx, NR_SBCCH_SL_BCH, sl_mib, len, rx_slss_id);
+  mac->is_synced_sl = true;
 
   return ;
 }
