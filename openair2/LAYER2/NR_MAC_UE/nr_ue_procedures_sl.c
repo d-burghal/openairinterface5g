@@ -1183,7 +1183,6 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
       case SL_SCH_LCID_SL_INTER_UE_COORD_INFO:
       case SL_SCH_LCID_SL_DRX_CMD:
 	      LOG_W(NR_MAC,"Received unsupported SL LCID %d\n",rx_lcid);
-	      return;
 	      break;
     }
     pduP += ( mac_subheader_len + mac_len );
