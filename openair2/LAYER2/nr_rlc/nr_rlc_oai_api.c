@@ -642,10 +642,12 @@ rb_found:
     exit(1);
   }
   memcpy(memblock->data, buf, size);
-  bool srap_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
+  bool srap_enabled = get_softmodem_params()->relay_type > 0 ? (buf[1] == get_softmodem_params()->remote_ue_id) && ((int)(buf[0]&0x1F) == rb_id)
+                                                             : false;
   srap_enabled = is_srb ? false : srap_enabled;
 
-  if (srap_enabled && (rb_id > 1 && is_srb == 0)) { // data rb_id 2 enters into srap_data_ind !!!
+  if (srap_enabled) {
+    LOG_D(RLC, "Deliver from RLC to SRAP for rb_id %d\n", rb_id);
     if (!srap_data_ind(&ctx, is_srb, 0, rb_id, size, memblock, NULL, NULL, entity->intf_type)) {
       LOG_E(RLC, "%s:%d:%s: ERROR: srap_data_ind failed\n", __FILE__, __LINE__, __FUNCTION__);
     }

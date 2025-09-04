@@ -850,8 +850,10 @@ static void deliver_pdu_drb(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
     extern instance_t CUuniqInstance;
     itti_send_msg_to_task(TASK_GTPV1_U, CUuniqInstance, message_p);
   } else if (remote_UE_flag && srap_enabled) { // only remote UE should send PDCP traffic
+    rb_id = 1; // set rb_id to 1 to reduce RLC layer delay.
     nr_srap_data_req_drb(&ctxt, rb_id, sdu_id, size, buf, PC5);
   } else if (gNB_flag && srap_enabled && rb_id > 1) {
+    rb_id = 1; // set rb_id to 1 to reduce RLC layer delay.
     nr_srap_data_req_drb(&ctxt, rb_id, sdu_id, size, buf, UU);
   } else { // without srap
     mem_block_t *memblock = get_free_mem_block(size, __FUNCTION__);
