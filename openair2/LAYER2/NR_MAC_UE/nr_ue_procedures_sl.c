@@ -799,9 +799,9 @@ void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
                           const int nr_slots_frame, int psfch_index) {
 
   bool non_relay = get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0;
-  NR_SL_BWP_Generic_r16_t *sl_bwp = (non_relay || (mac->sl_bwp_dedicated == NULL))
-                                    ? mac->sl_bwp->sl_BWP_Generic_r16
-                                    : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
+  NR_SL_BWP_Generic_r16_t *sl_bwp_generic = (non_relay || (mac->sl_bwp_dedicated == NULL))
+                                            ? mac->sl_bwp->sl_BWP_Generic_r16
+                                            : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
   SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[psfch_index];
   LOG_D(NR_MAC, "psfch_period %ld, feedback frame:slot %d:%d, frame:slot %d:%d, harq feedback %d psfch_index %d\n",
         psfch_period,
@@ -824,11 +824,11 @@ void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
     sched_psfch->bit_len_harq = 0;
   }
   const uint8_t values[] = {7, 8, 9, 10, 11, 12, 13, 14};
-  uint8_t sl_num_symbols = *sl_bwp->sl_LengthSymbols_r16 ? values[*sl_bwp->sl_LengthSymbols_r16] : 0;
+  uint8_t sl_num_symbols = *sl_bwp_generic->sl_LengthSymbols_r16 ? values[*sl_bwp_generic->sl_LengthSymbols_r16] : 0;
   // start_symbol_index has been used as lprime check 38.213 16.3
-  sched_psfch->start_symbol_index = *sl_bwp->sl_StartSymbol_r16 + sl_num_symbols - 2;
+  sched_psfch->start_symbol_index = *sl_bwp_generic->sl_StartSymbol_r16 + sl_num_symbols - 2;
   LOG_D(NR_PHY, "sl_StartSymbol_r16 %ld, sl_num_symbols: %d, start sym index %d, mcs %d\n",
-        *sl_bwp->sl_StartSymbol_r16, sl_num_symbols, sched_psfch->start_symbol_index, sched_psfch->mcs);
+        *sl_bwp_generic->sl_StartSymbol_r16, sl_num_symbols, sched_psfch->start_symbol_index, sched_psfch->mcs);
   if (non_relay || (mac->sl_bwp_dedicated == NULL))
     sched_psfch->hopping_id = *mac->sl_bwp->sl_BWP_PoolConfigCommon_r16->sl_TxPoolSelectedNormal_r16->list.array[0]->sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
   else
@@ -839,7 +839,7 @@ void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
   LOG_D(NR_PHY, "slot %d, slot mode psfch_period %ld, sched_psfch->prb %d, start_prb %d\n",
         rx_ind->slot, rx_ind->slot%psfch_period, sched_psfch->prb,
         psfch_params->prbs_sets->start_prb[rx_ind->slot%psfch_period][0]);
-  int locbw = sl_bwp->sl_BWP_r16->locationAndBandwidth;
+  int locbw = sl_bwp_generic->sl_BWP_r16->locationAndBandwidth;
   sched_psfch->sl_bwp_start   = NRRIV2PRBOFFSET(locbw, MAX_BWP_SIZE);
   sched_psfch->freq_hop_flag  = 0;
   sched_psfch->group_hop_flag = 0;
@@ -945,25 +945,24 @@ void fill_psfch_params_rx(sl_nr_rx_config_request_t *rx_config, sl_nr_tx_rx_conf
   psfch_pdu->initial_cyclic_shift = psfch_params->m0;
   LOG_D(NR_MAC, "psfch_pdu->initial_cyclic_shift %i\n", psfch_pdu->initial_cyclic_shift);
   const uint8_t values[] = {7, 8, 9, 10, 11, 12, 13, 14};
-  NR_SL_BWP_Generic_r16_t *sl_bwp = (get_softmodem_params()->sl_mode == 2) ? mac->sl_bwp->sl_BWP_Generic_r16
-                                                                           : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
-  uint8_t sl_num_symbols = *sl_bwp->sl_LengthSymbols_r16 ? values[*sl_bwp->sl_LengthSymbols_r16] : 0;
+  bool non_relay = get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0;
+  NR_SL_BWP_Generic_r16_t *sl_bwp_generic = (non_relay || (mac->sl_bwp_dedicated == NULL))
+                                            ? mac->sl_bwp->sl_BWP_Generic_r16
+                                            : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
+  uint8_t sl_num_symbols = *sl_bwp_generic->sl_LengthSymbols_r16 ? values[*sl_bwp_generic->sl_LengthSymbols_r16] : 0;
   // start_symbol_index has been used as lprime check 38.213 16.3
-  psfch_pdu->start_symbol_index = *sl_bwp->sl_StartSymbol_r16 + sl_num_symbols - 2;
-  LOG_D(NR_PHY, "Rx sl_StartSymbol_r16 %ld, sl_num_symbols: %d, start sym index %d, mcs %d\n", *sl_bwp->sl_StartSymbol_r16, sl_num_symbols, psfch_pdu->start_symbol_index, psfch_pdu->mcs);
-
-  if (get_softmodem_params()->sl_mode == 2)
+  psfch_pdu->start_symbol_index = *sl_bwp_generic->sl_StartSymbol_r16 + sl_num_symbols - 2;
+  LOG_D(NR_PHY, "Rx sl_StartSymbol_r16 %ld, sl_num_symbols: %d, start sym index %d, mcs %d\n", *sl_bwp_generic->sl_StartSymbol_r16, sl_num_symbols, psfch_pdu->start_symbol_index, psfch_pdu->mcs);
+  if (non_relay || (mac->sl_bwp_dedicated == NULL))
     psfch_pdu->hopping_id = *mac->sl_bwp->sl_BWP_PoolConfigCommon_r16->sl_RxPool_r16->list.array[0]->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
-  else if (get_softmodem_params()->sl_mode == 1)
-    psfch_pdu->hopping_id = *mac->sl_bwp_dedicated->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[0]->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
   else
-    AssertFatal(1 == 0, "Sidelink BWP is not configured properly!!!");
+    psfch_pdu->hopping_id = *mac->sl_bwp_dedicated->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[0]->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
 
   uint8_t index = cur_harq->sched_pssch.slot%psfch_period;
   psfch_pdu->prb = psfch_params->prbs_sets->start_prb[index][0]; // FIXME [0] is based on assumption of number of subchannels = 1; 0 is channel id
   print_prb_set_allocation(psfch_params, psfch_period, 1);
   LOG_D(NR_PHY, "Rx slot %d, slsch tx slot %d, tx slot mode psfch_period %d, start_prb %d\n", slot, cur_harq->sched_pssch.slot, index, psfch_params->prbs_sets->start_prb[index][0]);
-  int locbw = sl_bwp->sl_BWP_r16->locationAndBandwidth;
+  int locbw = sl_bwp_generic->sl_BWP_r16->locationAndBandwidth;
   psfch_pdu->sl_bwp_start   = NRRIV2PRBOFFSET(locbw, MAX_BWP_SIZE);
   psfch_pdu->freq_hop_flag  = 0;
   psfch_pdu->group_hop_flag = 0;

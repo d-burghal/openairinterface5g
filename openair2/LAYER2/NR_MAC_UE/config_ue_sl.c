@@ -1055,7 +1055,12 @@ void nr_sl_params_read_conf(module_id_t module_id) {
   // Only 1 is supported (38211, 8.4.1.5.3) - means CSI-RS transmission in every resource block
   sl_mac->freq_density = 1;
   sl_mac->freq_domain = 0b000000000001; //bitmap size is dependent upon row size; for row 2 length is 12 bits else 6 bits;
-  int loc_bw = mac->sl_bwp->sl_BWP_Generic_r16->sl_BWP_r16->locationAndBandwidth;
+  bool non_relay = get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0;
+  NR_SL_BWP_Generic_r16_t *sl_bwp_generic = (non_relay || (mac->sl_bwp_dedicated == NULL))
+                                            ? mac->sl_bwp->sl_BWP_Generic_r16
+                                            : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
+
+  int loc_bw = sl_bwp_generic->sl_BWP_r16->locationAndBandwidth;
   uint16_t bwp_start = NRRIV2PRBOFFSET(loc_bw, MAX_BWP_SIZE);
   // PRB where this CSI resource starts in relation to common resource block #0 (CRB#0) on the common resource block grid.
   // Only multiples of 4 are allowed (0, 4, ...)
