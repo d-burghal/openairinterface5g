@@ -3348,7 +3348,7 @@ void preprocess(NR_UE_MAC_INST_t *mac,
                 uint16_t slot,
                 int *fb_frame,
                 int *fb_slot,
-                const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
                 NR_SetupRelease_SL_PSFCH_Config_r16_t *configured_PSFCH) {
 
   nr_store_slsch_buffer(mac, frame, slot);
@@ -3413,7 +3413,7 @@ void preprocess(NR_UE_MAC_INST_t *mac,
             *fb_slot,
             psfch_period);
     }
-    int locbw = sl_bwp->sl_BWP_Generic_r16->sl_BWP_r16->locationAndBandwidth;
+    int locbw = sl_bwp_generic->sl_BWP_r16->locationAndBandwidth;
     sched_pssch->mu = scs;
     sched_pssch->frame = frame;
     sched_pssch->slot = slot;
@@ -3424,7 +3424,7 @@ void preprocess(NR_UE_MAC_INST_t *mac,
 
 bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
                               nr_sidelink_indication_t *sl_ind,
-                              const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                              const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
                               const NR_SL_ResourcePool_r16_t *sl_res_pool,
                               sl_nr_tx_config_request_t *tx_config,
                               sl_resource_info_t *resource,
@@ -3463,7 +3463,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
     return is_resource_allocated;
   }
 
-  preprocess(mac, frame, slot, &feedback_frame, &feedback_slot, sl_bwp, configured_PSFCH);
+  preprocess(mac, frame, slot, &feedback_frame, &feedback_slot, sl_bwp_generic, configured_PSFCH);
 
   SL_UE_iterator(UE_info->list, UE) {
     NR_mac_dir_stats_t *sl_mac_stats = &UE->mac_sl_stats.sl;
@@ -3523,7 +3523,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
     tx_config->tx_config_list[0].pdu_type = *config_type;
     fill_pssch_pscch_pdu(sl_mac_params,
                         &tx_config->tx_config_list[0].tx_pscch_pssch_config_pdu,
-                        sl_bwp,
+                        sl_bwp_generic,
                         sl_res_pool,
                         &mac->sci1_pdu,
                         &mac->sci2_pdu,
@@ -3749,7 +3749,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
 }
 
 void nr_ue_sl_pscch_rx_scheduler(nr_sidelink_indication_t *sl_ind,
-                              const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                              const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
                               const NR_SL_ResourcePool_r16_t *sl_res_pool,
                               sl_nr_rx_config_request_t *rx_config,
                               uint8_t *config_type,
@@ -3761,7 +3761,7 @@ void nr_ue_sl_pscch_rx_scheduler(nr_sidelink_indication_t *sl_ind,
   rx_config->slot = sl_ind->slot_rx;
   rx_config->sl_rx_config_list[0].pdu_type = *config_type;
   config_pscch_pdu_rx(&rx_config->sl_rx_config_list[0].rx_pscch_config_pdu,
-                       sl_bwp,
+                       sl_bwp_generic,
                        sl_res_pool,
                        sl_has_psfch);
 
@@ -3996,6 +3996,11 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind) {
   long psfch_period = (sl_psfch_config && sl_psfch_config->sl_PSFCH_Period_r16)
                       ? psfch_periods[*sl_psfch_config->sl_PSFCH_Period_r16] : 0;
 
+  bool non_relay = get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0;
+  NR_SL_BWP_Generic_r16_t *sl_bwp_generic = (non_relay || (mac->sl_bwp_dedicated == NULL))
+                                            ? mac->sl_bwp->sl_BWP_Generic_r16
+                                            : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
+
   if ((prev_slot != slot) && rx_allowed && !is_psbch_slot) {
       frameslot_t fs;
       fs.frame = frame;
@@ -4006,22 +4011,22 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind) {
       uint16_t phy_map_sz = ((sl_rx_rsrc_pool->phy_sl_bitmap.size << 3) - sl_rx_rsrc_pool->phy_sl_bitmap.bits_unused);
       bool sl_has_psfch = slot_has_psfch(mac, &sl_rx_rsrc_pool->phy_sl_bitmap, rx_abs_slot, psfch_period, phy_map_sz, mac->SL_MAC_PARAMS->sl_TDD_config);
       LOG_D(NR_MAC, "%4d.%2d RX sl_has_psfch %d, psfch_period %ld\n", frame, slot, sl_has_psfch, psfch_period);
-      nr_ue_sl_pscch_rx_scheduler(sl_ind, mac->sl_bwp, mac->sl_rx_res_pool, &rx_config, &tti_action, sl_has_psfch);
+      nr_ue_sl_pscch_rx_scheduler(sl_ind, sl_bwp_generic, mac->sl_rx_res_pool, &rx_config, &tti_action, sl_has_psfch);
       prev_slot = slot;
   }
 
   if (mac->is_synced_sl && !is_psbch_slot && tx_allowed && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
     //Check if reserved slot or a sidelink resource configured in Rx/Tx resource pool timeresource bitmap
     sl_resource_info_t *resource_p = NULL; // TODO: After fixing the resource allocation code, the resource variable should have the valid assigned resources
-    bool is_resource_allocated = nr_ue_sl_pssch_scheduler(mac, sl_ind, mac->sl_bwp, mac->sl_tx_res_pool, &tx_config, resource_p, &tti_action);
+    bool is_resource_allocated = nr_ue_sl_pssch_scheduler(mac, sl_ind, sl_bwp_generic, mac->sl_tx_res_pool, &tx_config, resource_p, &tti_action);
     if (is_resource_allocated && mac->sci2_pdu.csi_req) {
-      nr_ue_sl_csi_rs_scheduler(mac, mu, mac->sl_bwp, &tx_config, NULL, &tti_action);
+      nr_ue_sl_csi_rs_scheduler(mac, mu, sl_bwp_generic, &tx_config, NULL, &tti_action);
       LOG_D(NR_MAC, "%4d.%2d Scheduling CSI-RS\n", frame, slot);
     }
     bool is_feedback_slot = mac->sl_tx_res_pool->sl_PSFCH_Config_r16 ? is_feedback_scheduled(mac, frame, slot) : false;
     if (is_resource_allocated && is_feedback_slot && mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup) {
       if (is_feedback_slot) {
-        nr_ue_sl_psfch_scheduler(mac, frame, slot, psfch_period, sl_ind, mac->sl_bwp, &tx_config, &tti_action);
+        nr_ue_sl_psfch_scheduler(mac, frame, slot, psfch_period, sl_ind, &tx_config, &tti_action);
         reset_sched_psfch(mac, frame, slot);
       }
     }
@@ -4068,7 +4073,6 @@ void nr_ue_sl_psfch_scheduler(NR_UE_MAC_INST_t *mac,
                               uint16_t slot,
                               long psfch_period,
                               nr_sidelink_indication_t *sl_ind,
-                              const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
                               sl_nr_tx_config_request_t *tx_config,
                               uint8_t *config_type) {
   int num_psfch_symbols = 0;
@@ -4147,7 +4151,7 @@ void fill_psfch_pdu(SL_sched_feedback_t *mac_psfch_pdu,
 
 void nr_ue_sl_csi_rs_scheduler(NR_UE_MAC_INST_t *mac,
                                uint8_t scs,
-                               const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                               const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
                                sl_nr_tx_config_request_t *tx_config,
                                sl_nr_rx_config_request_t *rx_config,
                                uint8_t *config_type) {
@@ -4164,11 +4168,11 @@ void nr_ue_sl_csi_rs_scheduler(NR_UE_MAC_INST_t *mac,
       rx_config->sl_rx_config_list[0].pdu_type = SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_CSI_RS;
   }
   AssertFatal(csi_rs_pdu != NULL, "tx_config and rx_config both cannot be NULL\n");
-  fill_csi_rs_pdu(sl_mac, csi_rs_pdu, sl_bwp, scs);
+  fill_csi_rs_pdu(sl_mac, csi_rs_pdu, sl_bwp_generic, scs);
 }
 
-void fill_csi_rs_pdu(sl_nr_ue_mac_params_t *sl_mac, sl_nr_tti_csi_rs_pdu_t *csi_rs_pdu, const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp, uint8_t scs) {
-  long* cyclicPrefix = sl_bwp->sl_BWP_Generic_r16->sl_BWP_r16->cyclicPrefix;
+void fill_csi_rs_pdu(sl_nr_ue_mac_params_t *sl_mac, sl_nr_tti_csi_rs_pdu_t *csi_rs_pdu, const NR_SL_BWP_Generic_r16_t *sl_bwp_generic, uint8_t scs) {
+  long* cyclicPrefix = sl_bwp_generic->sl_BWP_r16->cyclicPrefix;
   csi_rs_pdu->cyclic_prefix = cyclicPrefix == NULL ? 0 : *cyclicPrefix; // (0: normal; 1: Extended)
   csi_rs_pdu->measurement_bitmap = sl_mac->measurement_bitmap;
   csi_rs_pdu->subcarrier_spacing = scs;
@@ -4402,6 +4406,10 @@ List_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
   frameslot_t fs2;
   de_normalize(last_abs_slot_ind, mu, &fs2);
 
+  bool non_relay = get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0;
+  NR_SL_BWP_Generic_r16_t *sl_bwp_generic = (non_relay || (mac->sl_bwp_dedicated == NULL))
+                                            ? mac->sl_bwp->sl_BWP_Generic_r16
+                                            : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
   bool sl_has_psfch = false;
   for (uint64_t i = first_abs_slot_ind; i <= last_abs_slot_ind; i++) {
     if (is_sl_slot(mac, &sl_tx_rsrc_pool->phy_sl_bitmap, phy_map_sz, i)) // slot is a sidelink slot
@@ -4420,7 +4428,7 @@ List_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
             num_sl_pscch_rbs);
       uint8_t start_sl_pscch_sym = 1;
       // PSSCH
-      uint16_t sl_pssch_sym_start = *mac->sl_bwp->sl_BWP_Generic_r16->sl_StartSymbol_r16;
+      uint16_t sl_pssch_sym_start = *sl_bwp_generic->sl_StartSymbol_r16;
       sl_has_psfch = slot_has_psfch(mac, &sl_tx_rsrc_pool->phy_sl_bitmap, i, psfch_period, phy_map_sz, mac->SL_MAC_PARAMS->sl_TDD_config);
       int num_psfch_symbols = 0;
       if (sl_has_psfch && resource_pool->sl_PSFCH_Config_r16 && resource_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16
@@ -4430,7 +4438,7 @@ List_t get_nr_sl_comm_opportunities(NR_UE_MAC_INST_t *mac,
       }
 
       // PSFCH requires an additional 3 symbols
-      uint16_t sl_pssch_sym_len = 7 + *mac->sl_bwp->sl_BWP_Generic_r16->sl_LengthSymbols_r16 - num_psfch_symbols - 2;
+      uint16_t sl_pssch_sym_len = 7 + *sl_bwp_generic->sl_LengthSymbols_r16 - num_psfch_symbols - 2;
       LOG_D(NR_MAC, "Tx sl_has_psfch %d, %4d.%2d sl_pssch_sym_len %d\n", sl_has_psfch, frame_slot.frame, frame_slot.slot, sl_pssch_sym_len);
 
       uint16_t sl_subchannel_size = sl_get_subchannel_size(resource_pool);

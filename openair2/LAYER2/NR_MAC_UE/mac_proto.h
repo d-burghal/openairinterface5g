@@ -547,14 +547,14 @@ uint8_t nr_ue_sl_psbch_scheduler(nr_sidelink_indication_t *sl_ind,
 
 bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
                               nr_sidelink_indication_t *sl_ind,
-                              const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                              const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
                               const NR_SL_ResourcePool_r16_t *sl_res_pool,
                               sl_nr_tx_config_request_t *tx_config,
                               sl_resource_info_t *resource,
                               uint8_t *config_type);
 
 void nr_ue_sl_pscch_rx_scheduler(nr_sidelink_indication_t *sl_ind,
-                                 const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                                 const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
                                  const NR_SL_ResourcePool_r16_t *sl_res_pool,
                                  sl_nr_rx_config_request_t *rx_config,
                                  uint8_t *config_type,
@@ -562,7 +562,7 @@ void nr_ue_sl_pscch_rx_scheduler(nr_sidelink_indication_t *sl_ind,
 
 void nr_ue_sl_csi_rs_scheduler(NR_UE_MAC_INST_t *mac,
                                uint8_t scs,
-                               const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                               const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
                                sl_nr_tx_config_request_t *tx_config,
                                sl_nr_rx_config_request_t *rx_config,
                                uint8_t *config_type);
@@ -574,7 +574,7 @@ void nr_ue_sl_csi_report_scheduling(int Mod_idP,
 
 void fill_csi_rs_pdu(sl_nr_ue_mac_params_t *sl_mac,
                      sl_nr_tti_csi_rs_pdu_t *csi_rs_pdu,
-                     const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                     const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
                      uint8_t scs);
 
 void nr_ue_sl_psfch_scheduler(NR_UE_MAC_INST_t *mac,
@@ -582,12 +582,11 @@ void nr_ue_sl_psfch_scheduler(NR_UE_MAC_INST_t *mac,
                               uint16_t slot,
                               long psfch_period,
                               nr_sidelink_indication_t *sl_ind,
-                              const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
                               sl_nr_tx_config_request_t *tx_config,
                               uint8_t *config_type);
 
 void config_pscch_pdu_rx(sl_nr_rx_config_pscch_pdu_t *nr_sl_pscch_pdu,
-                         const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                         const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
                          const NR_SL_ResourcePool_r16_t *sl_res_pool,
                          bool sl_has_psfch);
 
@@ -596,7 +595,7 @@ int config_pssch_sci_pdu_rx(sl_nr_rx_config_pssch_sci_pdu_t *nr_sl_pssch_sci_pdu
                              nr_sci_pdu_t *sci_pdu,
                              uint32_t pscch_Nid,
                              int pscch_subchannel_index,
-                             const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                             const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
                              const NR_SL_ResourcePool_r16_t *sl_res_pool,
                              bool sl_has_psfch);
 
@@ -618,7 +617,7 @@ void extract_pssch_sci_pdu(uint64_t *sci2_payload,
 
 void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
                           sl_nr_tx_config_pscch_pssch_pdu_t *nr_sl_pssch_pscch_pdu,
-                          const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
+                          const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
                           const NR_SL_ResourcePool_r16_t *sl_res_pool,
                           nr_sci_pdu_t *sci_pdu,
                           nr_sci_pdu_t *sci2_pdu,
