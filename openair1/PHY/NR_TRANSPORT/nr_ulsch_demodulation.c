@@ -2325,7 +2325,7 @@ void nr_rx_pusch(PHY_VARS_gNB *gNB,
       /*-----------------------------------------------------------------------------------------------------*/
       if (gNB) start_meas(&gNB->ulsch_llr_stats);
       int sci1_offset=0;
-      if (pssch_pdu && (symbol <= pssch_pdu->pscch_numsym)) { 
+      if (pssch_pdu && (symbol <= pssch_pdu->pscch_numsym)) {
         pusch_vars->ul_valid_re_per_slot[symbol] -= sci1_re_per_symb;
         sci1_offset=sci1_re_per_symb;
       }

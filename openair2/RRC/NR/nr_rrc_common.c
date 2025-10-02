@@ -97,21 +97,23 @@ void free_nr_sl_resource_pool(NR_SL_ResourcePool_r16_t *sl_ResourcePool_r16) {
   if (sl_ResourcePool_r16->sl_PSSCH_Config_r16)
     free_and_zero(sl_ResourcePool_r16->sl_PSSCH_Config_r16);
 
-  struct NR_SL_PSFCH_Config_r16 *nr_sl_PSFCH_Config = sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup;
-  if (nr_sl_PSFCH_Config) {
-    if (nr_sl_PSFCH_Config->sl_MinTimeGapPSFCH_r16)
-      free_and_zero(nr_sl_PSFCH_Config->sl_MinTimeGapPSFCH_r16);
-    if (nr_sl_PSFCH_Config->sl_NumMuxCS_Pair_r16)
-      free_and_zero(nr_sl_PSFCH_Config->sl_NumMuxCS_Pair_r16);
-    if (nr_sl_PSFCH_Config->sl_PSFCH_CandidateResourceType_r16)
-      free_and_zero(nr_sl_PSFCH_Config->sl_PSFCH_CandidateResourceType_r16);
-    if (nr_sl_PSFCH_Config->sl_PSFCH_HopID_r16)
-      free_and_zero(nr_sl_PSFCH_Config->sl_PSFCH_HopID_r16);
-    if (nr_sl_PSFCH_Config->sl_PSFCH_Period_r16)
-      free_and_zero(nr_sl_PSFCH_Config->sl_PSFCH_Period_r16);
-    if (nr_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16)
-      free_and_zero(nr_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16);
-    free_and_zero(nr_sl_PSFCH_Config);
+  if (sl_ResourcePool_r16->sl_PSFCH_Config_r16) {
+    struct NR_SL_PSFCH_Config_r16 *nr_sl_PSFCH_Config = sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup;
+    if (nr_sl_PSFCH_Config) {
+      if (nr_sl_PSFCH_Config->sl_MinTimeGapPSFCH_r16)
+        free_and_zero(nr_sl_PSFCH_Config->sl_MinTimeGapPSFCH_r16);
+      if (nr_sl_PSFCH_Config->sl_NumMuxCS_Pair_r16)
+        free_and_zero(nr_sl_PSFCH_Config->sl_NumMuxCS_Pair_r16);
+      if (nr_sl_PSFCH_Config->sl_PSFCH_CandidateResourceType_r16)
+        free_and_zero(nr_sl_PSFCH_Config->sl_PSFCH_CandidateResourceType_r16);
+      if (nr_sl_PSFCH_Config->sl_PSFCH_HopID_r16)
+        free_and_zero(nr_sl_PSFCH_Config->sl_PSFCH_HopID_r16);
+      if (nr_sl_PSFCH_Config->sl_PSFCH_Period_r16)
+        free_and_zero(nr_sl_PSFCH_Config->sl_PSFCH_Period_r16);
+      if (nr_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16)
+        free_and_zero(nr_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16);
+      free_and_zero(nr_sl_PSFCH_Config);
+    }
   }
 
   if (sl_ResourcePool_r16->sl_PSFCH_Config_r16)

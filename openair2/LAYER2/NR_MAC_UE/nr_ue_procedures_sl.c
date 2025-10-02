@@ -972,7 +972,7 @@ void fill_psfch_params_rx(sl_nr_rx_config_request_t *rx_config, sl_nr_tx_rx_conf
   int num_psfch_symbols = 0;
   if (psfch_period == 1) num_psfch_symbols = 3;
   else if (psfch_period == 2 || psfch_period == 4) {
-    num_psfch_symbols = mac->SL_MAC_PARAMS->sl_RxPool[0]->sci_1a.psfch_overhead_indication.nbits ? 3 : 0;
+    num_psfch_symbols = mac->sci_pdu_rx.psfch_overhead.nbits ? 3 : 0;
   }
   psfch_pdu->nr_of_symbols = num_psfch_symbols ? num_psfch_symbols - 2 : 0; // (num_psfch_symbols - 2) excludes PSFCH AGC and Guard
   rx_config->sl_rx_config_list[0].pdu_type = SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH;
@@ -1003,10 +1003,17 @@ uint8_t sl_num_slsch_feedbacks(NR_UE_MAC_INST_t *mac) {
 }
 
 bool is_feedback_scheduled(NR_UE_MAC_INST_t *mac, int frameP,int slotP) {
+  if (mac->sl_tx_res_pool && !mac->sl_tx_res_pool->sl_PSFCH_Config_r16) {
+    LOG_D(NR_MAC, "Not configured\n");
+    return false;
+  }
+
+  uint8_t psfch_period = *mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16;
+
   for (int i = 0; i < sl_num_slsch_feedbacks(mac); i++) {
     SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[i];
-    LOG_D(NR_MAC, "frame.slot %4d.%2d, harq_feedback %d\n", frameP, slotP, sched_psfch->harq_feedback);
-    if (frameP == sched_psfch->feedback_frame && slotP == sched_psfch->feedback_slot && sched_psfch->harq_feedback) {
+    LOG_D(NR_MAC, "frame.slot %4d.%2d, harq_feedback %d  psfch_period %u\n", frameP, slotP, sched_psfch->harq_feedback, psfch_period);
+    if ((frameP == sched_psfch->feedback_frame && slotP == sched_psfch->feedback_slot && sched_psfch->harq_feedback) || (psfch_period == 1)) {
       return true;
     }
   }

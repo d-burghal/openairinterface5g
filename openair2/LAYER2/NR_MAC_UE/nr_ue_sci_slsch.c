@@ -213,7 +213,8 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
                           const nr_sci_format_t format1,
                           const nr_sci_format_t format2,
                           uint16_t slot,
-                          sl_resource_info_t *selected_resource)  {
+                          sl_resource_info_t *selected_resource,
+                          bool is_fdbk_scheduled)  {
   int pos = 0, fsize;
   uint64_t *sci_payload = (uint64_t *)nr_sl_pssch_pscch_pdu->pscch_sci_payload;
   uint64_t *sci2_payload = (uint64_t *)nr_sl_pssch_pscch_pdu->sci2_payload;
@@ -257,7 +258,13 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
   nr_sl_pssch_pscch_pdu->pscch_dmrs_scrambling_id,
   nr_sl_pssch_pscch_pdu->num_subch,
   nr_sl_pssch_pscch_pdu->subchannel_size);
-  if (sl_res_pool->sl_PSFCH_Config_r16 && sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16 && *sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16>0) {
+
+  bool sending_fdbk = false;
+  if (sl_res_pool->sl_PSFCH_Config_r16 &&
+      sl_res_pool->sl_PSFCH_Config_r16->choice.setup &&
+      sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16)
+    sending_fdbk = is_fdbk_scheduled && (*sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16 > 0);
+  if (sending_fdbk) {
      // As per 38214 8.1.3.2, num_psfch_symbols can be 3 if psfch_overhead_indication.nbits is 1; FYI psfch_overhead_indication.nbits is set to 1 in case of PSFCH period 2 or 4 in sl_determine_sci_1a_len()
      num_psfch_symbols = 3;
   }
@@ -674,6 +681,7 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,f
   uint64_t rx_abs_slot = normalize(&fs, mu);
   uint16_t phy_map_sz = ((sl_rx_rsrc_pool->phy_sl_bitmap.size << 3) - sl_rx_rsrc_pool->phy_sl_bitmap.bits_unused);
   uint8_t sl_has_psfch = slot_has_psfch(mac, &sl_rx_rsrc_pool->phy_sl_bitmap, rx_abs_slot, psfch_period, phy_map_sz, mac->SL_MAC_PARAMS->sl_TDD_config);
+  sl_has_psfch = psfch_period > 1 ? mac->sci_pdu_rx.psfch_overhead.val : sl_has_psfch;
 
   int ret = config_pssch_sci_pdu_rx(&rx_config.sl_rx_config_list[0].rx_sci2_config_pdu,
                           NR_SL_SCI_FORMAT_2A,
@@ -895,6 +903,7 @@ int nr_ue_process_sci2_indication_pdu(NR_UE_MAC_INST_t *mac, module_id_t mod_id,
   NR_SL_BWP_Generic_r16_t *sl_bwp_generic = (non_relay || (mac->sl_bwp_dedicated == NULL))
                                             ? mac->sl_bwp->sl_BWP_Generic_r16
                                             : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
+  sl_has_psfch = psfch_period > 1 ? mac->sci_pdu_rx.psfch_overhead.val : sl_has_psfch;
   config_pssch_slsch_pdu_rx(&rx_config.sl_rx_config_list[0].rx_pssch_config_pdu,
                             sci_pdu,
                             sl_bwp_generic,
