@@ -3319,12 +3319,13 @@ static bool get_control_info(NR_UE_MAC_INST_t *mac,
                              uint16_t frame,
                              uint16_t slot,
                              int16_t dest_id,
-                             NR_SetupRelease_SL_PSFCH_Config_r16_t *configured_PSFCH) {
+                             NR_SetupRelease_SL_PSFCH_Config_r16_t *configured_PSFCH,
+                             bool is_fdbk_scheduled) {
   int period = 0, offset = 0;
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
   // Determine current slot is csi-rs schedule slot
   bool csi_acq = !mac->SL_MAC_PARAMS->sl_CSI_Acquisition;
-  bool is_harq_feedback = configured_PSFCH ? is_feedback_scheduled(mac, frame, slot) : false;
+  bool is_harq_feedback = configured_PSFCH ? is_fdbk_scheduled : false;
   NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
   // Determine current slot is csi report schedule slot
   SL_CSI_Report_t *sl_csi_report = set_nr_ue_sl_csi_meas_periodicity(tdd, sched_ctrl, mac, dest_id, false);
@@ -3349,7 +3350,8 @@ void preprocess(NR_UE_MAC_INST_t *mac,
                 int *fb_frame,
                 int *fb_slot,
                 const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
-                NR_SetupRelease_SL_PSFCH_Config_r16_t *configured_PSFCH) {
+                NR_SetupRelease_SL_PSFCH_Config_r16_t *configured_PSFCH,
+                bool is_fdbk_scheduled) {
 
   nr_store_slsch_buffer(mac, frame, slot);
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
@@ -3381,7 +3383,7 @@ void preprocess(NR_UE_MAC_INST_t *mac,
               slot);
         continue;
       }
-      bool control_info = get_control_info(mac, sched_ctrl, nr_slots_frame, frame, slot, UE->uid, configured_PSFCH);
+      bool control_info = get_control_info(mac, sched_ctrl, nr_slots_frame, frame, slot, UE->uid, configured_PSFCH, is_fdbk_scheduled);
       LOG_D(NR_MAC, "sched_ctrl->num_total_bytes %d, control_info %d\n", sched_ctrl->num_total_bytes, control_info);
       /* Check SL buffer and control info, skip this UE if no bytes and no control info */
       if (sched_ctrl->num_total_bytes == 0) {
@@ -3428,7 +3430,8 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
                               const NR_SL_ResourcePool_r16_t *sl_res_pool,
                               sl_nr_tx_config_request_t *tx_config,
                               sl_resource_info_t *resource,
-                              uint8_t *config_type) {
+                              uint8_t *config_type,
+                              bool is_fdbk_scheduled) {
 
   uint16_t slot = sl_ind->slot_tx;
   uint16_t frame = sl_ind->frame_tx;
@@ -3463,7 +3466,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
     return is_resource_allocated;
   }
 
-  preprocess(mac, frame, slot, &feedback_frame, &feedback_slot, sl_bwp_generic, configured_PSFCH);
+  preprocess(mac, frame, slot, &feedback_frame, &feedback_slot, sl_bwp_generic, configured_PSFCH, is_fdbk_scheduled);
 
   SL_UE_iterator(UE_info->list, UE) {
     NR_mac_dir_stats_t *sl_mac_stats = &UE->mac_sl_stats.sl;
@@ -3514,7 +3517,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
     cur_harq->ndi ^= 1;
 
     nr_schedule_slsch(mac, frame, slot, &mac->sci1_pdu, &mac->sci2_pdu, NR_SL_SCI_FORMAT_2A,
-                      UE, cur_harq, resource);
+                      UE, cur_harq, resource, is_fdbk_scheduled);
 
     *config_type = SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH;
     tx_config->number_pdus = 1;
@@ -3530,7 +3533,8 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
                         NR_SL_SCI_FORMAT_1A,
                         NR_SL_SCI_FORMAT_2A,
                         slot,
-                        resource);
+                        resource,
+                        is_fdbk_scheduled);
     sl_nr_tx_config_pscch_pssch_pdu_t *pscch_pssch_pdu = &tx_config->tx_config_list[0].tx_pscch_pssch_config_pdu;
     sched_pssch->R = pscch_pssch_pdu->target_coderate;
     sched_pssch->tb_size = pscch_pssch_pdu->tb_size;
@@ -3934,11 +3938,13 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind) {
   frame_slot.slot = slot;
 
   sl_resource_info_t *resource = NULL;
-  if (get_softmodem_params()->sl_mode == 2) {
+  bool resource_available = false;
+  if (get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0) {
     if (mac->sl_candidate_resources && mac->sl_candidate_resources->size > 0 && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
       LOG_D(NR_MAC, "%4d.%2d sl_candidate_resources %p size %ld, capacity %ld slot_type %d\n", frame, slot, mac->sl_candidate_resources, mac->sl_candidate_resources->size, mac->sl_candidate_resources->capacity, sl_ind->slot_type);
       resource = get_resource_element(mac->sl_candidate_resources, frame_slot);
       if (resource) {
+        resource_available = true;
         LOG_D(NR_MAC, "SELECTED_RESOURCE %4d.%2d slot_type %d, num_sl_pscch_rbs %d, sl_max_num_per_reserve %d, sl_min_time_gap_psfch %d, sl_pscch_sym_start %d, \
               sl_pscch_sym_len %d, sl_psfch_period %d, sl_pssch_sym_start %d, sl_pssch_sym_len %d, sl_subchan_len %d, sl_subchan_size %d\n",
               resource->sfn.frame, resource->sfn.slot, sl_ind->slot_type,
@@ -3981,6 +3987,8 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind) {
         }
       }
     }
+  } else { // In SL Mode 1, above resource allocation algorithm does not work, so resource is NULL; We assume resource is always available based on allocated configuration from gNB
+    resource_available = true;
   }
 
   if (mac->sl_rx_res_pool && mac->sl_rx_res_pool->ext1 && mac->sl_rx_res_pool->ext1->sl_TimeResource_r16) {
@@ -4014,19 +4022,18 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind) {
       nr_ue_sl_pscch_rx_scheduler(sl_ind, sl_bwp_generic, mac->sl_rx_res_pool, &rx_config, &tti_action, sl_has_psfch);
       prev_slot = slot;
   }
-
-  if (mac->is_synced_sl && !is_psbch_slot && tx_allowed && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
+  if (resource_available && mac->is_synced_sl && !is_psbch_slot && tx_allowed && sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
+    bool is_fdbk_scheduled = is_feedback_scheduled(mac, frame, slot);
     //Check if reserved slot or a sidelink resource configured in Rx/Tx resource pool timeresource bitmap
-    sl_resource_info_t *resource_p = NULL; // TODO: After fixing the resource allocation code, the resource variable should have the valid assigned resources
-    bool is_resource_allocated = nr_ue_sl_pssch_scheduler(mac, sl_ind, sl_bwp_generic, mac->sl_tx_res_pool, &tx_config, resource_p, &tti_action);
+    bool is_resource_allocated = nr_ue_sl_pssch_scheduler(mac, sl_ind, sl_bwp_generic, mac->sl_tx_res_pool, &tx_config, resource, &tti_action, is_fdbk_scheduled);
     if (is_resource_allocated && mac->sci2_pdu.csi_req) {
       nr_ue_sl_csi_rs_scheduler(mac, mu, sl_bwp_generic, &tx_config, NULL, &tti_action);
       LOG_D(NR_MAC, "%4d.%2d Scheduling CSI-RS\n", frame, slot);
     }
-    bool is_feedback_slot = mac->sl_tx_res_pool->sl_PSFCH_Config_r16 ? is_feedback_scheduled(mac, frame, slot) : false;
-    if (is_resource_allocated && is_feedback_slot && mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup) {
+    bool is_feedback_slot = mac->sl_tx_res_pool->sl_PSFCH_Config_r16 ? is_fdbk_scheduled : false;
+    if (is_resource_allocated && mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup) {
       if (is_feedback_slot) {
-        nr_ue_sl_psfch_scheduler(mac, frame, slot, psfch_period, sl_ind, &tx_config, &tti_action);
+        nr_ue_sl_psfch_scheduler(mac, frame, slot, psfch_period, sl_ind, &tx_config, &tti_action, is_fdbk_scheduled);
         reset_sched_psfch(mac, frame, slot);
       }
     }
@@ -4058,7 +4065,8 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind) {
     frame_slot.slot = slot;
     if (mac->sl_transmit_history.size > 1)
       remove_old_transmit_history(&frame_slot, sl_mac->sl_TxPool[0]->t0, &mac->sl_transmit_history, sl_mac);
-    if (sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) {
+    if ((sl_ind->slot_type == SIDELINK_SLOT_TYPE_TX) &&
+        (tti_action != SL_NR_CONFIG_TYPE_TX_PSBCH)) {
       LOG_D(NR_MAC, "Inserting transmit history data: %4d.%2d\n", frame_slot.frame, frame_slot.slot);
       push_back(&mac->sl_transmit_history, &frame_slot);
     }
@@ -4074,11 +4082,12 @@ void nr_ue_sl_psfch_scheduler(NR_UE_MAC_INST_t *mac,
                               long psfch_period,
                               nr_sidelink_indication_t *sl_ind,
                               sl_nr_tx_config_request_t *tx_config,
-                              uint8_t *config_type) {
+                              uint8_t *config_type,
+                              bool is_fdbk_scheduled) {
   int num_psfch_symbols = 0;
   if (psfch_period == 1) num_psfch_symbols = 3;
   else if (psfch_period == 2 || psfch_period == 4) {
-    num_psfch_symbols = mac->SL_MAC_PARAMS->sl_TxPool[0]->sci_1a.psfch_overhead_indication.nbits ? 3 : 0;
+    num_psfch_symbols = is_fdbk_scheduled ? 3 : 0;
   }
 
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
@@ -4305,17 +4314,23 @@ NR_SL_ResourcePool_r16_t* get_resource_pool(NR_UE_MAC_INST_t *mac, uint16_t pool
   return mac->SL_MAC_PARAMS->sl_TxPool[pool_id]->respool;
 }
 
-bool slot_has_psfch(NR_UE_MAC_INST_t *mac, BIT_STRING_t *phy_sl_bitmap, uint64_t abs_index_cur_slot, uint8_t psfch_period, size_t phy_sl_map_size, NR_TDD_UL_DL_ConfigCommon_t *conf) {
+bool slot_has_psfch(NR_UE_MAC_INST_t *mac, BIT_STRING_t *phy_sl_bitmap, uint64_t abs_index_cur_slot, uint8_t psfch_period, size_t phy_sl_map_size, NR_TDD_UL_DL_ConfigCommon_t *tdd) {
 
   if (psfch_period == 0) {
     return false;
   }
-  AssertFatal(conf->pattern1.nrofUplinkSlots == 4 && conf->pattern1.nrofDownlinkSlots == 6,
+  sl_nr_phy_config_request_t *sl_config = &mac->SL_MAC_PARAMS->sl_phy_config.sl_config_req;
+  int mu = sl_config->sl_bwp_config.sl_scs;
+  frameslot_t fs0;
+  de_normalize(abs_index_cur_slot, mu, &fs0);
+  const int nr_slots_frame = nr_slots_per_frame[mu];
+  const int nr_slots_period = tdd ? nr_slots_frame / get_nb_periods_per_frame(tdd->pattern1.dl_UL_TransmissionPeriodicity) : nr_slots_frame;
+  AssertFatal(tdd->pattern1.nrofUplinkSlots == 4 && tdd->pattern1.nrofDownlinkSlots == 6,
               "Invalid configuration set. Please update the nrofUplinkSlots to 4 and nrofDownlinkSlots to 6.\n");
   bool sl_slot = is_sl_slot(mac, phy_sl_bitmap, phy_sl_map_size, abs_index_cur_slot);
-  bool has_psfch = sl_slot && ((conf->pattern1.nrofUplinkSlots % psfch_period) == 0);
-  LOG_D(NR_MAC, "num_sl_slots %ld has_psfch %d, abs slot %ld, is_sl_slot %d\n",
-        conf->pattern1.nrofUplinkSlots, has_psfch, abs_index_cur_slot, sl_slot);
+  bool has_psfch = sl_slot && ((((fs0.slot + psfch_period - 1) % nr_slots_period) % psfch_period) == 0);
+  LOG_D(NR_MAC, "slot %d has_psfch %d, abs slot %ld, is_sl_slot %d\n",
+        fs0.slot, has_psfch, abs_index_cur_slot, sl_slot);
   return has_psfch;
 }
 
@@ -4780,7 +4795,8 @@ uint8_t get_random_reselection_counter(uint16_t rri) {
     }
 
     LOG_D(NR_MAC, "Range to choose random reselection counter. min: %d max: %d\n", min_res_cntr, max_res_cntr);
-    return (rand() % (max_res_cntr - min_res_cntr + 1)) + min_res_cntr;
+    // return (rand() % (max_res_cntr - min_res_cntr + 1)) + min_res_cntr;
+    return min_res_cntr;
 }
 
 List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, List_t *sensing_data, List_t *transmit_history) {
@@ -4887,11 +4903,13 @@ List_t* get_candidate_resources(frameslot_t *frame_slot, NR_UE_MAC_INST_t *mac, 
   LOG_D(NR_MAC, "size: (candidate_resources %ld, remaining_candidates %ld, updated_history %ld)\n",
         candidate_resources->size, remaining_candidates->size, updated_history->size);
 
+#if 0 // TODO: Need to fix the exclusion of transmit history
   // Exclude resources function may not be effective if updated history is empty
   List_t *rsrc_rsrvation_period_list = malloc16_clear(sizeof(*rsrc_rsrvation_period_list));
   init_list(rsrc_rsrvation_period_list, sizeof(long), 1);
   push_back(rsrc_rsrvation_period_list, &sl_tx_params->rri);
   exclude_resources_based_on_history(*frame_slot, updated_history, remaining_candidates, rsrc_rsrvation_period_list, mu);
+#endif
 
   LOG_D(NR_MAC, "sl_res_ratio %f, %lf\n",
         sl_tx_params->sl_res_ratio, (sl_tx_params->sl_res_ratio * m_total));

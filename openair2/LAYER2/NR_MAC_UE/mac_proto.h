@@ -527,7 +527,8 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
                        nr_sci_format_t format2,
                        NR_SL_UE_info_t *UE,
                        NR_UE_sl_harq_t *cur_harq,
-                       sl_resource_info_t *resource);
+                       sl_resource_info_t *resource,
+                       bool is_fdbk_scheduled);
 
 SL_CSI_Report_t* set_nr_ue_sl_csi_meas_periodicity(const NR_TDD_UL_DL_Pattern_t *tdd,
                                                    NR_SL_UE_sched_ctrl_t *sched_ctrl,
@@ -551,7 +552,8 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
                               const NR_SL_ResourcePool_r16_t *sl_res_pool,
                               sl_nr_tx_config_request_t *tx_config,
                               sl_resource_info_t *resource,
-                              uint8_t *config_type);
+                              uint8_t *config_type,
+                              bool is_fdbk_scheduled);
 
 void nr_ue_sl_pscch_rx_scheduler(nr_sidelink_indication_t *sl_ind,
                                  const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
@@ -583,7 +585,8 @@ void nr_ue_sl_psfch_scheduler(NR_UE_MAC_INST_t *mac,
                               long psfch_period,
                               nr_sidelink_indication_t *sl_ind,
                               sl_nr_tx_config_request_t *tx_config,
-                              uint8_t *config_type);
+                              uint8_t *config_type,
+                              bool is_fdbk_scheduled);
 
 void config_pscch_pdu_rx(sl_nr_rx_config_pscch_pdu_t *nr_sl_pscch_pdu,
                          const NR_SL_BWP_Generic_r16_t *sl_bwp_generic,
@@ -624,7 +627,8 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
                           const nr_sci_format_t format1,
                           const nr_sci_format_t format2,
                           uint16_t slot,
-                          sl_resource_info_t *selected_resource);
+                          sl_resource_info_t *selected_resource,
+                          bool is_fdbk_scheduled);
 
 void fill_psfch_pdu(SL_sched_feedback_t *mac_psfch_pdu,
                     sl_nr_tx_rx_config_psfch_pdu_t *tx_psfch_pdu,

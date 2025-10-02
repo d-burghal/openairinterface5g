@@ -209,7 +209,8 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
                        nr_sci_pdu_t *sci2_pdu, nr_sci_format_t format2,
                        NR_SL_UE_info_t *UE,
                        NR_UE_sl_harq_t *cur_harq,
-                       sl_resource_info_t *resource) {
+                       sl_resource_info_t *resource,
+                       bool is_fdbk_scheduled) {
   uid_t dest_id = UE->uid;
   NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   const NR_mac_dir_stats_t *stats = &UE->mac_sl_stats.sl;
@@ -270,7 +271,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   else {
     sched_pssch->mcs = get_mcs_from_bler(sl_bo, stats, &sched_ctrl->sl_bler_stats, max_mcs, frameP);
     if ((frameP & 127) == 0)
-      LOG_I(MAC, "frame %4d MCS %u\n", frameP, sched_pssch->mcs);
+      LOG_D(MAC, "frame %4d MCS %u\n", frameP, sched_pssch->mcs);
   }
 
   uint16_t sl_max_num_reserve = *mac->sl_tx_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16;
@@ -300,46 +301,14 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   if (frameP % 5 == 0)
     LOG_D(NR_MAC, "cqi ---> %d Tx %4d.%2d dest: %d mcs %i\n",
           cqi, frameP, slotP, dest_id, sci_pdu->mcs);
-  /*Following code will check whether SLSCH was received before and
-  its feedback has scheduled for current slot
-  */
-  int scs = sl_mac->sl_phy_config.sl_config_req.sl_bwp_config.sl_scs;
-  const int nr_slots_frame = nr_slots_per_frame[scs];
-  const int n_ul_slots_period = tdd ? tdd->nrofUplinkSlots + (tdd->nrofUplinkSymbols > 0 ? 1 : 0) : nr_slots_frame;
 
-  uint16_t num_subch = sl_get_num_subch(mac->sl_tx_res_pool);
-  bool is_feedback_slot = false;
-  for (int i = 0; i < (n_ul_slots_period * num_subch); i++) {
-    SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[i];
-    if (slotP == sched_psfch->feedback_slot) {
-        LOG_D(NR_MAC, "%4d.%2d i = %d sched_psfch %p feedback slot %d\n", frameP, slotP, i, sched_psfch, sched_psfch->feedback_slot);
-        is_feedback_slot = true;
-        frameslot_t frame_slot;
-        frame_slot.frame = frameP;
-        frame_slot.slot = slotP;
-        validate_selected_sl_slot(true, false, mac->SL_MAC_PARAMS->sl_TDD_config, frame_slot);
-        break;
-    }
-  }
-
-  frameslot_t fs;
-  fs.frame = frameP;
-  fs.slot = slotP;
-  uint8_t pool_id = 0;
-  uint64_t tx_abs_slot = normalize(&fs, mu);
-  SL_ResourcePool_params_t *sl_tx_rsrc_pool = sl_mac->sl_TxPool[pool_id];
-  size_t phy_map_sz = ((sl_tx_rsrc_pool->phy_sl_bitmap.size << 3) - sl_tx_rsrc_pool->phy_sl_bitmap.bits_unused);
-  bool sl_has_psfch = slot_has_psfch(mac, &sl_tx_rsrc_pool->phy_sl_bitmap, tx_abs_slot, psfch_period, phy_map_sz, mac->SL_MAC_PARAMS->sl_TDD_config);
-  if ((psfch_period == 2 || psfch_period == 4) && (sl_has_psfch)) {
-    if (is_feedback_slot) {
+  sci_pdu->psfch_overhead.val = 0;
+  if ((psfch_period == 2 || psfch_period == 4) && (is_fdbk_scheduled)) {
       sci_pdu->psfch_overhead.val =  1;
       LOG_D(NR_MAC, "%4d.%2d Setting psfch_overhead 1\n", frameP, slotP);
-    } else {
-        sci_pdu->psfch_overhead.val = 0;
-        LOG_D(NR_MAC, "%4d.%2d Setting psfch_overhead 0\n", frameP, slotP);
-    }
-  } else if ((psfch_period == 2 || psfch_period == 4) && (!sl_has_psfch)) {
+  } else if ((psfch_period == 2 || psfch_period == 4) && (!is_fdbk_scheduled)) {
       sci_pdu->psfch_overhead.val = 0;
+      LOG_D(NR_MAC, "%4d.%2d Setting psfch_overhead 0\n", frameP, slotP);
   }
 
   sci_pdu->reserved.val = mac->is_synced_sl ? 1 : 0;
@@ -355,7 +324,7 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
   sci2_pdu->cast_type = 1;
   if (format2 == NR_SL_SCI_FORMAT_2C || format2 == NR_SL_SCI_FORMAT_2A) {
     sci2_pdu->csi_req = (csi_acq && csi_req_slot) ? 1 : 0;
-    sci2_pdu->csi_req = (cur_harq->round > 0 || is_feedback_slot) ? 0 : sci2_pdu->csi_req;
+    sci2_pdu->csi_req = (cur_harq->round > 0 || is_fdbk_scheduled) ? 0 : sci2_pdu->csi_req;
     LOG_D(NR_MAC, "%4d.%2d Setting sci2_pdu->csi_req %d\n", frameP, slotP, sci2_pdu->csi_req);
   }
   if (format2 == NR_SL_SCI_FORMAT_2B)
