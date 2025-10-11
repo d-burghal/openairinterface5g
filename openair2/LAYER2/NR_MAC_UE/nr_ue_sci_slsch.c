@@ -381,6 +381,9 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
   if (slot % 10 == 6)
     LOG_D(NR_MAC,"PSSCH: mcs %d, coderate %d, Nl %d => tbs %d\n", sci_pdu->mcs,nr_sl_pssch_pscch_pdu->target_coderate,nr_sl_pssch_pscch_pdu->num_layers,nr_sl_pssch_pscch_pdu->tb_size);
   nr_sl_pssch_pscch_pdu->tbslbrm = nr_compute_tbslbrm(mcs_tb_ind, NRRIV2BW(sl_bwp_generic->sl_BWP_r16->locationAndBandwidth, 273), nr_sl_pssch_pscch_pdu->num_layers);
+  bool servingcellconfig_rateMatching = false;
+  if (!servingcellconfig_rateMatching)
+    nr_sl_pssch_pscch_pdu->tbslbrm = 0;
   nr_sl_pssch_pscch_pdu->mcs_table=mcs_tb_ind;
   nr_sl_pssch_pscch_pdu->rv_index = sci2_pdu->rv_index;
   nr_sl_pssch_pscch_pdu->ndi = sci2_pdu->ndi;
@@ -725,6 +728,9 @@ void config_pssch_slsch_pdu_rx(sl_nr_rx_config_pssch_pdu_t *nr_sl_pssch_pdu,
   nr_sl_pssch_pdu->tbslbrm = nr_compute_tbslbrm(sci_pdu->additional_mcs.val,
 		                                NRRIV2BW(sl_bwp_generic->sl_BWP_r16->locationAndBandwidth, 273),
 						nr_sl_pssch_pdu->num_layers);
+  bool servingcellconfig_rateMatching = false;
+  if (!servingcellconfig_rateMatching)
+    nr_sl_pssch_pdu->tbslbrm = 0;
   int num_psfch_symbols = 0;
   if (sl_has_psfch && sl_res_pool->sl_PSFCH_Config_r16 && sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16 && *sl_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16>0) {
      // As per 38214 8.1.3.2, num_psfch_symbols can be 3 if psfch_overhead_indication.nbits is 1; FYI psfch_overhead_indication.nbits is set to 1 in case of PSFCH period 2 or 4 in sl_determine_sci_1a_len()
