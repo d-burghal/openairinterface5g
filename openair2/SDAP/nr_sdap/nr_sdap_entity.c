@@ -25,6 +25,7 @@
 #include <openair2/LAYER2/nr_pdcp/nr_pdcp_oai_api.h>
 #include <openair3/ocp-gtpu/gtp_itf.h>
 #include "openair2/LAYER2/nr_pdcp/nr_pdcp_ue_manager.h"
+#include "executables/softmodem-common.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -232,6 +233,18 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
           LOG_D(SDAP, "RX Entity Received SDAP Control PDU\n");
           break;
       }
+    }
+    if (IS_SOFTMODEM_NOS1) {// Using noS1 at gNB
+      extern int nas_sock_fd[];
+      int len = write(nas_sock_fd[0], &buf[offset], size-offset);
+      LOG_D(SDAP, "RX Entity len : %d\n", len);
+      LOG_D(SDAP, "RX Entity size : %d\n", size);
+      LOG_D(SDAP, "RX Entity offset : %d\n", offset);
+
+      if (len != size-offset)
+        LOG_E(SDAP, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
+
+      return;
     }
 
     // Pushing SDAP SDU to GTP-U Layer
