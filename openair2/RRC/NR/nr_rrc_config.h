@@ -80,6 +80,8 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
                                                      const gNB_RrcConfigurationReq *configuration,
                                                      int uid);
 
+void prepare_nr_sl_sched_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_config, rnti_t sl_rnti);
+
 void nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_ConfigDedicatedNR,
                                                                rnti_t sl_rnti,
                                                                NR_SL_TxResourceReqList_r16_t *sl_TxRscReqList_r16,

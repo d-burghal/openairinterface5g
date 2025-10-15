@@ -200,6 +200,122 @@ void free_nr_sl_resource_pool(NR_SL_ResourcePool_r16_t *sl_ResourcePool_r16) {
   free_and_zero(sl_ResourcePool_r16);
 }
 
+void free_nr_sl_ScheduledConfig_r16(NR_SetupRelease_SL_ScheduledConfig_r16_t *nr_sl_Scheduled_Config) {
+  if (nr_sl_Scheduled_Config->choice.setup) {
+    if (nr_sl_Scheduled_Config->choice.setup->sl_CS_RNTI_r16)
+      free_and_zero(nr_sl_Scheduled_Config->choice.setup->sl_CS_RNTI_r16);
+
+    if (nr_sl_Scheduled_Config->choice.setup->sl_PSFCH_ToPUCCH_r16)
+      free_and_zero(nr_sl_Scheduled_Config->choice.setup->sl_PSFCH_ToPUCCH_r16);
+
+    struct NR_SL_ConfiguredGrantConfigList_r16 *nr_sl_ConfiguredGrantConfigList = nr_sl_Scheduled_Config->choice.setup->sl_ConfiguredGrantConfigList_r16;
+    if (nr_sl_ConfiguredGrantConfigList && nr_sl_ConfiguredGrantConfigList->sl_ConfiguredGrantConfigToAddModList_r16) {
+      for (int k = 0; k < nr_sl_ConfiguredGrantConfigList->sl_ConfiguredGrantConfigToAddModList_r16->list.count; k++) {
+        struct NR_SL_ConfiguredGrantConfig_r16 *nr_sl_ConfiguredGrantConfig = nr_sl_ConfiguredGrantConfigList->sl_ConfiguredGrantConfigToAddModList_r16->list.array[k];
+        if (nr_sl_ConfiguredGrantConfig->sl_PeriodCG_r16)
+          free_and_zero(nr_sl_ConfiguredGrantConfig->sl_PeriodCG_r16);
+
+        if (nr_sl_ConfiguredGrantConfig->sl_NrOfHARQ_Processes_r16)
+          free_and_zero(nr_sl_ConfiguredGrantConfig->sl_NrOfHARQ_Processes_r16);
+
+        if (nr_sl_ConfiguredGrantConfig->sl_HARQ_ProcID_offset_r16)
+          free_and_zero(nr_sl_ConfiguredGrantConfig->sl_HARQ_ProcID_offset_r16);
+
+        if (nr_sl_ConfiguredGrantConfig->sl_CG_MaxTransNumList_r16) {
+          for (int j = 0; j < nr_sl_ConfiguredGrantConfig->sl_CG_MaxTransNumList_r16->list.count; j++) {
+            free_and_zero(nr_sl_ConfiguredGrantConfig->sl_CG_MaxTransNumList_r16->list.array[j]);
+          }
+
+          free_and_zero(nr_sl_ConfiguredGrantConfig->sl_CG_MaxTransNumList_r16);
+        }
+
+        struct NR_SL_ConfiguredGrantConfig_r16__rrc_ConfiguredSidelinkGrant_r16 *rrc_ConfiguredSidelinkGrant = nr_sl_ConfiguredGrantConfig->rrc_ConfiguredSidelinkGrant_r16;
+        if (rrc_ConfiguredSidelinkGrant) {
+          if (rrc_ConfiguredSidelinkGrant->sl_FreqResourceCG_Type1_r16)
+            free_and_zero(rrc_ConfiguredSidelinkGrant->sl_FreqResourceCG_Type1_r16);
+
+          if (rrc_ConfiguredSidelinkGrant->sl_N1PUCCH_AN_r16)
+            free_and_zero(rrc_ConfiguredSidelinkGrant->sl_N1PUCCH_AN_r16);
+
+          if (rrc_ConfiguredSidelinkGrant->sl_PSFCH_ToPUCCH_CG_Type1_r16)
+            free_and_zero(rrc_ConfiguredSidelinkGrant->sl_PSFCH_ToPUCCH_CG_Type1_r16);
+
+          if (rrc_ConfiguredSidelinkGrant->sl_ResourcePoolID_r16)
+            free_and_zero(rrc_ConfiguredSidelinkGrant->sl_ResourcePoolID_r16);
+
+          if (rrc_ConfiguredSidelinkGrant->sl_StartSubchannelCG_Type1_r16)
+            free_and_zero(rrc_ConfiguredSidelinkGrant->sl_StartSubchannelCG_Type1_r16);
+
+          if (rrc_ConfiguredSidelinkGrant->sl_TimeOffsetCG_Type1_r16)
+            free_and_zero(rrc_ConfiguredSidelinkGrant->sl_TimeOffsetCG_Type1_r16);
+
+          if (rrc_ConfiguredSidelinkGrant->sl_TimeReferenceSFN_Type1_r16)
+            free_and_zero(rrc_ConfiguredSidelinkGrant->sl_TimeReferenceSFN_Type1_r16);
+
+          if (rrc_ConfiguredSidelinkGrant->sl_TimeResourceCG_Type1_r16)
+            free_and_zero(rrc_ConfiguredSidelinkGrant->sl_TimeResourceCG_Type1_r16);
+
+          free_and_zero(rrc_ConfiguredSidelinkGrant);
+        }
+        free_and_zero(nr_sl_ConfiguredGrantConfig);
+      }
+      free_and_zero(nr_sl_ConfiguredGrantConfigList->sl_ConfiguredGrantConfigToAddModList_r16);
+    }
+    free_and_zero(nr_sl_Scheduled_Config->choice.setup);
+  }
+}
+
+void free_nr_sl_BWP_Config(NR_SL_BWP_Config_r16_t *sl_BWP_Config) {
+  // free sl_BWP_r16
+  struct NR_SL_BWP_Generic_r16 *nr_sl_BWP_Generic = sl_BWP_Config->sl_BWP_Generic_r16;
+  if (nr_sl_BWP_Generic) {
+    if (nr_sl_BWP_Generic->sl_BWP_r16->cyclicPrefix)
+      free_and_zero(nr_sl_BWP_Generic->sl_BWP_r16->cyclicPrefix);
+
+    if (nr_sl_BWP_Generic->sl_BWP_r16)
+      free_and_zero(nr_sl_BWP_Generic->sl_BWP_r16);
+
+    // free sl_PSBCH_Config_r16
+    if (nr_sl_BWP_Generic->sl_PSBCH_Config_r16)
+      free_and_zero(nr_sl_BWP_Generic->sl_PSBCH_Config_r16);
+
+    // free sl_BWP_Generic_r16
+    if (nr_sl_BWP_Generic->sl_StartSymbol_r16)
+      free_and_zero(nr_sl_BWP_Generic->sl_StartSymbol_r16);
+
+    if (nr_sl_BWP_Generic->sl_LengthSymbols_r16)
+      free_and_zero(nr_sl_BWP_Generic->sl_LengthSymbols_r16);
+
+    if (nr_sl_BWP_Generic->sl_TxDirectCurrentLocation_r16)
+      free_and_zero(nr_sl_BWP_Generic->sl_TxDirectCurrentLocation_r16);
+
+    free_and_zero(nr_sl_BWP_Generic);
+  }
+
+  if (sl_BWP_Config->sl_BWP_PoolConfig_r16) {
+    if (sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_RxPool_r16) {
+      for (int k = 0; k < sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.count; k++) {
+        NR_SL_ResourcePool_r16_t *sl_ResourcePool_r16 = sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[k];
+        if (sl_ResourcePool_r16)
+          free_nr_sl_resource_pool(sl_ResourcePool_r16);
+      }
+      free_and_zero(sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_RxPool_r16);
+    }
+    if (sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16 &&
+        sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16) {
+      for (int k = 0; k < sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.count; k++) {
+        NR_SL_ResourcePoolConfig_r16_t *sl_ResourcePoolConfig_r16 = sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[k];
+        if (sl_ResourcePoolConfig_r16)
+          free_nr_sl_resource_pool(sl_ResourcePoolConfig_r16->sl_ResourcePool_r16);
+      }
+      free_and_zero(sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16);
+      free_and_zero(sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16);
+    }
+    free_and_zero(sl_BWP_Config->sl_BWP_PoolConfig_r16);
+  }
+  free_and_zero(sl_BWP_Config);
+}
+
 void free_nr_sl_SetupRelease_SL_ConfigDedicatedNR_r16(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_conf) {
   if (sl_conf && sl_conf->choice.setup) {
     struct NR_SL_PHY_MAC_RLC_Config_r16 *nr_sl_PHY_MAC_RLC_Config = sl_conf->choice.setup->sl_PHY_MAC_RLC_Config_r16;
@@ -210,80 +326,38 @@ void free_nr_sl_SetupRelease_SL_ConfigDedicatedNR_r16(NR_SetupRelease_SL_ConfigD
           if (sl_FreqInfoToAddMod) {
             if (sl_FreqInfoToAddMod->frequencyShift7p5khzSL_r16)
               free_and_zero(sl_FreqInfoToAddMod->frequencyShift7p5khzSL_r16);
+
             if (sl_FreqInfoToAddMod->sl_AbsoluteFrequencySSB_r16)
               free_and_zero(sl_FreqInfoToAddMod->sl_AbsoluteFrequencySSB_r16);
+
             if (sl_FreqInfoToAddMod->sl_SyncPriority_r16)
               free_and_zero(sl_FreqInfoToAddMod->sl_SyncPriority_r16);
+
             if (sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16) {
               for (int j = 0; j < sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list.count; j++) {
                 NR_SL_BWP_Config_r16_t *sl_BWP_Config = sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list.array[j];
                 if (sl_BWP_Config) {
-                  // free sl_BWP_r16
-                  struct NR_SL_BWP_Generic_r16 *nr_sl_BWP_Generic = sl_BWP_Config->sl_BWP_Generic_r16;
-                  if (nr_sl_BWP_Generic) {
-                    if (nr_sl_BWP_Generic->sl_BWP_r16->cyclicPrefix)
-                      free_and_zero(nr_sl_BWP_Generic->sl_BWP_r16->cyclicPrefix);
-                    if (nr_sl_BWP_Generic->sl_BWP_r16)
-                      free_and_zero(nr_sl_BWP_Generic->sl_BWP_r16);
-
-                    // free sl_PSBCH_Config_r16
-                    if (nr_sl_BWP_Generic->sl_PSBCH_Config_r16)
-                      free_and_zero(nr_sl_BWP_Generic->sl_PSBCH_Config_r16);
-
-                    // free sl_BWP_Generic_r16
-                    if (nr_sl_BWP_Generic->sl_StartSymbol_r16)
-                      free_and_zero(nr_sl_BWP_Generic->sl_StartSymbol_r16);
-                    if (nr_sl_BWP_Generic->sl_LengthSymbols_r16)
-                      free_and_zero(nr_sl_BWP_Generic->sl_LengthSymbols_r16);
-                    if (nr_sl_BWP_Generic->sl_TxDirectCurrentLocation_r16)
-                      free_and_zero(nr_sl_BWP_Generic->sl_TxDirectCurrentLocation_r16);
-                    free_and_zero(nr_sl_BWP_Generic);
-                  }
-
-                  if (sl_BWP_Config->sl_BWP_PoolConfig_r16) {
-                    if (sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_RxPool_r16) {
-                      for (int k = 0; k < sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.count; k++) {
-                        NR_SL_ResourcePool_r16_t *sl_ResourcePool_r16 = sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[k];
-                        if (sl_ResourcePool_r16)
-                          free_nr_sl_resource_pool(sl_ResourcePool_r16);
-                      }
-                      free_and_zero(sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_RxPool_r16);
-                    }
-                    if (sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16 &&
-                        sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16) {
-                      for (int k = 0; k < sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.count; k++) {
-                        NR_SL_ResourcePoolConfig_r16_t *sl_ResourcePoolConfig_r16 = sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[k];
-                        if (sl_ResourcePoolConfig_r16)
-                          free_nr_sl_resource_pool(sl_ResourcePoolConfig_r16->sl_ResourcePool_r16);
-                      }
-                      free_and_zero(sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16);
-                      free_and_zero(sl_BWP_Config->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16);
-                    }
-                    free_and_zero(sl_BWP_Config->sl_BWP_PoolConfig_r16);
-                  }
-                  free_and_zero(sl_BWP_Config);
+                  free_nr_sl_BWP_Config(sl_BWP_Config);
                 }
               }
               free_and_zero(sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16);
             }
-            free_and_zero(sl_FreqInfoToAddMod->sl_AbsoluteFrequencyPointA_r16);
+
+            if (sl_FreqInfoToAddMod->sl_AbsoluteFrequencyPointA_r16)
+              free_and_zero(sl_FreqInfoToAddMod->sl_AbsoluteFrequencyPointA_r16);
+
             free_and_zero(sl_FreqInfoToAddMod);
           }
         }
-      }
 
-      if (nr_sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16)
         free_and_zero(nr_sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16);
+      }
       if (nr_sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16)
         free_and_zero(nr_sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16);
-      if (nr_sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16) {
-          if (nr_sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16->choice.setup) {
-            if (nr_sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16->choice.setup->sl_CS_RNTI_r16)
-              free_and_zero(nr_sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16->choice.setup->sl_CS_RNTI_r16);
-            free_and_zero(nr_sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16->choice.setup);
-          }
-        free_and_zero(nr_sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16);
-      }
+
+      if (nr_sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16)
+        free_nr_sl_ScheduledConfig_r16(nr_sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16);
+
       free_and_zero(nr_sl_PHY_MAC_RLC_Config);
     }
     free_and_zero(sl_conf->choice.setup);

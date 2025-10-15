@@ -100,6 +100,21 @@
 #define SL_CONFIG_STRING_UEINFO_REMOTE_UE_ID                  "remote_ue_id"
 #define SL_CONFIG_STRING_UEINFO_IS_RELAY_UE                   "is_relay_ue"
 
+#define SL_CONFIG_STRING_CG_CONFIG_LIST                       "sl_CG_Config"
+#define SL_CONFIG_STRING_SL_NUM_OF_HARQ_PROCESSES             "sl_Num_HARQ_Processes"
+#define SL_CONFIG_STRING_SL_HARQ_PROC_ID_OFFSET               "sl_HARQ_Proc_ID_Offset"
+#define SL_CONFIG_STRING_SL_CONFIG_INDEX_CG                   "sl_Config_Index_CG"
+#define SL_CONFIG_STRING_SL_PRIORITY                          "sl_Priority"
+#define SL_CONFIG_STRING_SL_CG_MAX_TRANS_NUM                  "sl_CG_MaxTransNum"
+#define SL_CONFIG_STRING_SL_FREQ_RESOURCE_CG_TYPE1            "sl_FreqResourceCG_Type1"
+#define SL_CONFIG_STRING_SL_N1PUCCH_AN                        "sl_N1PUCCH_AN"
+#define SL_CONFIG_STRING_SL_PSFCH_TO_PUCCH_CG_TYPE1           "sl_PSFCH_ToPUCCH_CG_Type1"
+#define SL_CONFIG_STRING_SL_RESOURCE_POOL_ID                  "sl_ResourcePoolID"
+#define SL_CONFIG_STRING_SL_START_SUB_CHANNEL_CG_TYPE1        "sl_StartSubchannelCG_Type1"
+#define SL_CONFIG_STRING_SL_TIME_OFFSET_CG_TYPE1              "sl_TimeOffsetCG_Type1"
+#define SL_CONFIG_STRING_SL_TIME_REFERENE_SFN_TYPE1           "sl_TimeReferenceSFN_Type1"
+#define SL_CONFIG_STRING_SL_TIME_RESOURCE_CG_TYPE1            "sl_TimeResourceCG_Type1"
+
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 /*             Sidelink Frequency common Cell Config parameters                                                                                                     */
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
@@ -214,4 +229,19 @@
 {SL_CONFIG_STRING_UEINFO_IPV4ADDR_FOURTH_OCTET,NULL,0,.iptr=&sl_ueinfo.fourthOctet,.defintval=1,TYPE_INT,0}, \
 {SL_CONFIG_STRING_UEINFO_REMOTE_UE_ID,NULL,0,.u8ptr=&sl_ueinfo.remote_ue_id,.defintval=0,TYPE_UINT8,0}, \
 {SL_CONFIG_STRING_UEINFO_IS_RELAY_UE,NULL,0,.u8ptr=&sl_ueinfo.is_relay_ue,.defintval=0,TYPE_UINT8,0}}
+
+#define SL_CG_CONFIG_PARAMS_DESC(sl_CG_Config) { \
+{SL_CONFIG_STRING_SL_NUM_OF_HARQ_PROCESSES,NULL,0,.i64ptr=sl_CG_Config->sl_NrOfHARQ_Processes_r16,.defint64val=0,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_SL_HARQ_PROC_ID_OFFSET,NULL,0,.i64ptr=sl_CG_Config->sl_HARQ_ProcID_offset_r16,.defint64val=0,TYPE_INT64,0},\
+{SL_CONFIG_STRING_SL_CONFIG_INDEX_CG,NULL,0,.i64ptr=&sl_CG_Config->sl_ConfigIndexCG_r16,.defint64val=0,TYPE_INT64,0},\
+{SL_CONFIG_STRING_SL_PRIORITY,NULL,0,.i64ptr=&sl_CG_Config->sl_CG_MaxTransNumList_r16->list.array[0]->sl_Priority_r16,.defint64val=0,TYPE_INT64,0},\
+{SL_CONFIG_STRING_SL_CG_MAX_TRANS_NUM,NULL,0,.i64ptr=&sl_CG_Config->sl_CG_MaxTransNumList_r16->list.array[0]->sl_MaxTransNum_r16,.defint64val=0,TYPE_INT64,0},\
+{SL_CONFIG_STRING_SL_FREQ_RESOURCE_CG_TYPE1,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16,.defint64val=0,TYPE_INT64,0}, \
+{SL_CONFIG_STRING_SL_N1PUCCH_AN,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_N1PUCCH_AN_r16,.defint64val=0,TYPE_INT64,0},\
+{SL_CONFIG_STRING_SL_PSFCH_TO_PUCCH_CG_TYPE1,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16,.defint64val=0,TYPE_INT64,0},\
+{SL_CONFIG_STRING_SL_RESOURCE_POOL_ID,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_ResourcePoolID_r16,.defint64val=0,TYPE_INT64,0},\
+{SL_CONFIG_STRING_SL_START_SUB_CHANNEL_CG_TYPE1,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16,.defint64val=0,TYPE_INT64,0},\
+{SL_CONFIG_STRING_SL_TIME_OFFSET_CG_TYPE1,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeOffsetCG_Type1_r16,.defint64val=0,TYPE_INT64,0},\
+{SL_CONFIG_STRING_SL_TIME_REFERENE_SFN_TYPE1,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeReferenceSFN_Type1_r16,.defint64val=0,TYPE_INT64,0},\
+{SL_CONFIG_STRING_SL_TIME_RESOURCE_CG_TYPE1,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16,.defint64val=0,TYPE_INT64,0}}
 #endif
