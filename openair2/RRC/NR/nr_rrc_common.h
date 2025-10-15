@@ -74,6 +74,10 @@ typedef struct SRB_INFO_TABLE_ENTRY_NR_s {
 
 void rrc_init_nr_srb_param(NR_LCHAN_DESC *chan);
 
+void free_nr_sl_ScheduledConfig_r16(NR_SetupRelease_SL_ScheduledConfig_r16_t *nr_sl_Scheduled_Config);
+
+void free_nr_sl_BWP_Config(NR_SL_BWP_Config_r16_t *sl_BWP_Config);
+
 void free_nr_sl_SetupRelease_SL_ConfigDedicatedNR_r16(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_conf);
 
 void free_nr_sl_resource_pool(NR_SL_ResourcePool_r16_t *sl_ResourcePool_r16);
