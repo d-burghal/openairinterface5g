@@ -2706,7 +2706,8 @@ void extract_nr_sl_ResourcePool(struct NR_SL_ResourcePool_r16 *sl_ResourcePool, 
          nr_rrc_ue_generate_RRCReconfigurationComplete(ctxt_pP,
            gNB_indexP,
            dl_dcch_msg->message.choice.c1->choice.rrcReconfiguration->rrc_TransactionIdentifier);
-         nr_ue_rrc_SL_UEInformation_trigger(ctxt_pP->module_id, ctxt_pP->frame, 0);
+         if (get_softmodem_params()->sl_mode == 1)
+           nr_ue_rrc_SL_UEInformation_trigger(ctxt_pP->module_id, ctxt_pP->frame, 0);
          break;
        }
 
