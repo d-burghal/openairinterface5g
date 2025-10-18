@@ -3289,11 +3289,15 @@ uint8_t sl_determine_if_SSB_slot(uint16_t frame, uint16_t slot, uint16_t slots_p
 static void nr_store_slsch_buffer(NR_UE_MAC_INST_t *mac, frame_t frame, sub_frame_t slot) {
 
   NR_SL_UEs_t *UE_info = &mac->sl_info;
+  int lcid_max = 4;
+  if (get_softmodem_params()->relay_type != 0)
+    lcid_max++;
+
   SL_UE_iterator(UE_info->list, UE) {
     NR_SL_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     sched_ctrl->num_total_bytes = 0;
     sched_ctrl->sl_pdus_total = 0;
-    for (int lcid = 1; lcid <= 5; lcid++) {
+    for (int lcid = 1; lcid <= lcid_max; lcid++) {
       if ((lcid == 2) || (lcid == 3)) continue;
       sched_ctrl->rlc_status[lcid] = mac_rlc_status_ind(0, mac->src_id, 0, frame, slot, ENB_FLAG_NO, MBMS_FLAG_NO, lcid, mac->src_id, UE->uid);
 
@@ -3442,6 +3446,9 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
   uint8_t total_mac_pdu_header_len = 0;
   bool is_resource_allocated = false;
   *config_type = 0;
+  int lcid_max = 4;
+  if (get_softmodem_params()->relay_type != 0)
+    lcid_max++;
 
   sl_nr_ue_mac_params_t* sl_mac_params = mac->SL_MAC_PARAMS;
   NR_SetupRelease_SL_PSFCH_Config_r16_t *configured_PSFCH  = mac->sl_tx_res_pool->sl_PSFCH_Config_r16;
@@ -3602,7 +3609,7 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
       const uint8_t sh_size = sizeof(NR_MAC_SUBHEADER_LONG);
 
       int num_sdus=0;
-      for (lcid = 1; lcid <= 5; lcid++) {
+      for (lcid = 1; lcid <= lcid_max; lcid++) {
         if ((lcid == 2) || (lcid == 3)) continue;
         if (sched_ctrl->rlc_status[lcid].bytes_in_buffer > 0) {
           while (buflen_remain > sh_size + 1) {
