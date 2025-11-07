@@ -2099,6 +2099,21 @@ static NR_SpCellConfig_t *get_initial_SpCellConfig(int uid,
   NR_UplinkConfig_t *uplinkConfig = SpCellConfig->spCellConfigDedicated->uplinkConfig;
 
   NR_BWP_UplinkDedicated_t *initialUplinkBWP = calloc(1, sizeof(*initialUplinkBWP));
+
+  initialUplinkBWP->ext1 = calloc(1, sizeof(struct NR_BWP_UplinkDedicated__ext1));
+  initialUplinkBWP->ext1->sl_PUCCH_Config_r16 = calloc(1, sizeof(struct NR_SetupRelease_PUCCH_Config));
+  initialUplinkBWP->ext1->sl_PUCCH_Config_r16->present = NR_SetupRelease_PUCCH_Config_PR_setup;
+  NR_PUCCH_Config_t *sl_pucch_Config = calloc(1, sizeof(*sl_pucch_Config));
+  initialUplinkBWP->ext1->sl_PUCCH_Config_r16->choice.setup = sl_pucch_Config;
+  sl_pucch_Config->resourceSetToAddModList = calloc(1, sizeof(*sl_pucch_Config->resourceSetToAddModList));
+  sl_pucch_Config->resourceSetToReleaseList = NULL;
+  sl_pucch_Config->resourceToAddModList = calloc(1, sizeof(*sl_pucch_Config->resourceToAddModList));
+  sl_pucch_Config->resourceToReleaseList = NULL;
+  uint8_t relay_uid = uid + MAX_MOBILES_PER_GNB;
+  config_pucch_resset0(sl_pucch_Config, relay_uid, curr_bwp, NULL);
+  config_pucch_resset1(sl_pucch_Config, NULL);
+  set_pucch_power_config(sl_pucch_Config, configuration->do_CSIRS);
+
   uplinkConfig->initialUplinkBWP = initialUplinkBWP;
   initialUplinkBWP->pucch_Config = calloc(1, sizeof(*initialUplinkBWP->pucch_Config));
   initialUplinkBWP->pucch_Config->present = NR_SetupRelease_PUCCH_Config_PR_setup;
@@ -2877,7 +2892,34 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
   return secondaryCellGroup;
 }
 
-void prepare_nr_sl_sched_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_config, rnti_t sl_rnti) {
+// 38.213 Table 16.5-1: N values per numerology μ
+int N_table[4] = {14, 18, 28, 32};
+
+// Compute sl_PSFCH_ToPUCCH_CG_Type1 (slot offset from PSFCH to PUCCH)
+double compute_SL_PSFCH_ToPUCCH_CG_Type1(int mu) {
+  if (mu < 0 || mu > 3) {
+      LOG_I(NR_RRC, "Invalid numerology value. Use mu in [0..3].\n");
+      return -1;
+  }
+
+  double k = compute_k();
+  int N = N_table[mu];
+  double Tc = 1.0 / (DELTA_F_MAX * N_F);
+
+  // 38.213 Section 16.5
+  // Tprep = (N + 1) * (2048 + 144) * k * 2^(-mu) * Tc
+  double Tprep = (N + 1) * (2048 + 144) * k * pow(2.0, -mu) * Tc;
+
+  // Assuming slot duration = 14 symbols per slot (1 ms / 2^mu)
+  double slot_duration = 1e-3 / pow(2.0, mu);
+
+  // Convert preparation time into slot offset k
+  double sl_PSFCH_ToPUCCH_CG_Type1 = Tprep / slot_duration;
+
+  return sl_PSFCH_ToPUCCH_CG_Type1;
+}
+
+void prepare_nr_sl_sched_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_config, rnti_t sl_rnti, uint8_t mu) {
   sched_config->present = NR_SetupRelease_SL_ScheduledConfig_r16_PR_setup;
   sched_config->choice.setup = CALLOC(1, sizeof(NR_SL_ScheduledConfig_r16_t));
   sched_config->choice.setup->sl_RNTI_r16 = sl_rnti;
@@ -2891,7 +2933,6 @@ void prepare_nr_sl_sched_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_
   NR_SL_ConfiguredGrantConfig_r16_t *sl_CG_Config = CALLOC(1, sizeof(NR_SL_ConfiguredGrantConfig_r16_t));
   sl_CG_Config->sl_PeriodCG_r16 = CALLOC(1, sizeof(struct NR_SL_PeriodCG_r16));
   sl_CG_Config->sl_PeriodCG_r16->present = NR_SL_PeriodCG_r16_PR_sl_PeriodCG1_r16;
-  sl_CG_Config->sl_PeriodCG_r16->choice.sl_PeriodCG1_r16 = NR_SL_PeriodCG_r16__sl_PeriodCG1_r16_ms100;
   sl_CG_Config->sl_NrOfHARQ_Processes_r16 = CALLOC(1, sizeof(long));
   sl_CG_Config->sl_HARQ_ProcID_offset_r16 = CALLOC(1, sizeof(long));
   sl_CG_Config->sl_CG_MaxTransNumList_r16 = CALLOC(1, sizeof(struct NR_SL_CG_MaxTransNumList_r16));
@@ -2899,6 +2940,7 @@ void prepare_nr_sl_sched_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_
   sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16 = CALLOC(1, sizeof(long));
   sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_N1PUCCH_AN_r16 = CALLOC(1, sizeof(long));
   sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16 = CALLOC(1, sizeof(long));
+  *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16 = compute_SL_PSFCH_ToPUCCH_CG_Type1(mu);
   sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_ResourcePoolID_r16 = CALLOC(1, sizeof(long));
   sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16 = CALLOC(1, sizeof(long));
   sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeOffsetCG_Type1_r16 = CALLOC(1, sizeof(long));
@@ -2917,6 +2959,24 @@ void prepare_nr_sl_sched_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_
   sprintf(aprefix, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0, SL_CONFIG_STRING_CG_CONFIG_LIST, 0);
   config_get(SL_CG_CONFIG_PARAMS, sizeof(SL_CG_CONFIG_PARAMS) / sizeof(paramdef_t), aprefix);
   ASN_SEQUENCE_ADD(&sl_CG_ConfigToAddModList->list, sl_CG_Config);
+
+
+  /*
+  Following values are based on spec. 38214 section 8.1.5, N = 1 or 2 actual resources when sl-
+  MaxNumPerReserve is 2, and N = 1 or 2 or 3 actual resources when sl-MaxNumPerReserve is 3.
+  For N = 2, 1 <= t1 <= 31; and for N = 3, 1 <= t1 <= 30, t1 < t2 <= 31, We are taking N = 1; it represents only 1 reserved resource.
+  */
+  int N = 1;
+  uint8_t t1 = 0, t2 = 0;
+
+  uint8_t sl_num_subch = 1; // the number of sub-channels in a resource pool
+  uint8_t l_subch = 1; // the number of contiguously allocated sub-channels for each of the N resources
+  uint8_t n_start_subch1 = *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16;
+  uint8_t n_start_subch2 = 0; // represent starting sub-channel index for the second resource and third resource;
+                              // as we are considering only 1 subchannel, so we have initialized these variables with zeros.
+  uint16_t sl_max_num_reserve = NR_SL_UE_SelectedConfigRP_r16__sl_MaxNumPerReserve_r16_n2;
+  *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16 = compute_FRIV(sl_max_num_reserve, l_subch, n_start_subch1, n_start_subch2, sl_num_subch);
+  *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16 = compute_TRIV(N, t1, t2);
 
   LOG_D(NR_RRC, "sl_NrOfHARQ_Processes_r16 %lu\n", *sl_CG_Config->sl_NrOfHARQ_Processes_r16);
   LOG_D(NR_RRC, "sl_HARQ_ProcID_offset_r16 %lu\n", *sl_CG_Config->sl_HARQ_ProcID_offset_r16);
@@ -2944,13 +3004,6 @@ void nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(NR_SetupRelease_S
   struct NR_SL_PHY_MAC_RLC_Config_r16 *sl_PHY_MAC_RLC_Config = sl_ConfigDedicatedNR->choice.setup->sl_PHY_MAC_RLC_Config_r16;
   sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = CALLOC(1, sizeof(long));
   *sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = NR_SL_PHY_MAC_RLC_Config_r16__sl_CSI_Acquisition_r16_enabled;
-
-  sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ScheduledConfig_r16_t));
-  // Set the CHOICE to 'setup'NR_SL_PHY_MAC_RLC_Config_r16_t
-  NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_config = sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
-
-  prepare_nr_sl_sched_config(sched_config, sl_rnti);
-  LOG_D(NR_RRC, "Assigned sl-RNTI-r16 = %u\n", sl_rnti);
 
   struct NR_SL_FreqConfig_r16 *sl_FreqInfoToAddMod = CALLOC(1, sizeof(struct NR_SL_FreqConfig_r16));
   sl_FreqInfoToAddMod->valueN_r16 = -1;
@@ -2996,6 +3049,16 @@ void nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(NR_SetupRelease_S
   config_get(SL_FDCPARAMS, sizeof(SL_FDCPARAMS) / sizeof(paramdef_t), aprefix);
   sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16__sl_FreqInfoToAddModList_r16));
   ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list, sl_FreqInfoToAddMod);
+
+  if (sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16) {
+    free_nr_sl_ScheduledConfig_r16(sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16);
+  }
+  sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ScheduledConfig_r16_t));
+
+  NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_config = sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
+  uint8_t mu = sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list.array[0]->subcarrierSpacing;
+  prepare_nr_sl_sched_config(sched_config, sl_rnti, mu);
+  LOG_D(NR_RRC, "Assigned sl-RNTI-r16 = %u\n", sl_rnti);
 
   sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16__sl_RLC_BearerToAddModList_r16));
   struct NR_SL_RLC_BearerConfig_r16 *sl_RLC_BearerConfig = CALLOC(1, sizeof(struct NR_SL_RLC_BearerConfig_r16));

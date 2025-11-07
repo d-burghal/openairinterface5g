@@ -63,6 +63,8 @@ typedef struct psfch_params {
    \param module_id      module id */
 void nr_ue_init_mac(module_id_t module_idP, ueinfo_t* ueinfo);
 
+void nr_mac_init_sl_config_grant(NR_UE_MAC_INST_t *mac);
+
 /**\brief apply default configuration values in nr_mac instance
    \param mac           mac instance */
 void nr_ue_mac_default_configs(NR_UE_MAC_INST_t *mac);
@@ -463,7 +465,13 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
 
 int nr_rrc_mac_config_req_sl_dedicated_config(module_id_t module_id,
                                               NR_SL_ConfigDedicatedNR_r16_t *sl_dedicated_cfg,
-                                              uint8_t sync_source);
+                                              uint8_t sync_source,
+                                              uint8_t mu);
+
+void nr_rrc_mac_config_grant_type1_req_ue(NR_UE_MAC_INST_t *mac,
+                                          NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig,
+                                          NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig,
+                                          uint8_t mu);
 
 uint8_t count_on_bits(uint8_t* buf, size_t size);
 
@@ -785,13 +793,5 @@ bool overlapped_resource(uint8_t first_start,
                          uint8_t second_length);
 
 uint8_t get_random_reselection_counter(uint16_t rri);
-
-uint32_t compute_TRIV(uint8_t N, uint8_t t1, uint8_t t2);
-
-uint32_t compute_FRIV(uint8_t sl_max_num_per_reserve,
-                      uint8_t L_sub_chan,
-                      uint8_t n_start_subch1,
-                      uint8_t n_start_subch2,
-                      uint8_t N_sl_subch);
 #endif
 /** @}*/

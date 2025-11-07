@@ -1983,13 +1983,41 @@ void extract_nr_sl_SyncConfig(NR_SL_SyncConfig_r16_t *sl_syncconfig, NR_SL_SyncC
   }
 
   if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16) {
-    sl_syncconfig->sl_SSB_TimeAllocation2_r16 = CALLOC(1, sizeof(long));
-    *sl_syncconfig->sl_SSB_TimeAllocation2_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16;
+    sl_syncconfig->sl_SSB_TimeAllocation2_r16 = CALLOC(1, sizeof(NR_SL_SSB_TimeAllocation_r16_t));
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_NumSSB_WithinPeriod_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_NumSSB_WithinPeriod_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_NumSSB_WithinPeriod_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_NumSSB_WithinPeriod_r16;
+    }
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeOffsetSSB_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeOffsetSSB_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeOffsetSSB_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeOffsetSSB_r16;
+    }
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeInterval_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeInterval_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeInterval_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeInterval_r16;
+    }
   }
 
   if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16) {
-    sl_syncconfig->sl_SSB_TimeAllocation3_r16 = CALLOC(1, sizeof(long));
-    *sl_syncconfig->sl_SSB_TimeAllocation3_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16;
+    sl_syncconfig->sl_SSB_TimeAllocation3_r16 = CALLOC(1, sizeof(NR_SL_SSB_TimeAllocation_r16_t));
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_NumSSB_WithinPeriod_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_NumSSB_WithinPeriod_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_NumSSB_WithinPeriod_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_NumSSB_WithinPeriod_r16;
+    }
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeOffsetSSB_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeOffsetSSB_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeOffsetSSB_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeOffsetSSB_r16;
+    }
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeInterval_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeInterval_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeInterval_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeInterval_r16;
+    }
   }
 
   if (rcvd_sl_syncconfig->sl_SSID_r16) {
@@ -2188,16 +2216,25 @@ void extract_nr_sl_bwp_generic(NR_SL_BWP_Config_r16_t *sl_BWP_ToAddMod, NR_SL_BW
   }
 }
 
-void extract_sl_phy_mac_rlc_config(NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RLC_Config,
+static void get_mu_from_bwp_id(NR_SL_BWP_Config_r16_t *nr_sl_BWP_Config, uint8_t *mu) {
+  *mu = nr_sl_BWP_Config->sl_BWP_Generic_r16->sl_BWP_r16->subcarrierSpacing;
+}
+
+uint8_t extract_sl_phy_mac_rlc_config(NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RLC_Config,
                                    NR_SL_PHY_MAC_RLC_Config_r16_t *rcvd_sl_PHY_MAC_RLC_Config,
                                    NR_RNTI_Value_t sl_rnti,
                                    bool relay_to_remote_ue) {
   // extract sl_ScheduledConfig
-  if (rcvd_sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16) {
+  if (rcvd_sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16)
     *sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = *rcvd_sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16;
+
+  NR_SetupRelease_SL_ScheduledConfig_r16_t *recv_sl_ScheduledConfig = rcvd_sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
+  if (recv_sl_ScheduledConfig) {
+    if (sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16) {
+      free_nr_sl_ScheduledConfig_r16(sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16);
+    }
     sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ScheduledConfig_r16_t));
     NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig = sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
-    NR_SetupRelease_SL_ScheduledConfig_r16_t *recv_sl_ScheduledConfig = rcvd_sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
     extract_nr_sl_scheduled_config(sl_ScheduledConfig, recv_sl_ScheduledConfig, sl_rnti);
   }
   // extract sl_RLC_BearerConfig
@@ -2214,6 +2251,7 @@ void extract_sl_phy_mac_rlc_config(NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RL
   }
   // extract sl_FreqInfoToAddMod
   NR_SL_FreqConfig_r16_t *sl_FreqInfoToAddMod = CALLOC(1, sizeof(NR_SL_FreqConfig_r16_t));
+  uint8_t mu = 0;
   for (int i = 0; i < rcvd_sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.count; i++) {
     NR_SL_FreqConfig_r16_t *recvd_sl_FreqInfoToAddMod = rcvd_sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.array[i];
     if (recvd_sl_FreqInfoToAddMod) {
@@ -2239,7 +2277,7 @@ void extract_sl_phy_mac_rlc_config(NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RL
       ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list, sl_FreqInfoToAddMod);
       for (int j = 0; j < recvd_sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list.count; j++) {
         NR_SL_BWP_Config_r16_t *recvd_sl_BWP_ToAddMod = recvd_sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list.array[j];
-        NR_SL_BWP_Config_r16_t *sl_BWP_ToAddMod = CALLOC(1, sizeof(NR_SL_FreqConfig_r16_t));
+        NR_SL_BWP_Config_r16_t *sl_BWP_ToAddMod = CALLOC(1, sizeof(NR_SL_BWP_Config_r16_t));
 
         if (recvd_sl_BWP_ToAddMod) {
           // extract config info related to nr_sl_bwp_generic
@@ -2272,7 +2310,13 @@ void extract_sl_phy_mac_rlc_config(NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RL
         ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.array[i]->sl_BWP_ToAddModList_r16->list, sl_BWP_ToAddMod);
       } // sl_BWP_ToAddModList_r16->list.count
     }
+    // FIXIT: current mu value considers same subcarrierspacing for all the bwps
+    uint8_t bwp_id = 0;
+    NR_SL_BWP_Config_r16_t *nr_sl_BWP_Config = recvd_sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list.array[bwp_id];
+    get_mu_from_bwp_id(nr_sl_BWP_Config, &mu);
   } // sl_FreqInfoToAddMod
+  AssertFatal(mu == 1, "mu %d is not supported!!!\n", mu);
+  return mu;
 }
 
 void nr_rrc_ue_process_sl_ConfigDedicatedNR(const protocol_ctxt_t *const ctxt_pP,
@@ -2281,6 +2325,7 @@ void nr_rrc_ue_process_sl_ConfigDedicatedNR(const protocol_ctxt_t *const ctxt_pP
   LOG_D(NR_RRC,"[UE %d] SFN/SF %d/%d: Processing sl_ConfigDedicatedNR %p\n",
         ctxt_pP->module_id, ctxt_pP->frame, ctxt_pP->subframe, sl_conf);
   NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[ctxt_pP->module_id];
+  uint8_t mu = 0;
   if (sl_conf) {
     rrc->sl_dedicated_cfg = CALLOC(1, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
     if (sl_conf->present == NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_setup) {
@@ -2294,7 +2339,7 @@ void nr_rrc_ue_process_sl_ConfigDedicatedNR(const protocol_ctxt_t *const ctxt_pP
           sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = CALLOC(1, sizeof(long));
           NR_RNTI_Value_t sl_rnti = -1; // -1 means read from rcvd_sl_PHY_MAC_RLC_Config otherwise it is set to remote UE sl_rnti on relay UE
           bool relay_to_remote_ue = false;
-          extract_sl_phy_mac_rlc_config(sl_PHY_MAC_RLC_Config, rcvd_sl_PHY_MAC_RLC_Config, sl_rnti, relay_to_remote_ue);
+          mu = extract_sl_phy_mac_rlc_config(sl_PHY_MAC_RLC_Config, rcvd_sl_PHY_MAC_RLC_Config, sl_rnti, relay_to_remote_ue);
           if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
             xer_fprint(stdout, &asn_DEF_NR_SL_PHY_MAC_RLC_Config_r16, (void *)sl_PHY_MAC_RLC_Config);
           }
@@ -2304,7 +2349,7 @@ void nr_rrc_ue_process_sl_ConfigDedicatedNR(const protocol_ctxt_t *const ctxt_pP
   }
   uint8_t is_sync_source = get_nrUE_params()->sync_ref;
   NR_UE_MAC_INST_t *mac = get_mac_inst(ctxt_pP->module_id);
-  nr_UE_configure_Sidelink_Dedicated_Cfg(0, is_sync_source, mac->src_id);
+  nr_UE_configure_Sidelink_Dedicated_Cfg(0, is_sync_source, mac->src_id, mu);
 }
 
 // Process PSCCH Configurations received from gNB
