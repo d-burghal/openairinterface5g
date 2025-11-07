@@ -26,6 +26,14 @@
 #include "common/config/config_paramdesc.h"
 #include <executables/nr-uesoftmodem.h>
 #include "openair2/RRC/NR_UE/sl_preconfig_paramvalues.h"
+#include "openair2/RRC/NR/nr_rrc_config.h"
+#include "openair2/LAYER2/nr_srap/nr_srap_oai_api.h"
+
+// NR Constants from 38.211
+#define DELTA_F_MAX   480000.0    // Hz
+#define N_F           4096
+#define DELTA_F_REF   15000.0     // Hz
+#define N_F_REF       2048
 
 #define SL_CONFIG_STRING_SL_PRECONFIGURATION                        "SIDELINK_PRECONFIGURATION"
 
@@ -618,10 +626,51 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
   return 0;
 }
 
+// Compute Tc
+static double compute_Tc(void) {
+  double Tc = 1.0 / (DELTA_F_MAX * N_F);
+  return Tc;
+}
+
+void nr_rrc_mac_config_grant_type1_req_ue(NR_UE_MAC_INST_t *mac,
+                                          NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig,
+                                          NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig,
+                                          uint8_t mu) {
+  if (sl_ScheduledConfig->present == NR_SetupRelease_SL_ScheduledConfig_r16_PR_setup) {
+    if (sl_ScheduledConfig->choice.setup) {
+      if (sl_ScheduledConfig->choice.setup->sl_ConfiguredGrantConfigList_r16) {
+        struct NR_SL_ConfiguredGrantConfigList_r16 *sl_ConfiguredGrantConfigList = sl_ScheduledConfig->choice.setup->sl_ConfiguredGrantConfigList_r16;
+        int cg1_periodValues[10] = {100, 200, 300, 400, 500, 600, 700, 800, 900, 1000};  // (ms)
+        for(int i = 0; i < sl_ConfiguredGrantConfigList->sl_ConfiguredGrantConfigToAddModList_r16->list.count; i++) {
+          struct NR_SL_ConfiguredGrantConfig_r16 *sl_CGConfig = sl_ConfiguredGrantConfigList->sl_ConfiguredGrantConfigToAddModList_r16->list.array[i];
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_period_cg = cg1_periodValues[sl_CGConfig->sl_PeriodCG_r16->choice.sl_PeriodCG1_r16];
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_psfch_to_pucch_cg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_n1pucch_an = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_N1PUCCH_AN_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->harq_feedback_enabled = *sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->mu_sl = 1;
+          mac->sl_cg_per_bwp.sl_cg[i]->mu_ul = 1;
+          mac->sl_cg_per_bwp.sl_cg[i]->Tc = compute_Tc();
+          mac->sl_cg_per_bwp.sl_cg[i]->active = true;
+          mac->sl_cg_per_bwp.sl_cg[i]->cg_id = sl_CGConfig->sl_ConfigIndexCG_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_priority = sl_CGConfig->sl_CG_MaxTransNumList_r16->list.array[0]->sl_Priority_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_cg_maxtransnum = sl_CGConfig->sl_CG_MaxTransNumList_r16->list.array[0]->sl_MaxTransNum_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_freqresourcecg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_resource_pool_id = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_ResourcePoolID_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_startsubchannelcg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_timeoffsetcg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_TimeOffsetCG_Type1_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_timereferencesfn_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_TimeReferenceSFN_Type1_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_timeresourcecg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16;
+        }
+      }
+    }
+  }
+}
+
 // RRC calls this API when RRC is configured with Sidelink PRE-configuration I.E
 int nr_rrc_mac_config_req_sl_dedicated_config(module_id_t module_id,
                                               NR_SL_ConfigDedicatedNR_r16_t *sl_dedicated_cfg,
-                                              uint8_t sync_source)
+                                              uint8_t sync_source,
+                                              uint8_t mu)
 {
 
   LOG_D(NR_MAC,"[UE%d] SL RRC->MAC CONFIG RECEIVED. Syncsource:%d\n", module_id, sync_source);
@@ -633,7 +682,12 @@ int nr_rrc_mac_config_req_sl_dedicated_config(module_id_t module_id,
   sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
 
   NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RLC_Config = sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16;
-
+  if ((get_softmodem_params()->sl_mode == 1) && (get_softmodem_params()->relay_type == U2N)) {
+    NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig = sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list.count > 0 ?
+                                                        sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list.array[0] : NULL;
+    NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig = sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
+    nr_rrc_mac_config_grant_type1_req_ue(mac, sl_ScheduledConfig, sl_RLC_BearerConfig, mu);
+  }
   // Only one entry supported in rel16.
   // Carrier freq config used for Sidelink
 
@@ -743,8 +797,7 @@ int nr_rrc_mac_config_req_sl_dedicated_config(module_id_t module_id,
   }
 
   if (get_nrUE_params()->sync_ref) {
-    int scs = get_softmodem_params()->numerology;
-    const int nr_slots_frame = nr_slots_per_frame[scs];
+    const int nr_slots_frame = nr_slots_per_frame[mu];
     NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
     const int n_ul_slots_period = tdd ? tdd->nrofUplinkSlots + (tdd->nrofUplinkSymbols > 0 ? 1 : 0) : nr_slots_frame;
     uint16_t num_subch = sl_get_num_subch(mac->sl_tx_res_pool);

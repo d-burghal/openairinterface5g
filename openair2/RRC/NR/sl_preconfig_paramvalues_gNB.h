@@ -104,11 +104,11 @@
 #define SL_CONFIG_STRING_SL_NUM_OF_HARQ_PROCESSES             "sl_Num_HARQ_Processes"
 #define SL_CONFIG_STRING_SL_HARQ_PROC_ID_OFFSET               "sl_HARQ_Proc_ID_Offset"
 #define SL_CONFIG_STRING_SL_CONFIG_INDEX_CG                   "sl_Config_Index_CG"
+#define SL_CONFIG_STRING_SL_PERIOD_CG1                        "sl_PeriodCG1"
 #define SL_CONFIG_STRING_SL_PRIORITY                          "sl_Priority"
 #define SL_CONFIG_STRING_SL_CG_MAX_TRANS_NUM                  "sl_CG_MaxTransNum"
 #define SL_CONFIG_STRING_SL_FREQ_RESOURCE_CG_TYPE1            "sl_FreqResourceCG_Type1"
 #define SL_CONFIG_STRING_SL_N1PUCCH_AN                        "sl_N1PUCCH_AN"
-#define SL_CONFIG_STRING_SL_PSFCH_TO_PUCCH_CG_TYPE1           "sl_PSFCH_ToPUCCH_CG_Type1"
 #define SL_CONFIG_STRING_SL_RESOURCE_POOL_ID                  "sl_ResourcePoolID"
 #define SL_CONFIG_STRING_SL_START_SUB_CHANNEL_CG_TYPE1        "sl_StartSubchannelCG_Type1"
 #define SL_CONFIG_STRING_SL_TIME_OFFSET_CG_TYPE1              "sl_TimeOffsetCG_Type1"
@@ -131,7 +131,7 @@
 {SL_CONFIG_STRING_SLABSOLUTEFREQUENCYSSB,NULL,0,.i64ptr=sl_fcc->sl_AbsoluteFrequencySSB_r16,.defint64val=792372,TYPE_INT64,0}}
 
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
-/*             Sidelink Frequency common Cell Config parameters                                                                                                     */
+/*             Sidelink Frequency Dedicated Config parameters                                                                                                     */
 /*-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------*/
 
 /* Please refer to 3GPP SPEC 38.331 (RRC Specification) for details about these parameters
@@ -234,11 +234,11 @@
 {SL_CONFIG_STRING_SL_NUM_OF_HARQ_PROCESSES,NULL,0,.i64ptr=sl_CG_Config->sl_NrOfHARQ_Processes_r16,.defint64val=0,TYPE_INT64,0}, \
 {SL_CONFIG_STRING_SL_HARQ_PROC_ID_OFFSET,NULL,0,.i64ptr=sl_CG_Config->sl_HARQ_ProcID_offset_r16,.defint64val=0,TYPE_INT64,0},\
 {SL_CONFIG_STRING_SL_CONFIG_INDEX_CG,NULL,0,.i64ptr=&sl_CG_Config->sl_ConfigIndexCG_r16,.defint64val=0,TYPE_INT64,0},\
+{SL_CONFIG_STRING_SL_PERIOD_CG1,NULL,0,.i64ptr=&sl_CG_Config->sl_PeriodCG_r16->choice.sl_PeriodCG1_r16,.defint64val=0,TYPE_INT64,0},\
 {SL_CONFIG_STRING_SL_PRIORITY,NULL,0,.i64ptr=&sl_CG_Config->sl_CG_MaxTransNumList_r16->list.array[0]->sl_Priority_r16,.defint64val=0,TYPE_INT64,0},\
 {SL_CONFIG_STRING_SL_CG_MAX_TRANS_NUM,NULL,0,.i64ptr=&sl_CG_Config->sl_CG_MaxTransNumList_r16->list.array[0]->sl_MaxTransNum_r16,.defint64val=0,TYPE_INT64,0},\
 {SL_CONFIG_STRING_SL_FREQ_RESOURCE_CG_TYPE1,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16,.defint64val=0,TYPE_INT64,0}, \
 {SL_CONFIG_STRING_SL_N1PUCCH_AN,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_N1PUCCH_AN_r16,.defint64val=0,TYPE_INT64,0},\
-{SL_CONFIG_STRING_SL_PSFCH_TO_PUCCH_CG_TYPE1,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16,.defint64val=0,TYPE_INT64,0},\
 {SL_CONFIG_STRING_SL_RESOURCE_POOL_ID,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_ResourcePoolID_r16,.defint64val=0,TYPE_INT64,0},\
 {SL_CONFIG_STRING_SL_START_SUB_CHANNEL_CG_TYPE1,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16,.defint64val=0,TYPE_INT64,0},\
 {SL_CONFIG_STRING_SL_TIME_OFFSET_CG_TYPE1,NULL,0,.i64ptr=sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeOffsetCG_Type1_r16,.defint64val=0,TYPE_INT64,0},\

@@ -165,46 +165,6 @@ void handle_nr_ue_sl_harq(module_id_t mod_id,
   NR_UE_SL_SCHED_UNLOCK(&mac->sl_sched_lock);
 }
 
-uint32_t compute_TRIV(uint8_t N, uint8_t t1, uint8_t t2) {
-  int32_t triv = 0;
-  if (N == 1) {
-    triv = 0;
-  } else if (N == 2) {
-    triv = t1;
-  } else {
-    if ((t2 - t1 - 1) <= 15) {
-      triv = 30 * (t2 - t1 - 1) + t1 + 31;
-    } else {
-      triv = 30 * (31 - t2 + t1) + 62 - t1;
-    }
-  }
-  return triv;
-}
-
-uint32_t compute_FRIV(uint8_t sl_max_num_per_reserve,
-                      uint8_t L_sub_chan,
-                      uint8_t n_start_subch1,
-                      uint8_t n_start_subch2,
-                      uint8_t N_sl_subch) {
-  uint32_t friv = 0;
-  int sum = 0;
-  if (sl_max_num_per_reserve == NR_SL_UE_SelectedConfigRP_r16__sl_MaxNumPerReserve_r16_n2) {
-    for (int i = 1; i < L_sub_chan; i++) {
-      sum += N_sl_subch + 1 - i;
-    }
-    friv = n_start_subch1 + sum;
-  } else if (sl_max_num_per_reserve == NR_SL_UE_SelectedConfigRP_r16__sl_MaxNumPerReserve_r16_n3) {
-    for (int i = 1; i < L_sub_chan; i++) {
-      sum += (N_sl_subch + 1 - i) * (N_sl_subch + 1 - i);
-    }
-    friv = n_start_subch1 + n_start_subch2 * (N_sl_subch + 1 - L_sub_chan) + sum;
-  } else {
-    AssertFatal(1 == 0, "sl_MaxNumPerReserve is configured with incorrect value");
-  }
-
-  return friv;
-}
-
 void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_t *sci_pdu,
                        nr_sci_pdu_t *sci2_pdu, nr_sci_format_t format2,
                        NR_SL_UE_info_t *UE,

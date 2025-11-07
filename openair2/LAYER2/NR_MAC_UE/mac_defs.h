@@ -74,6 +74,7 @@
 #define NB_NR_UE_MAC_INST 1
 #define MAX_NUM_BWP_UE       4
 #define NUM_SLOT_FRAME    10
+#define MAX_CONFIGURED_GRANTS 8
 
 /*!\brief value for indicating BSR Timer is not running */
 #define NR_MAC_UE_BSR_TIMER_NOT_RUNNING   (0xFFFF)
@@ -643,6 +644,11 @@ typedef struct {
   uint32_t slot_offset; // Indicates the positive offset between two slots
 } slot_info_t;
 
+typedef struct {
+  uint8_t bwp_id;
+  sl_config_grant_t *sl_cg[MAX_CONFIGURED_GRANTS];
+} sl_config_grant_bwp_t;
+
 /*!\brief Top level UE MAC structure */
 typedef struct {
   NR_UE_L2_STATE_t state;
@@ -786,6 +792,7 @@ typedef struct {
   uint64_t ulsch_slot_bitmap[3];
   List_t *sl_candidate_resources;
   uint16_t reselection_timer;
+  sl_config_grant_bwp_t sl_cg_per_bwp;
 } NR_UE_MAC_INST_t;
 
 /*@}*/

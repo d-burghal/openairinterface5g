@@ -34,6 +34,8 @@
 #include "nr_rrc_defs.h"
 #include "openair2/RRC/NR/MESSAGES/asn1_msg.h"
 
+extern const uint8_t slotsperframe[5];
+
 void nr_rrc_config_dl_tda(struct NR_PDSCH_TimeDomainResourceAllocationList *pdsch_TimeDomainAllocationList,
                           frame_type_t frame_type,
                           NR_TDD_UL_DL_ConfigCommon_t *tdd_UL_DL_ConfigurationCommon,
@@ -80,7 +82,9 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
                                                      const gNB_RrcConfigurationReq *configuration,
                                                      int uid);
 
-void prepare_nr_sl_sched_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_config, rnti_t sl_rnti);
+double compute_SL_PSFCH_ToPUCCH_CG_Type1(int mu);
+
+void prepare_nr_sl_sched_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_config, rnti_t sl_rnti, uint8_t mu);
 
 void nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_ConfigDedicatedNR,
                                                                rnti_t sl_rnti,

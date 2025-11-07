@@ -780,7 +780,7 @@ void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *uein
 * RRC configures MAC with sidelink parameters
 * In case UE is a sync source/Master UE - then sends transmit SLSS REQ
 */
-void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, int src_id) {
+void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, int src_id, uint8_t mu) {
 
   NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[id];
 
@@ -795,7 +795,7 @@ void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, 
     sync_source = SL_SYNC_SOURCE_GNBENB;
   }
 
-  nr_rrc_mac_config_req_sl_dedicated_config(0, sl_dedicated_cfg, sync_source);
+  nr_rrc_mac_config_req_sl_dedicated_config(0, sl_dedicated_cfg, sync_source, mu);
   if (get_softmodem_params()->sl_mode == 1) {
     add_sl_srbs(id);
     // SL RadioBearers
