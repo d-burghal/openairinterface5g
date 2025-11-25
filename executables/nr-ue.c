@@ -103,6 +103,7 @@ typedef struct {
   int ready;
 } sync_notif_t;
 sync_notif_t sync_notif;
+sync_notif_t sync_notif_sl;
 
 typedef enum {
   pss = 0,
@@ -982,12 +983,12 @@ void *UE_thread_sl(void *arg)
       continue;
     }
     if (UE->is_synchronized_sl) {
-      if (UE->sl_mode == 2) {
-        pthread_mutex_lock(&sync_notif.m);
-        sync_notif.abs_slot = absolute_slot;
-        sync_notif.ready = 1;
-        pthread_cond_signal(&sync_notif.c); // Notify the waiting thread
-        pthread_mutex_unlock(&sync_notif.m);
+      if ((UE->sl_mode == 1) || (UE->sl_mode == 2)) {
+        pthread_mutex_lock(&sync_notif_sl.m);
+        sync_notif_sl.abs_slot = absolute_slot;
+        sync_notif_sl.ready = 1;
+        pthread_cond_signal(&sync_notif_sl.c); // Notify the waiting thread
+        pthread_mutex_unlock(&sync_notif_sl.m);
       }
       break;
     }
@@ -1087,17 +1088,65 @@ void *UE_thread(void *arg)
       continue;
     }
     if (UE->is_synchronized) {
-      pthread_mutex_lock(&sync_notif.m);
-      sync_notif.ready = 1;
-      sync_notif.abs_slot = absolute_slot;
-      pthread_cond_signal(&sync_notif.c); // Notify the waiting thread
-      pthread_mutex_unlock(&sync_notif.m);
-      if (UE->sl_mode == 1) {
-        pthread_t threads_sl;
-        threadCreate(&threads_sl, UE_thread_sl, (void *)UE, "UEthreadsl", -1, OAI_PRIORITY_RT_MAX);
+      if (!sync_notif.ready) {
+        pthread_mutex_lock(&sync_notif.m);
+        sync_notif.ready = 1;
+        sync_notif.abs_slot = absolute_slot;
+        pthread_cond_signal(&sync_notif.c); // Notify the waiting thread
+        pthread_mutex_unlock(&sync_notif.m);
+        if (UE->sl_mode == 0)
+          break;
       }
-      break;
+      if (UE->sl_mode == 1 && mac->state == UE_CONNECTED) {
+        pthread_t threads_sl;
+        threadCreate(&threads_sl, UE_thread_sl, (void *)UE, "UE_thread_sl", -1, OAI_PRIORITY_RT_MAX);
+        threadCreate(&threads_sl, UE_RU_thread_sl, (void *)UE, "UE_RU_thread_sl", -1, OAI_PRIORITY_RT_MAX);
+        break;
+      }
     }
+  } // while !oai_exit
+
+  return NULL;
+}
+
+void *UE_RU_thread_sl(void *arg)
+{
+  //this thread should be over the processing thread to keep in real time
+  PHY_VARS_NR_UE *UE = (PHY_VARS_NR_UE *) arg;
+  openair0_timestamp timestampSl, writeTimestampSl;
+
+  NR_DL_FRAME_PARMS *fp = &UE->SL_UE_PHY_PARAMS.sl_frame_params;
+
+  notifiedFIFO_t txFifoSl;
+  initNotifiedFIFO(&txFifoSl);
+
+  int timing_advance_sl = UE->timing_advance_sl;
+
+  const int nb_slot_frame = fp->slots_per_frame;
+  int absolute_slot = 0;
+
+  pthread_mutex_lock(&sync_notif_sl.m);
+  while (!sync_notif_sl.ready) {
+    pthread_cond_wait(&sync_notif_sl.c, &sync_notif_sl.m);
+    absolute_slot = sync_notif_sl.abs_slot;
+    LOG_W(PHY, "Waiting for Sync for SL\n");
+  }
+  pthread_mutex_unlock(&sync_notif_sl.m);
+  LOG_I(PHY, "Sync Achieved with absolute_slot = %d\n", absolute_slot);
+
+  while (!oai_exit) {
+
+    absolute_slot++;
+    if (absolute_slot % 1270 == 0)
+      LOG_D(PHY, "RU_thread_sl %d\n", absolute_slot);
+
+    int slot_nr = absolute_slot % nb_slot_frame;
+    nr_rxtx_thread_data_t curMsgSl = {0};
+    int readBlockSizeSl, writeBlockSizeSl;
+
+    update_curMsg(UE, &curMsgSl, absolute_slot, nb_slot_frame, PC5);
+    rfdevice_trx(UE, &UE->rfdevice_sl, UE->common_vars.rxdata_sl, slot_nr, &readBlockSizeSl, &writeBlockSizeSl, &timestampSl, &writeTimestampSl, &timing_advance_sl, PC5);
+    UE_processing(UE, &curMsgSl, readBlockSizeSl, writeBlockSizeSl, writeTimestampSl, &txFifoSl, PC5);
   } // while !oai_exit
 
   return NULL;
@@ -1108,19 +1157,13 @@ void *UE_RU_thread(void *arg)
   //this thread should be over the processing thread to keep in real time
   PHY_VARS_NR_UE *UE = (PHY_VARS_NR_UE *) arg;
   openair0_timestamp timestamp, writeTimestamp;
-  openair0_timestamp timestampSl, writeTimestampSl;
 
-  uint8_t sl_mode = UE->sl_mode;
-  NR_DL_FRAME_PARMS *fp = sl_mode == 2 ? &UE->SL_UE_PHY_PARAMS.sl_frame_params : &UE->frame_parms;
+  NR_DL_FRAME_PARMS *fp = &UE->frame_parms;
 
   notifiedFIFO_t txFifo;
   initNotifiedFIFO(&txFifo);
 
-  notifiedFIFO_t txFifoSl;
-  initNotifiedFIFO(&txFifoSl);
-
   int timing_advance = UE->timing_advance;
-  int timing_advance_sl = UE->timing_advance_sl;
 
   const int nb_slot_frame = fp->slots_per_frame;
   int absolute_slot = 0;
@@ -1136,50 +1179,25 @@ void *UE_RU_thread(void *arg)
   pthread_mutex_lock(&sync_notif.m);
   while (!sync_notif.ready) {
     pthread_cond_wait(&sync_notif.c, &sync_notif.m);
-    absolute_slot = sync_notif.abs_slot ;
-    LOG_I(PHY,"Waiting for Sync\n");
+    absolute_slot = sync_notif.abs_slot;
+    LOG_I(PHY, "Waiting for Sync\n");
   }
   pthread_mutex_unlock(&sync_notif.m);
-  LOG_I(PHY,"Sync Achievd with absolute_slot = %d\n", absolute_slot);
+  LOG_I(PHY, "Sync Achieved with absolute_slot = %d\n", absolute_slot);
 
-  while (!oai_exit ) {
+  while (!oai_exit) {
 
     absolute_slot++;
+    if (absolute_slot % 1270 == 0)
+      LOG_D(PHY, "RU_thread  %d\n", absolute_slot);
 
     int slot_nr = absolute_slot % nb_slot_frame;
-    nr_rxtx_thread_data_t curMsg = {0}, curMsgSl = {0};
-    int readBlockSize, readBlockSizeSl, writeBlockSize, writeBlockSizeSl;
+    nr_rxtx_thread_data_t curMsg = {0};
+    int readBlockSize, writeBlockSize;
 
-    switch (sl_mode) {
-      case 0:
-        update_curMsg(UE, &curMsg, absolute_slot, nb_slot_frame, UU);
-        rfdevice_trx(UE, &UE->rfdevice, UE->common_vars.rxdata, slot_nr, &readBlockSize, &writeBlockSize, &timestamp, &writeTimestamp, &timing_advance, UU);
-        UE_processing(UE, &curMsg, readBlockSize, writeBlockSize, writeTimestamp, &txFifo, UU);
-        break;
-
-      case 1:
-        update_curMsg(UE, &curMsg, absolute_slot, nb_slot_frame, UU);
-        rfdevice_trx(UE, &UE->rfdevice, UE->common_vars.rxdata, slot_nr, &readBlockSize, &writeBlockSize, &timestamp, &writeTimestamp, &timing_advance, UU);
-        UE_processing(UE, &curMsg, readBlockSize, writeBlockSize, writeTimestamp, &txFifo, UU);
-
-        if (UE->is_synchronized_sl) {
-          update_curMsg(UE, &curMsgSl, absolute_slot, nb_slot_frame, PC5);
-          rfdevice_trx(UE, &UE->rfdevice_sl, UE->common_vars.rxdata_sl, slot_nr, &readBlockSizeSl, &writeBlockSizeSl, &timestampSl, &writeTimestampSl, &timing_advance_sl, PC5);
-          UE_processing(UE, &curMsgSl, readBlockSizeSl, writeBlockSizeSl, writeTimestampSl, &txFifoSl, PC5);
-        }
-        break;
-
-      case 2:
-        if (UE->is_synchronized_sl) {
-            update_curMsg(UE, &curMsgSl, absolute_slot, nb_slot_frame, PC5);
-            rfdevice_trx(UE, &UE->rfdevice_sl, UE->common_vars.rxdata_sl, slot_nr, &readBlockSizeSl, &writeBlockSizeSl, &timestampSl, &writeTimestampSl, &timing_advance_sl, PC5);
-            UE_processing(UE, &curMsgSl, readBlockSizeSl, writeBlockSizeSl, writeTimestampSl, &txFifoSl, PC5);
-        }
-        break;
-
-      default:
-        AssertFatal(1 == 0, "sl_mode should be either 0, 1, or 2. sl_mode is %d", sl_mode);
-    }
+    update_curMsg(UE, &curMsg, absolute_slot, nb_slot_frame, UU);
+    rfdevice_trx(UE, &UE->rfdevice, UE->common_vars.rxdata, slot_nr, &readBlockSize, &writeBlockSize, &timestamp, &writeTimestamp, &timing_advance, UU);
+    UE_processing(UE, &curMsg, readBlockSize, writeBlockSize, writeTimestamp, &txFifo, UU);
   } // while !oai_exit
 
   return NULL;
@@ -1211,8 +1229,10 @@ void update_curMsg(PHY_VARS_NR_UE *UE, nr_rxtx_thread_data_t *curMsg, int absolu
         frameslot_t frame_slot_tx;
         frame_slot_tx.frame = curMsg->proc.frame_tx;
         frame_slot_tx.slot = curMsg->proc.nr_slot_tx;
-        validate_selected_sl_slot(true , false, mac->SL_MAC_PARAMS->sl_TDD_config, frame_slot_tx);
-        curMsg->proc.tx_slot_type = NR_SIDELINK_SLOT;
+        LOG_D(NR_PHY, "Setting 1 SL slot type to TX %d.%d %d\n",
+            curMsg->proc.frame_tx, curMsg->proc.nr_slot_tx, curMsg->proc.tx_slot_type);
+        if (is_selected_sl_slot(true, false, mac->SL_MAC_PARAMS->sl_TDD_config, frame_slot_tx))
+          curMsg->proc.tx_slot_type = NR_SIDELINK_SLOT;
       }
 
       SL_ResourcePool_params_t *sl_rx_rsrc_pool = mac->SL_MAC_PARAMS->sl_RxPool[pool_id];
@@ -1222,11 +1242,13 @@ void update_curMsg(PHY_VARS_NR_UE *UE, nr_rxtx_thread_data_t *curMsg, int absolu
         frameslot_t frame_slot_rx;
         frame_slot_rx.frame = curMsg->proc.frame_rx;
         frame_slot_rx.slot = curMsg->proc.nr_slot_rx;
-        validate_selected_sl_slot(false , true, mac->SL_MAC_PARAMS->sl_TDD_config, frame_slot_rx);
-        curMsg->proc.rx_slot_type = NR_SIDELINK_SLOT;
+        LOG_D(NR_PHY, "Setting 2 SL slot type to RX %d.%d %d\n",
+            curMsg->proc.frame_rx, curMsg->proc.nr_slot_rx, curMsg->proc.rx_slot_type);
+        if (is_selected_sl_slot(false, true, mac->SL_MAC_PARAMS->sl_TDD_config, frame_slot_rx))
+          curMsg->proc.rx_slot_type = NR_SIDELINK_SLOT;
       }
 
-      LOG_D(NR_PHY,"Setting SL slot type to TX %d.%d %d, RX %d.%d %d\n",
+      LOG_D(NR_PHY, "Setting SL slot type to TX %d.%d %d, RX %d.%d %d\n",
             curMsg->proc.frame_tx, curMsg->proc.nr_slot_tx, curMsg->proc.tx_slot_type, curMsg->proc.frame_rx, curMsg->proc.nr_slot_rx, curMsg->proc.rx_slot_type);
     } else {
       curMsg->proc.rx_slot_type = nr_ue_slot_select(cfg, curMsg->proc.frame_rx, curMsg->proc.nr_slot_rx);
@@ -1379,17 +1401,17 @@ void init_NR_UE_threads(int nb_inst) {
   pthread_t threads_sl[nb_inst];
   uint8_t sl_mode = get_softmodem_params()->sl_mode;
 
-  for (inst=0; inst < nb_inst; inst++) {
+  for (inst = 0; inst < nb_inst; inst++) {
     PHY_VARS_NR_UE *UE = PHY_vars_UE_g[inst][0];
 
     LOG_I(PHY,"Intializing UE Threads for instance %d (%p,%p)...\n",inst,PHY_vars_UE_g[inst],PHY_vars_UE_g[inst][0]);
     if (sl_mode == 0 || sl_mode == 1) {
-      threadCreate(&threads[inst], UE_thread, (void *)UE, "UEthread", -1, OAI_PRIORITY_RT_MAX);
-      threadCreate(&threads[inst], UE_RU_thread, (void *)UE, "UERUthread", -1, OAI_PRIORITY_RT_MAX);
+      threadCreate(&threads[inst], UE_thread, (void *)UE, "UE_thread", -1, OAI_PRIORITY_RT_MAX);
+      threadCreate(&threads[inst], UE_RU_thread, (void *)UE, "UE_RU_thread", -1, OAI_PRIORITY_RT_MAX);
     }
     else {
-      threadCreate(&threads_sl[inst], UE_thread_sl, (void *)UE, "UEthreadsl", -1, OAI_PRIORITY_RT_MAX);
-      threadCreate(&threads_sl[inst], UE_RU_thread, (void *)UE, "UERUthread", -1, OAI_PRIORITY_RT_MAX);
+      threadCreate(&threads_sl[inst], UE_thread_sl, (void *)UE, "UE_thread_sl", -1, OAI_PRIORITY_RT_MAX);
+      threadCreate(&threads_sl[inst], UE_RU_thread_sl, (void *)UE, "UE_RU_thread_sl", -1, OAI_PRIORITY_RT_MAX);
     }
     if (!IS_SOFTMODEM_NOSTATS_BIT) {
       pthread_t stat_pthread;
