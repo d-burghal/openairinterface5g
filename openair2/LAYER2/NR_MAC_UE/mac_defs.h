@@ -608,6 +608,9 @@ typedef struct {
   frameslot_t sfn;
   uint8_t sl_subchan_start;
   uint8_t sl_subchan_len;
+  uint16_t sl_timeresource_cg_type1;
+  uint16_t sl_freqresource_cg_type1;
+  cg_type_t cg_type;
   bool slot_busy;
 } sl_resource_info_t;
 

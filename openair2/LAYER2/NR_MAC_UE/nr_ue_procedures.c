@@ -47,6 +47,7 @@
 #include "NR_MAC_COMMON/nr_mac_extern.h"
 #include "common/utils/nr/nr_common.h"
 #include "openair2/NR_UE_PHY_INTERFACE/NR_Packet_Drop.h"
+#include "openair2/LAYER2/nr_srap/nr_srap_oai_api.h"
 
 /* PHY */
 #include "executables/softmodem-common.h"

@@ -213,7 +213,7 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
                           const nr_sci_format_t format1,
                           const nr_sci_format_t format2,
                           uint16_t slot,
-                          sl_resource_info_t *selected_resource,
+                          sl_resource_info_t *resource,
                           bool is_fdbk_scheduled)  {
   int pos = 0, fsize;
   uint64_t *sci_payload = (uint64_t *)nr_sl_pssch_pscch_pdu->pscch_sci_payload;
@@ -230,15 +230,15 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
   // freq domain allocation starts
   nr_sl_pssch_pscch_pdu->startrb= *sl_res_pool->sl_StartRB_Subchannel_r16;
   // Number of symbols used for PSCCH
-  nr_sl_pssch_pscch_pdu->pscch_numsym = selected_resource ? selected_resource->sl_pscch_sym_len : pscch_tda[*sl_res_pool->sl_PSCCH_Config_r16->choice.setup->sl_TimeResourcePSCCH_r16];
+  nr_sl_pssch_pscch_pdu->pscch_numsym = resource ? resource->sl_pscch_sym_len : pscch_tda[*sl_res_pool->sl_PSCCH_Config_r16->choice.setup->sl_TimeResourcePSCCH_r16];
   // Number of  RBS used for PSCCH
-  nr_sl_pssch_pscch_pdu->pscch_numrbs = selected_resource ? selected_resource->num_sl_pscch_rbs : pscch_rb_table[*sl_res_pool->sl_PSCCH_Config_r16->choice.setup->sl_FreqResourcePSCCH_r16];
+  nr_sl_pssch_pscch_pdu->pscch_numrbs = resource ? resource->num_sl_pscch_rbs : pscch_rb_table[*sl_res_pool->sl_PSCCH_Config_r16->choice.setup->sl_FreqResourcePSCCH_r16];
   // Scrambling Id used for Generation of PSCCH DMRS Symbols
   nr_sl_pssch_pscch_pdu->pscch_dmrs_scrambling_id = *sl_res_pool->sl_PSCCH_Config_r16->choice.setup->sl_DMRS_ScrambleID_r16;
   // num subchannels in a resource pool
   nr_sl_pssch_pscch_pdu->num_subch = *sl_res_pool->sl_NumSubchannel_r16;
   // Size of subchannels in RBs
-  nr_sl_pssch_pscch_pdu->subchannel_size = selected_resource ? selected_resource->sl_subchan_size : subch_to_rb[*sl_res_pool->sl_SubchannelSize_r16];
+  nr_sl_pssch_pscch_pdu->subchannel_size = resource ? resource->sl_subchan_size : subch_to_rb[*sl_res_pool->sl_SubchannelSize_r16];
   //_PSCCH PSSCH TX: Size of subchannels in a PSSCH resource (l_subch)
   AssertFatal(sci_pdu->time_resource_assignment.val == 0, "need to handle a non-zero time_resource_assignment (2 or 3 time hops, N=2,3)\n");
   convNRFRIV(sci_pdu->frequency_resource_assignment.val,
@@ -268,8 +268,8 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
      // As per 38214 8.1.3.2, num_psfch_symbols can be 3 if psfch_overhead_indication.nbits is 1; FYI psfch_overhead_indication.nbits is set to 1 in case of PSFCH period 2 or 4 in sl_determine_sci_1a_len()
      num_psfch_symbols = 3;
   }
-  nr_sl_pssch_pscch_pdu->pssch_numsym = selected_resource ? selected_resource->sl_pssch_sym_len : 7 + *sl_bwp_generic->sl_LengthSymbols_r16 - num_psfch_symbols - 2;
-  nr_sl_pssch_pscch_pdu->pssch_startsym = selected_resource ? selected_resource->sl_pssch_sym_start : *sl_bwp_generic->sl_StartSymbol_r16;
+  nr_sl_pssch_pscch_pdu->pssch_numsym = resource ? resource->sl_pssch_sym_len : 7 + *sl_bwp_generic->sl_LengthSymbols_r16 - num_psfch_symbols - 2;
+  nr_sl_pssch_pscch_pdu->pssch_startsym = resource ? resource->sl_pssch_sym_start : *sl_bwp_generic->sl_StartSymbol_r16;
 
   nr_sl_pssch_pscch_pdu->sci2_beta_offset = *sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_BetaOffsets2ndSCI_r16->list.array[sci_pdu->beta_offset_indicator];
   if (sl_res_pool->sl_PowerControl_r16) {
@@ -391,7 +391,7 @@ void fill_pssch_pscch_pdu(sl_nr_ue_mac_params_t *sl_mac_params,
   AssertFatal(sci_pdu->dmrs_pattern.val < sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_PSSCH_DMRS_TimePatternList_r16->list.count,"dmrs.pattern %d out of bounds for list size %d\n",sci_pdu->dmrs_pattern.val,sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_PSSCH_DMRS_TimePatternList_r16->list.count);
   num_dmrs_symbols = *sl_res_pool->sl_PSSCH_Config_r16->choice.setup->sl_PSSCH_DMRS_TimePatternList_r16->list.array[sci_pdu->dmrs_pattern.val];
   if (num_dmrs_symbols == 2) {
-    AssertFatal(nr_sl_pssch_pscch_pdu->pssch_numsym>5, "num_pssch_ymbols %d is not ok for 2 DMRS (min 6)\n",nr_sl_pssch_pscch_pdu->pssch_numsym);
+    AssertFatal(nr_sl_pssch_pscch_pdu->pssch_numsym > 5, "num_pssch_symbols %d is not ok for 2 DMRS (min 6)\n", nr_sl_pssch_pscch_pdu->pssch_numsym);
     nr_sl_pssch_pscch_pdu->dmrs_symbol_position = sl_dmrs_mask2[nr_sl_pssch_pscch_pdu->pscch_numsym-2][nr_sl_pssch_pscch_pdu->pssch_numsym-6];
   } else if (num_dmrs_symbols == 3) {
     AssertFatal(nr_sl_pssch_pscch_pdu->pssch_numsym>8, "num_pssch_ymbols %d is not ok for 3 DMRS (min 9)\n",nr_sl_pssch_pscch_pdu->pssch_numsym);
@@ -643,7 +643,7 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,f
 	          *sl_res_pool->sl_NumSubchannel_r16,
 	          *sl_res_pool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16,
 	          &l_subch,
-	          NULL,NULL);
+	          NULL, NULL);
   sensing_data_t sensing_data;
   sensing_data.frame_slot.frame = frame;
   sensing_data.frame_slot.slot = slot;
@@ -661,6 +661,10 @@ int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,f
     mac->is_synced_sl = true;
     LOG_D(NR_PHY, "Nearby UE is synced now!!!\n");
   }
+
+  uint8_t N = 2;
+  uint8_t t1, t2;
+  inverse_TRIV(N, sci_pdu->time_resource_assignment.val, &t1, &t2); // TODO: use t1 to avoid the collision
   LOG_D(NR_MAC,"SCI1A: frequency_resource %d, time_resource %d, dmrs_pattern %d, beta_offset_indicator %d, mcs %d, number_of_dmrs_port %d, 2nd stage SCI format %d\n",
         sci_pdu->frequency_resource_assignment.val,sci_pdu->time_resource_assignment.val,sci_pdu->dmrs_pattern.val,sci_pdu->beta_offset_indicator,sci_pdu->mcs,sci_pdu->number_of_dmrs_port,sci_pdu->second_stage_sci_format);
   // send schedule response

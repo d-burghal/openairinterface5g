@@ -654,12 +654,12 @@ void nr_rrc_mac_config_grant_type1_req_ue(NR_UE_MAC_INST_t *mac,
           mac->sl_cg_per_bwp.sl_cg[i]->cg_id = sl_CGConfig->sl_ConfigIndexCG_r16;
           mac->sl_cg_per_bwp.sl_cg[i]->sl_priority = sl_CGConfig->sl_CG_MaxTransNumList_r16->list.array[0]->sl_Priority_r16;
           mac->sl_cg_per_bwp.sl_cg[i]->sl_cg_maxtransnum = sl_CGConfig->sl_CG_MaxTransNumList_r16->list.array[0]->sl_MaxTransNum_r16;
-          mac->sl_cg_per_bwp.sl_cg[i]->sl_freqresourcecg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_freqresource_cg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16;
           mac->sl_cg_per_bwp.sl_cg[i]->sl_resource_pool_id = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_ResourcePoolID_r16;
           mac->sl_cg_per_bwp.sl_cg[i]->sl_startsubchannelcg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16;
           mac->sl_cg_per_bwp.sl_cg[i]->sl_timeoffsetcg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_TimeOffsetCG_Type1_r16;
           mac->sl_cg_per_bwp.sl_cg[i]->sl_timereferencesfn_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_TimeReferenceSFN_Type1_r16;
-          mac->sl_cg_per_bwp.sl_cg[i]->sl_timeresourcecg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_timeresource_cg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16;
         }
       }
     }

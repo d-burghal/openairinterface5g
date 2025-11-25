@@ -518,6 +518,28 @@ uint16_t sl_get_subchannel_size(NR_SL_ResourcePool_r16_t *rpool);
 
 int nr_ue_process_sci1_indication_pdu(NR_UE_MAC_INST_t *mac,module_id_t mod_id,frame_t frame, int slot, sl_nr_sci_indication_pdu_t *sci,void *phy_data);
 
+void get_resource_config_grant(NR_UE_MAC_INST_t *mac,
+                               sl_resource_info_t *resource,
+                               uint16_t slots_per_frame,
+                               frame_t frame,
+                               slot_t slot,
+                               long psfch_period);
+
+void get_resource_config_grant_type1(NR_UE_MAC_INST_t *mac,
+                                     sl_resource_info_t *resource,
+                                     uint16_t slots_per_frame,
+                                     frame_t frame,
+                                     slot_t slot,
+                                     long psfch_period,
+                                     int index,
+                                     double sl_periodcg_ms);
+
+uint32_t calc_current_slot(uint32_t sl_ReferenceSlotCG_Type1,
+                           uint32_t sl_TimeOffsetCG_Type1,
+                           double sl_PeriodCG_ms,
+                           uint32_t T_prime_max,
+                           uint8_t S);
+
 void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind);
 
 void nr_mac_rrc_sl_mib_ind(const module_id_t module_id,

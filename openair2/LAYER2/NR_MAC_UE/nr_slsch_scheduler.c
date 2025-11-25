@@ -249,8 +249,11 @@ void nr_schedule_slsch(NR_UE_MAC_INST_t *mac, int frameP, int slotP, nr_sci_pdu_
                                                   // as we are considering only 1 subchannel, so we have initialized these variables with zeros.
   // Fill SCI1A
   sci_pdu->priority = 0;
-  sci_pdu->frequency_resource_assignment.val = compute_FRIV(sl_max_num_reserve, l_subch, n_start_subch1, n_start_subch2, sl_num_subch);
-  sci_pdu->time_resource_assignment.val = compute_TRIV(N, t1, t2);
+  bool sl_mode1_cg_type_1 = resource ? (get_softmodem_params()->sl_mode == 1) && (resource->cg_type == CG_TYPE_1) : false;
+  sci_pdu->frequency_resource_assignment.val = sl_mode1_cg_type_1 ? resource->sl_freqresource_cg_type1
+                                                                  : compute_FRIV(sl_max_num_reserve, l_subch, n_start_subch1, n_start_subch2, sl_num_subch);
+  sci_pdu->time_resource_assignment.val = sl_mode1_cg_type_1 ? resource->sl_timeresource_cg_type1
+                                                             : compute_TRIV(N, t1, t2);
   sci_pdu->resource_reservation_period.val = mac->SL_MAC_PARAMS->mac_tx_params.rri;
   sci_pdu->dmrs_pattern.val = 0;
   sci_pdu->second_stage_sci_format = 0;

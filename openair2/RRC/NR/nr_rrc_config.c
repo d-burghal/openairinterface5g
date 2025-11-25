@@ -2966,8 +2966,8 @@ void prepare_nr_sl_sched_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_
   MaxNumPerReserve is 2, and N = 1 or 2 or 3 actual resources when sl-MaxNumPerReserve is 3.
   For N = 2, 1 <= t1 <= 31; and for N = 3, 1 <= t1 <= 30, t1 < t2 <= 31, We are taking N = 1; it represents only 1 reserved resource.
   */
-  int N = 1;
-  uint8_t t1 = 0, t2 = 0;
+  int N = 2;
+  uint8_t t1 = 2, t2 = 0;
 
   uint8_t sl_num_subch = 1; // the number of sub-channels in a resource pool
   uint8_t l_subch = 1; // the number of contiguously allocated sub-channels for each of the N resources

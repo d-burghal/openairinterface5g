@@ -2553,26 +2553,12 @@ void extract_nr_sl_Rest_ResourcePool_Config(struct NR_SL_ResourcePool_r16 *sl_Re
       recvd_sl_RxPool->ext1->sl_TimeResource_r16) {
     sl_ResourcePool->ext1 = CALLOC(1, sizeof(*sl_ResourcePool->ext1));
     sl_ResourcePool->ext1->sl_TimeResource_r16 = CALLOC(1, sizeof(*sl_ResourcePool->ext1->sl_TimeResource_r16));
-
-    if (!relay_to_remote_ue) { // nr_rrc_ue_process_sl_ConfigDedicatedNR function
-      sl_ResourcePool->ext1->sl_TimeResource_r16->size = recvd_sl_RxPool->ext1->sl_TimeResource_r16->size - 1; // FIXME: It should be fixed from ASN decoding.
-      sl_ResourcePool->ext1->sl_TimeResource_r16->bits_unused = recvd_sl_RxPool->ext1->sl_TimeResource_r16->bits_unused;
-    } else { // Relay UE - nr_rrc_copy_received_NR_SetupRelease_SL_ConfigDedicatedNR function
-      sl_ResourcePool->ext1->sl_TimeResource_r16->size = recvd_sl_RxPool->ext1->sl_TimeResource_r16->size + 1;
-      sl_ResourcePool->ext1->sl_TimeResource_r16->bits_unused = recvd_sl_RxPool->ext1->sl_TimeResource_r16->bits_unused;
-    }
+    sl_ResourcePool->ext1->sl_TimeResource_r16->size = recvd_sl_RxPool->ext1->sl_TimeResource_r16->size;
+    sl_ResourcePool->ext1->sl_TimeResource_r16->bits_unused = recvd_sl_RxPool->ext1->sl_TimeResource_r16->bits_unused;
     sl_ResourcePool->ext1->sl_TimeResource_r16->buf = CALLOC(sl_ResourcePool->ext1->sl_TimeResource_r16->size, sizeof(uint8_t));
 
-    size_t size = !relay_to_remote_ue ? recvd_sl_RxPool->ext1->sl_TimeResource_r16->size - 1
-                                      : recvd_sl_RxPool->ext1->sl_TimeResource_r16->size;
-    // Copy all but the last byte to exclude ASN.1 workaround (0xFF) for trailing 0 bits
+    size_t size = recvd_sl_RxPool->ext1->sl_TimeResource_r16->size;
     memcpy(sl_ResourcePool->ext1->sl_TimeResource_r16->buf, recvd_sl_RxPool->ext1->sl_TimeResource_r16->buf, size);
-
-    // FIXIT: Due to asn encoding/decoding error, last four bits (0s) are being removed, so we are providing extra 1 byte with 0xFF
-    if (relay_to_remote_ue) {
-      int i = sl_ResourcePool->ext1->sl_TimeResource_r16->size - 1;
-      sl_ResourcePool->ext1->sl_TimeResource_r16->buf[i] = 0xFF;
-    }
   }
 }
 
