@@ -4516,6 +4516,24 @@ void validate_selected_sl_slot(bool tx, bool rx, NR_TDD_UL_DL_ConfigCommon_t *co
   }
 }
 
+bool is_selected_sl_slot(bool tx, bool rx, NR_TDD_UL_DL_ConfigCommon_t *conf, frameslot_t frame_slot) {
+  bool is_sl_slot = false;
+  if (get_nrUE_params()->sync_ref) {
+    if (tx) {
+      is_sl_slot = (frame_slot.slot == 6 || frame_slot.slot == 7 || frame_slot.slot == 8 || frame_slot.slot == 9);
+    } else if (rx) {
+      is_sl_slot = (frame_slot.slot == 16 || frame_slot.slot == 17 || frame_slot.slot == 18 || frame_slot.slot == 19);
+    }
+  } else if (!get_nrUE_params()->sync_ref) {
+    if (tx) {
+      is_sl_slot = (frame_slot.slot == 16 || frame_slot.slot == 17 || frame_slot.slot == 18 || frame_slot.slot == 19);
+    } else if (rx) {
+      is_sl_slot = (frame_slot.slot == 6 || frame_slot.slot == 7 || frame_slot.slot == 8 || frame_slot.slot == 9);
+    }
+  }
+  return is_sl_slot;
+}
+
 bool is_sl_slot(NR_UE_MAC_INST_t *mac, BIT_STRING_t *phy_sl_bitmap, uint16_t phy_map_sz, uint64_t abs_slot) {
   /* The purpose of normalizing the abs_slot value is to ensure that we can handle the cases
     when we wrap beyond the phy_bit_map size. For example, with an uplink and downlink
