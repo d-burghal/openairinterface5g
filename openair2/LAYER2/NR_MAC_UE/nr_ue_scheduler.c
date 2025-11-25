@@ -3868,6 +3868,145 @@ uint8_t nr_ue_sl_psbch_scheduler(nr_sidelink_indication_t *sl_ind,
   return ret_status;
 }
 
+/* Compute sidelink Configured Grant Type 1's current logical slot
+ sl_ReferenceSlotCG_Type1 - reference logical slot defined by sl-TimeReferenceSFN-Type1.
+ sl_TimeOffsetCG_Type1 - slot offset with respect to logical slot defined by sl_ReferenceSlotCG_Type1
+ sl_PeriodCG_ms - Configured Grant period in ms (e.g. 100.0)
+ T_prime_max - T'max: number of slots in the resource pool
+ S - Sidelink grant index
+*/
+uint32_t calc_current_slot(uint32_t sl_ReferenceSlotCG_Type1,
+                           uint32_t sl_TimeOffsetCG_Type1,
+                           double sl_PeriodCG_ms,
+                           uint32_t T_prime_max,
+                           uint8_t S)
+{
+  // Compute periodicity_sl (in slots)
+  uint32_t periodicity_sl = (T_prime_max * sl_PeriodCG_ms + 10239) / 10240;
+
+  // Compute current logical slot
+  uint32_t current_slot = (sl_ReferenceSlotCG_Type1 +
+                           sl_TimeOffsetCG_Type1 +
+                           S * periodicity_sl) % T_prime_max;
+
+  LOG_D(NR_MAC, "periodicity_sl %d, *S %d, T_prime_max %d, sl_PeriodCG_ms %lf, sl_ReferenceSlotCG_Type1 %d, sl_TimeOffsetCG_Type1 %d, current_slot %d\n",
+        periodicity_sl,
+        S,
+        T_prime_max,
+        sl_PeriodCG_ms,
+        sl_ReferenceSlotCG_Type1,
+        sl_TimeOffsetCG_Type1,
+        current_slot);
+
+  return current_slot;
+}
+
+void get_resource_config_grant_type1(NR_UE_MAC_INST_t *mac,
+                                     sl_resource_info_t *resource,
+                                     uint16_t slots_per_frame,
+                                     frame_t frame,
+                                     slot_t slot,
+                                     long psfch_period,
+                                     int index,
+                                     double sl_periodcg_ms)
+{
+  int S = 0;
+  BIT_STRING_t *sl_time_rsrc = mac->sl_tx_res_pool->ext1->sl_TimeResource_r16;
+  uint8_t bits_unused = sl_time_rsrc->bits_unused == 0 ? 4 : sl_time_rsrc->bits_unused; // FIXIT: 4
+  int slots_sl_pool = (sl_time_rsrc->size * 8) - bits_unused;
+  uint32_t T_prime_max = slots_sl_pool;
+
+  uint16_t sl_timereferencesfn_type1 = 0;
+  if (mac->sl_cg_per_bwp.sl_cg[index]->sl_timereferencesfn_type1 == NR_SL_ConfiguredGrantConfig_r16__rrc_ConfiguredSidelinkGrant_r16__sl_TimeReferenceSFN_Type1_r16_sfn512)
+    sl_timereferencesfn_type1 = 512; // 38.331
+  long sl_referenceslotcg_type1 = sl_timereferencesfn_type1 * slots_per_frame;
+  long sl_timeoffsetcg_type1 = mac->sl_cg_per_bwp.sl_cg[index]->sl_timeoffsetcg_type1;
+  long sl_timeresource_cg_type1 = mac->sl_cg_per_bwp.sl_cg[index]->sl_timeresource_cg_type1;
+  long sl_freqresource_cg_type1 = mac->sl_cg_per_bwp.sl_cg[index]->sl_freqresource_cg_type1;
+  bool sl_has_psfch = false;
+  // Trigger transmission every periodicity slots
+  uint32_t current_slot = calc_current_slot(sl_referenceslotcg_type1,
+                                            sl_timeoffsetcg_type1,
+                                            sl_periodcg_ms,
+                                            T_prime_max,
+                                            S);
+  uint8_t N = 2;
+  uint8_t t1, t2;
+  uint8_t cur_slot = current_slot % slots_per_frame;
+  inverse_TRIV(N, sl_timeresource_cg_type1, &t1, &t2);
+  uint8_t t1_slot = (current_slot + t1) % slots_per_frame;
+  uint8_t t2_slot = (current_slot + t2) % slots_per_frame;
+
+  LOG_D(NR_MAC, "t1 %d, t2 %d slot %d, cur_slot %d, t1_slot %d, t2_slot %d\n", t1, t2, slot, cur_slot, t1_slot, t2_slot);
+  if ((cur_slot == slot) || (t1_slot == slot) || (t2_slot == slot)) {
+    // Fill resource accordingly
+    if (resource)
+      free_and_zero(resource);
+    resource = CALLOC(1, sizeof(sl_resource_info_t));
+    resource->sfn.frame = frame;
+    resource->sfn.slot = slot;
+    resource->sl_timeresource_cg_type1 = sl_timeresource_cg_type1;
+    resource->sl_freqresource_cg_type1 = sl_freqresource_cg_type1;
+    resource->cg_type = CG_TYPE_1;
+    resource->sl_subchan_len = 1;
+    resource->sl_pssch_sym_start = *mac->sl_bwp_dedicated->sl_BWP_Generic_r16->sl_StartSymbol_r16;
+    uint16_t pool_id = mac->sl_cg_per_bwp.sl_cg[index]->sl_resource_pool_id;
+    SL_ResourcePool_params_t *sl_tx_rsrc_pool = mac->SL_MAC_PARAMS->sl_TxPool[pool_id - 1];
+    uint16_t phy_map_sz = (sl_tx_rsrc_pool->phy_sl_bitmap.size << 3) - sl_tx_rsrc_pool->phy_sl_bitmap.bits_unused;
+    LOG_D(NR_MAC, "pool_id %d, phy_sl_bitmap.size %lu, bits_unused %d\n", pool_id, sl_tx_rsrc_pool->phy_sl_bitmap.size, sl_tx_rsrc_pool->phy_sl_bitmap.bits_unused);
+    sl_has_psfch = slot_has_psfch(mac, &sl_tx_rsrc_pool->phy_sl_bitmap, index, psfch_period, phy_map_sz, mac->SL_MAC_PARAMS->sl_TDD_config);
+    int num_psfch_symbols = 0;
+    if (sl_has_psfch && sl_tx_rsrc_pool->respool->sl_PSFCH_Config_r16 && sl_tx_rsrc_pool->respool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16
+        && *sl_tx_rsrc_pool->respool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16 > 0) {
+      // As per 38214 8.1.3.2, num_psfch_symbols can be 3 if psfch_overhead_indication.nbits is 1; FYI psfch_overhead_indication.nbits is set to 1 in case of PSFCH period 2 or 4 in sl_determine_sci_1a_len()
+      num_psfch_symbols = 3;
+    }
+    // Number of symbols used for PSCCH
+    uint16_t num_sl_pscch_sym = pscch_tda[*sl_tx_rsrc_pool->respool->sl_PSCCH_Config_r16->choice.setup->sl_TimeResourcePSCCH_r16];
+    resource->sl_pscch_sym_len = num_sl_pscch_sym;
+    // Number of  RBs used for PSCCH
+    uint8_t num_sl_pscch_rbs = pscch_rb_table[*sl_tx_rsrc_pool->respool->sl_PSCCH_Config_r16->choice.setup->sl_FreqResourcePSCCH_r16];
+    resource->num_sl_pscch_rbs = num_sl_pscch_rbs;
+    // PSFCH requires an additional 3 symbols
+    uint16_t sl_pssch_sym_len = 7 + *mac->sl_bwp_dedicated->sl_BWP_Generic_r16->sl_LengthSymbols_r16 - num_psfch_symbols - 2;
+    resource->sl_pssch_sym_len = sl_pssch_sym_len;
+    resource->sl_subchan_size = sl_get_subchannel_size(sl_tx_rsrc_pool->respool);
+  }
+}
+
+void get_resource_config_grant(NR_UE_MAC_INST_t *mac,
+                               sl_resource_info_t *resource,
+                               uint16_t slots_per_frame,
+                               frame_t frame,
+                               slot_t slot,
+                               long psfch_period) {
+  for (int index = 0; index < MAX_CONFIGURED_GRANTS; index++) { // resource is being overwritten
+    if (mac->sl_cg_per_bwp.sl_cg[index]->active) {
+      double sl_periodcg_ms = mac->sl_cg_per_bwp.sl_cg[index]->sl_period_cg;
+      if (sl_periodcg_ms > 0) {
+        if (mac->sl_cg_per_bwp.sl_cg[index]->type == CG_TYPE_1) {
+          get_resource_config_grant_type1(mac, resource, slots_per_frame, frame, slot, psfch_period, index, sl_periodcg_ms);
+          LOG_D(NR_MAC, "%4d.2%d, sl_timeresource_cg_type1 %d, sl_freqresource_cg_type1 %d, cg_type %d, sl_subchan_len %d, sl_pssch_sym_start %d,\
+              sl_pscch_sym_len %d, num_sl_pscch_rbs %d, sl_pssch_sym_len %d\n", resource->sfn.frame,
+                resource->sfn.slot,
+                resource->sl_timeresource_cg_type1,
+                resource->sl_freqresource_cg_type1,
+                resource->cg_type,
+                resource->sl_subchan_len,
+                resource->sl_pssch_sym_start,
+                resource->sl_pscch_sym_len,
+                resource->num_sl_pscch_rbs,
+                resource->sl_pssch_sym_len
+                );
+        } else if (mac->sl_cg_per_bwp.sl_cg[index]->type == CG_TYPE_2) {
+          // TODO: Wait for activation command before transmitting
+          AssertFatal(1 == 0, "CG Type 2 is not supported yet!!!\n");
+        }
+      }
+    }
+  }
+}
+
 /*
   // This function will be called only for SIDELINK CAPABLE SLOTS.
   // UPLINK SLOT OR MIXED SLOT which is SIDELINK SLOT
@@ -3944,6 +4083,13 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind) {
   frame_slot.frame = frame;
   frame_slot.slot = slot;
 
+  NR_SL_PSFCH_Config_r16_t *sl_psfch_config = mac->sl_tx_res_pool->sl_PSFCH_Config_r16 ?
+                                              mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup :
+                                              NULL;
+  const uint8_t psfch_periods[] = {0, 1, 2, 4};
+  long psfch_period = (sl_psfch_config && sl_psfch_config->sl_PSFCH_Period_r16) ?
+                      psfch_periods[*sl_psfch_config->sl_PSFCH_Period_r16] : 0;
+
   sl_resource_info_t *resource = NULL;
   bool resource_available = false;
   if (get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0) {
@@ -3994,7 +4140,10 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind) {
         }
       }
     }
-  } else { // In SL Mode 1, above resource allocation algorithm does not work, so resource is NULL; We assume resource is always available based on allocated configuration from gNB
+  } else if (mac->is_synced_sl && get_softmodem_params()->sl_mode == 1) {
+    get_resource_config_grant(mac, resource, slots_per_frame, frame, slot, psfch_period);
+    resource_available = true;
+  } else {
     resource_available = true;
   }
 
@@ -4006,10 +4155,6 @@ void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind) {
   }
   if (sl_ind->slot_type==SIDELINK_SLOT_TYPE_TX || sl_ind->phy_data==NULL) rx_allowed=false;
   static uint16_t prev_slot = 0;
-  NR_SL_PSFCH_Config_r16_t *sl_psfch_config = mac->sl_tx_res_pool->sl_PSFCH_Config_r16 ? mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup : NULL;
-  const uint8_t psfch_periods[] = {0,1,2,4};
-  long psfch_period = (sl_psfch_config && sl_psfch_config->sl_PSFCH_Period_r16)
-                      ? psfch_periods[*sl_psfch_config->sl_PSFCH_Period_r16] : 0;
 
   bool non_relay = get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0;
   NR_SL_BWP_Generic_r16_t *sl_bwp_generic = (non_relay || (mac->sl_bwp_dedicated == NULL))
@@ -4520,6 +4665,15 @@ int get_physical_sl_pool(NR_UE_MAC_INST_t *mac, BIT_STRING_t *sl_time_rsrc, BIT_
         nr_slots_period, ul_slots_period, sl_time_rsrc->bits_unused, sl_time_rsrc->size, phy_sl_bitmap->size);
 
   int tdd_pattern_len = nr_slots_period;
+  // FIXIT: Should be removed after ASN decoding fix in case of trailing 0s.
+  uint16_t bits_unused =  sl_time_rsrc->bits_unused;
+  if (bits_unused == 0) {
+    sl_time_rsrc->bits_unused = 4;
+    sl_time_rsrc->size += 1;
+    sl_time_rsrc->buf = realloc(sl_time_rsrc->buf, 8);
+    sl_time_rsrc->buf[sl_time_rsrc->size - 1] = 0x00;
+  }
+
   int8_t sl_bitmap_num_bits = ((sl_time_rsrc->size << 3) - sl_time_rsrc->bits_unused);
   int phy_sl_bits = sl_bitmap_num_bits + (sl_bitmap_num_bits / ul_slots_period * (nr_slots_period - ul_slots_period));
   AssertFatal(ul_slots_period > 0, "No UL slot found in the given TDD pattern");

@@ -409,3 +409,31 @@ uint32_t compute_FRIV(uint8_t sl_max_num_per_reserve,
   }
   return friv;
 }
+
+int inverse_TRIV(uint8_t N, uint32_t triv, uint8_t *t1, uint8_t *t2) {
+  if (N == 1) {
+    *t1 = 0; *t2 = 0;
+    return 0;
+  }
+  if (N == 2) {
+    *t1 = triv; *t2 = 0;
+    return 0;
+  }
+  // Following implementation is for inverted equations from 38.214 Section 8.1.5
+  for (uint8_t candidate_t1 = 0; candidate_t1 <= 31; candidate_t1++) {
+    int32_t t2_1 = (triv + 29 * candidate_t1 - 1) / 30;
+    if (t2_1 >= 0 && t2_1 <= 31 && (t2_1 - candidate_t1 - 1) <= 15) {
+      *t1 = candidate_t1;
+      *t2 = (uint8_t)t2_1;
+      return 0;
+    }
+
+    int32_t t2_2 = (992 + 29 * candidate_t1 - triv) / 30;
+    if (t2_2 >= 0 && t2_2 <= 31 && (t2_2 - candidate_t1 - 1) > 15) {
+      *t1 = candidate_t1;
+      *t2 = (uint8_t)t2_2;
+      return 0;
+    }
+  }
+  return -1;
+}

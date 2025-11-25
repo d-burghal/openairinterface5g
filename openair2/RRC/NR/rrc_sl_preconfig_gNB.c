@@ -257,26 +257,22 @@ static void prepare_NR_SL_ResourcePool(NR_SL_ResourcePool_r16_t *sl_res_pool,
   sl_res_pool->ext1 = CALLOC(1, sizeof(*sl_res_pool->ext1));
   sl_res_pool->ext1->sl_TimeResource_r16 = CALLOC(1, sizeof(*sl_res_pool->ext1->sl_TimeResource_r16));
   // FIXIT: Due to asn encoding/decoding error, extra 1 byte has to send, otherwise size is 8
-  sl_res_pool->ext1->sl_TimeResource_r16->size = 9;
+  sl_res_pool->ext1->sl_TimeResource_r16->size = 8;
   sl_res_pool->ext1->sl_TimeResource_r16->bits_unused = 4;
   sl_res_pool->ext1->sl_TimeResource_r16->buf = CALLOC(sl_res_pool->ext1->sl_TimeResource_r16->size, sizeof(uint8_t));
   // EX: BITMAP 10101010.. indicating every alternating slot supported for sidelink
-  for (int i = 0; i < sl_res_pool->ext1->sl_TimeResource_r16->size - 1; i++) {
+  for (int i = 0; i < sl_res_pool->ext1->sl_TimeResource_r16->size; i++) {
     if (is_txpool) {
-        sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = (is_sl_syncsource) ? 0xF0 //0x88;//0xAA;
-                                                                            : 0x0F;//0x11;//0x55;
+      sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = (is_sl_syncsource) ? 0xF0 //0x88;//0xAA;
+                                                                          : 0x0F;//0x11;//0x55;
     } else {
-        sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = (is_sl_syncsource) ? 0x0F //0x88;//0xAA;
-                                                                            : 0xF0;//0x11;//0x55;
+      sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = (is_sl_syncsource) ? 0x0F //0x88;//0xAA;
+                                                                          : 0xF0;//0x11;//0x55;
     }
   }
 
-  // FIXIT: Due to asn encoding/decoding error, last four bits (0s) are being removed, so we are providing extra 1 byte with 0xFF
-  int i = sl_res_pool->ext1->sl_TimeResource_r16->size - 1;
-  sl_res_pool->ext1->sl_TimeResource_r16->buf[i] = 0xFF;
-
   // mask out unused bits on second last byte of the buf, which contains the last byte of the original sl_TimeResource_r16
-  sl_res_pool->ext1->sl_TimeResource_r16->buf[sl_res_pool->ext1->sl_TimeResource_r16->size - 2] &= (0 - (1 << (sl_res_pool->ext1->sl_TimeResource_r16->bits_unused)));
+  sl_res_pool->ext1->sl_TimeResource_r16->buf[sl_res_pool->ext1->sl_TimeResource_r16->size - 1] &= (0 - (1 << (sl_res_pool->ext1->sl_TimeResource_r16->bits_unused)));
 
   char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
   paramdef_t SL_POOLPARAMS[] = SL_RESPOOLPARAMS_DESC(sl_res_pool);

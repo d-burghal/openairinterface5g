@@ -469,7 +469,7 @@ typedef enum {
 
 typedef struct {
   /* ======= Configuration from RRC ======= */
-  uint8_t  sl_period_cg;               // sl-PeriodCG (in slots or ms)
+  uint16_t  sl_period_cg;              // sl-PeriodCG (in slots or ms)
   uint8_t  sl_psfch_to_pucch_cg_type1; // slot offset k for PUCCH feedback (sl-PSFCH-ToPUCCH-CG-Type1)
   uint8_t  sl_n1pucch_an;              // index of PUCCH resource (sl-N1PUCCH-AN)
   uint8_t  sl_pucch_set_id;            // PUCCH resource set ID
@@ -484,12 +484,12 @@ typedef struct {
   cg_type_t type;                      // Type 1 or Type 2
   long sl_priority;
   long sl_cg_maxtransnum;
-  long sl_freqresourcecg_type1;
+  long sl_freqresource_cg_type1;
+  long sl_timeresource_cg_type1;
   long sl_resource_pool_id;
   long sl_startsubchannelcg_type1;
   long sl_timeoffsetcg_type1;
   long sl_timereferencesfn_type1;
-  long sl_timeresourcecg_type1;
   /* ======= Runtime State ======= */
   bool     active;                     // CG Type 1 active for current period
   uint32_t start_slot;                 // starting slot of current CG period

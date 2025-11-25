@@ -97,4 +97,7 @@ uint32_t compute_FRIV(uint8_t sl_max_num_per_reserve,
                       uint8_t n_start_subch1,
                       uint8_t n_start_subch2,
                       uint8_t N_sl_subch);
+
+int inverse_TRIV(uint8_t N, uint32_t triv, uint8_t *t1, uint8_t *t2);
+
 #endif
