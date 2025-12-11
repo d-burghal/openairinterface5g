@@ -3959,7 +3959,7 @@ void get_resource_config_grant_type1(NR_UE_MAC_INST_t *mac,
     if (sl_has_psfch && sl_tx_rsrc_pool->respool->sl_PSFCH_Config_r16 && sl_tx_rsrc_pool->respool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16
         && *sl_tx_rsrc_pool->respool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16 > 0) {
       // As per 38214 8.1.3.2, num_psfch_symbols can be 3 if psfch_overhead_indication.nbits is 1; FYI psfch_overhead_indication.nbits is set to 1 in case of PSFCH period 2 or 4 in sl_determine_sci_1a_len()
-      num_psfch_symbols = 3;F
+      num_psfch_symbols = 3;
     }
     // Number of symbols used for PSCCH
     uint16_t num_sl_pscch_sym = pscch_tda[*sl_tx_rsrc_pool->respool->sl_PSCCH_Config_r16->choice.setup->sl_TimeResourcePSCCH_r16];
