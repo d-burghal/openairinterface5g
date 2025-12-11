@@ -798,8 +798,10 @@ void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
                           uint8_t ack_nack, psfch_params_t *psfch_params,
                           const int nr_slots_frame, int psfch_index) {
 
-  NR_SL_BWP_Generic_r16_t *sl_bwp = mac->sl_bwp->sl_BWP_Generic_r16;
-
+  bool non_relay = get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0;
+  NR_SL_BWP_Generic_r16_t *sl_bwp_generic = (non_relay || (mac->sl_bwp_dedicated == NULL))
+                                            ? mac->sl_bwp->sl_BWP_Generic_r16
+                                            : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
   SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[psfch_index];
   LOG_D(NR_MAC, "psfch_period %ld, feedback frame:slot %d:%d, frame:slot %d:%d, harq feedback %d psfch_index %d\n",
         psfch_period,
@@ -822,18 +824,22 @@ void fill_psfch_params_tx(NR_UE_MAC_INST_t *mac, sl_nr_rx_indication_t *rx_ind,
     sched_psfch->bit_len_harq = 0;
   }
   const uint8_t values[] = {7, 8, 9, 10, 11, 12, 13, 14};
-  uint8_t sl_num_symbols = *sl_bwp->sl_LengthSymbols_r16 ? values[*sl_bwp->sl_LengthSymbols_r16] : 0;
+  uint8_t sl_num_symbols = *sl_bwp_generic->sl_LengthSymbols_r16 ? values[*sl_bwp_generic->sl_LengthSymbols_r16] : 0;
   // start_symbol_index has been used as lprime check 38.213 16.3
-  sched_psfch->start_symbol_index = *sl_bwp->sl_StartSymbol_r16 + sl_num_symbols - 2;
+  sched_psfch->start_symbol_index = *sl_bwp_generic->sl_StartSymbol_r16 + sl_num_symbols - 2;
   LOG_D(NR_PHY, "sl_StartSymbol_r16 %ld, sl_num_symbols: %d, start sym index %d, mcs %d\n",
-        *sl_bwp->sl_StartSymbol_r16, sl_num_symbols, sched_psfch->start_symbol_index, sched_psfch->mcs);
-  sched_psfch->hopping_id = *mac->sl_bwp->sl_BWP_PoolConfigCommon_r16->sl_TxPoolSelectedNormal_r16->list.array[0]->sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
+        *sl_bwp_generic->sl_StartSymbol_r16, sl_num_symbols, sched_psfch->start_symbol_index, sched_psfch->mcs);
+  if (non_relay || (mac->sl_bwp_dedicated == NULL))
+    sched_psfch->hopping_id = *mac->sl_bwp->sl_BWP_PoolConfigCommon_r16->sl_TxPoolSelectedNormal_r16->list.array[0]->sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
+  else
+    sched_psfch->hopping_id = *mac->sl_bwp_dedicated->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[0]->sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
+
   sched_psfch->prb = psfch_params->prbs_sets->start_prb[rx_ind->slot % psfch_period][0]; // FIXME [0] is based on assumption of number of subchannels = 1; 0 is channel id
   print_prb_set_allocation(psfch_params, psfch_period, 1);
   LOG_D(NR_PHY, "slot %d, slot mode psfch_period %ld, sched_psfch->prb %d, start_prb %d\n",
         rx_ind->slot, rx_ind->slot%psfch_period, sched_psfch->prb,
         psfch_params->prbs_sets->start_prb[rx_ind->slot%psfch_period][0]);
-  int locbw = sl_bwp->sl_BWP_r16->locationAndBandwidth;
+  int locbw = sl_bwp_generic->sl_BWP_r16->locationAndBandwidth;
   sched_psfch->sl_bwp_start   = NRRIV2PRBOFFSET(locbw, MAX_BWP_SIZE);
   sched_psfch->freq_hop_flag  = 0;
   sched_psfch->group_hop_flag = 0;
@@ -939,17 +945,24 @@ void fill_psfch_params_rx(sl_nr_rx_config_request_t *rx_config, sl_nr_tx_rx_conf
   psfch_pdu->initial_cyclic_shift = psfch_params->m0;
   LOG_D(NR_MAC, "psfch_pdu->initial_cyclic_shift %i\n", psfch_pdu->initial_cyclic_shift);
   const uint8_t values[] = {7, 8, 9, 10, 11, 12, 13, 14};
-  NR_SL_BWP_Generic_r16_t *sl_bwp = mac->sl_bwp->sl_BWP_Generic_r16;
-  uint8_t sl_num_symbols = *sl_bwp->sl_LengthSymbols_r16 ? values[*sl_bwp->sl_LengthSymbols_r16] : 0;
+  bool non_relay = get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0;
+  NR_SL_BWP_Generic_r16_t *sl_bwp_generic = (non_relay || (mac->sl_bwp_dedicated == NULL))
+                                            ? mac->sl_bwp->sl_BWP_Generic_r16
+                                            : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
+  uint8_t sl_num_symbols = *sl_bwp_generic->sl_LengthSymbols_r16 ? values[*sl_bwp_generic->sl_LengthSymbols_r16] : 0;
   // start_symbol_index has been used as lprime check 38.213 16.3
-  psfch_pdu->start_symbol_index = *sl_bwp->sl_StartSymbol_r16 + sl_num_symbols - 2;
-  LOG_D(NR_PHY, "Rx sl_StartSymbol_r16 %ld, sl_num_symbols: %d, start sym index %d, mcs %d\n", *sl_bwp->sl_StartSymbol_r16, sl_num_symbols, psfch_pdu->start_symbol_index, psfch_pdu->mcs);
-  psfch_pdu->hopping_id = *mac->sl_bwp->sl_BWP_PoolConfigCommon_r16->sl_TxPoolSelectedNormal_r16->list.array[0]->sl_ResourcePool_r16->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
+  psfch_pdu->start_symbol_index = *sl_bwp_generic->sl_StartSymbol_r16 + sl_num_symbols - 2;
+  LOG_D(NR_PHY, "Rx sl_StartSymbol_r16 %ld, sl_num_symbols: %d, start sym index %d, mcs %d\n", *sl_bwp_generic->sl_StartSymbol_r16, sl_num_symbols, psfch_pdu->start_symbol_index, psfch_pdu->mcs);
+  if (non_relay || (mac->sl_bwp_dedicated == NULL))
+    psfch_pdu->hopping_id = *mac->sl_bwp->sl_BWP_PoolConfigCommon_r16->sl_RxPool_r16->list.array[0]->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
+  else
+    psfch_pdu->hopping_id = *mac->sl_bwp_dedicated->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[0]->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_HopID_r16;
+
   uint8_t index = cur_harq->sched_pssch.slot%psfch_period;
   psfch_pdu->prb = psfch_params->prbs_sets->start_prb[index][0]; // FIXME [0] is based on assumption of number of subchannels = 1; 0 is channel id
   print_prb_set_allocation(psfch_params, psfch_period, 1);
   LOG_D(NR_PHY, "Rx slot %d, slsch tx slot %d, tx slot mode psfch_period %d, start_prb %d\n", slot, cur_harq->sched_pssch.slot, index, psfch_params->prbs_sets->start_prb[index][0]);
-  int locbw = sl_bwp->sl_BWP_r16->locationAndBandwidth;
+  int locbw = sl_bwp_generic->sl_BWP_r16->locationAndBandwidth;
   psfch_pdu->sl_bwp_start   = NRRIV2PRBOFFSET(locbw, MAX_BWP_SIZE);
   psfch_pdu->freq_hop_flag  = 0;
   psfch_pdu->group_hop_flag = 0;
@@ -959,7 +972,7 @@ void fill_psfch_params_rx(sl_nr_rx_config_request_t *rx_config, sl_nr_tx_rx_conf
   int num_psfch_symbols = 0;
   if (psfch_period == 1) num_psfch_symbols = 3;
   else if (psfch_period == 2 || psfch_period == 4) {
-    num_psfch_symbols = mac->SL_MAC_PARAMS->sl_RxPool[0]->sci_1a.psfch_overhead_indication.nbits ? 3 : 0;
+    num_psfch_symbols = mac->sci_pdu_rx.psfch_overhead.nbits ? 3 : 0;
   }
   psfch_pdu->nr_of_symbols = num_psfch_symbols ? num_psfch_symbols - 2 : 0; // (num_psfch_symbols - 2) excludes PSFCH AGC and Guard
   rx_config->sl_rx_config_list[0].pdu_type = SL_NR_CONFIG_TYPE_RX_PSSCH_SLSCH_PSFCH;
@@ -990,10 +1003,17 @@ uint8_t sl_num_slsch_feedbacks(NR_UE_MAC_INST_t *mac) {
 }
 
 bool is_feedback_scheduled(NR_UE_MAC_INST_t *mac, int frameP,int slotP) {
+  if (mac->sl_tx_res_pool && !mac->sl_tx_res_pool->sl_PSFCH_Config_r16) {
+    LOG_D(NR_MAC, "Not configured\n");
+    return false;
+  }
+
+  uint8_t psfch_period = *mac->sl_tx_res_pool->sl_PSFCH_Config_r16->choice.setup->sl_PSFCH_Period_r16;
+
   for (int i = 0; i < sl_num_slsch_feedbacks(mac); i++) {
     SL_sched_feedback_t  *sched_psfch = &mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch[i];
-    LOG_D(NR_MAC, "frame.slot %4d.%2d, harq_feedback %d\n", frameP, slotP, sched_psfch->harq_feedback);
-    if (frameP == sched_psfch->feedback_frame && slotP == sched_psfch->feedback_slot && sched_psfch->harq_feedback) {
+    LOG_D(NR_MAC, "frame.slot %4d.%2d, harq_feedback %d  psfch_period %u\n", frameP, slotP, sched_psfch->harq_feedback, psfch_period);
+    if ((frameP == sched_psfch->feedback_frame && slotP == sched_psfch->feedback_slot && sched_psfch->harq_feedback) || (psfch_period == 1)) {
       return true;
     }
   }
@@ -1052,7 +1072,7 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
     int round_sum = r1 + 2 * r2 + 3 * r3 + 4 * r4;
     int total_tx = r0 + round_sum;
     if (total_tx % 20 == 0 || (total_tx > 299 && total_tx < 305)) {
-      LOG_I(NR_PHY, "[UE] %d:%d PSFCH Stats: RX round (%u %u %u %u %u), SumRetx %u TotalTx %u\n",
+      LOG_D(NR_PHY, "[UE] %d:%d PSFCH Stats: RX round (%u %u %u %u %u), SumRetx %u TotalTx %u\n",
                                                       frame, slot,
                                                       UE->mac_sl_stats.cumul_round[0],
                                                       UE->mac_sl_stats.cumul_round[1],
@@ -1096,7 +1116,7 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
     LOG_D(NR_MAC, "[UE %x] LCID %d, remaining pdu length %d byte(s)\n", mac->src_id, rx_lcid, pdu_len);
     switch (rx_lcid) {
       //  MAC CE
-      case SL_SCH_LCID_4_19:
+      case SL_SCH_LCID_4_19 ... (SL_SCH_LCID_4_19 + 15):
         if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len))
           return;
         LOG_D(NR_MAC, "%4d.%2d : SLSCH -> LCID %d %d bytes with subheader %d\n", frame, slot, rx_lcid, mac_len, mac_subheader_len);
@@ -1139,8 +1159,26 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
           done = 1;
           break;
         }
-      case SL_SCH_LCID_SCCH_PC5_NOT_PROT:
       case SL_SCH_LCID_SCCH_PC5_DSMC:
+        if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len))
+          return;
+        LOG_D(NR_MAC, "%4d.%2d : SLSCH -> LCID %d %d bytes with subheader %d\n", frame, slot, rx_lcid, mac_len, mac_subheader_len);
+
+        mac_rlc_data_ind(module_idP,
+                         mac->src_id,
+                         0,
+                         frame,
+                         ENB_FLAG_NO,
+                         MBMS_FLAG_NO,
+                         rx_lcid,
+                         (char *)(pduP + mac_subheader_len),
+                         mac_len,
+                         1,
+                         NULL,
+                         sl_sch_subheader->SRC,
+                         sl_sch_subheader->DST);
+        break;
+      case SL_SCH_LCID_SCCH_PC5_NOT_PROT:
       case SL_SCH_LCID_SCCH_PC5_PROT:
       case SL_SCH_LCID_SCCH_PC5_RRC:
       case SL_SCH_LCID_20_55:
@@ -1151,7 +1189,6 @@ void nr_ue_process_mac_sl_pdu(int module_idP,
       case SL_SCH_LCID_SL_INTER_UE_COORD_INFO:
       case SL_SCH_LCID_SL_DRX_CMD:
 	      LOG_W(NR_MAC,"Received unsupported SL LCID %d\n",rx_lcid);
-	      return;
 	      break;
     }
     pduP += ( mac_subheader_len + mac_len );

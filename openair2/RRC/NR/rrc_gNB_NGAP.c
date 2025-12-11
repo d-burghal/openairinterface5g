@@ -618,7 +618,7 @@ int rrc_gNB_process_NGAP_DOWNLINK_NAS(MessageDef *msg_p, instance_t instance, mu
   AssertFatal(!NODE_IS_DU(RC.nrrrc[ctxt.module_id]->node_type), "illegal node type DU: receiving NGAP messages at this node\n");
   /* Transfer data to PDCP */
   rb_id_t srb_id = UE->Srb[2].Active ? DCCH1 : DCCH;
-  nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, (*rrc_gNB_mui)++, length, buffer, deliver_pdu_srb_f1, RC.nrrrc[instance]);
+  nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, (*rrc_gNB_mui)++, length, buffer, deliver_pdu_srb_f1, RC.nrrrc[instance], UU);
   return 0;
 }
 
@@ -775,6 +775,9 @@ void rrc_gNB_process_NGAP_PDUSESSION_SETUP_REQ(MessageDef *msg_p, instance_t ins
     pdu->teId = session->gtp_teid;
     memcpy(&pdu->tlAddress, session->upf_addr.buffer, 4); // Fixme: dirty IPv4 target
     pdu->numDRB2Setup = 1; // One DRB per PDU Session. TODO: Remove hardcoding
+    if (get_softmodem_params()->relay_type > 0)
+      pdu->numDRB2Setup = 2; // Two DRBs per PDU Session.
+
     for (int j=0; j < pdu->numDRB2Setup; j++) {
       DRB_nGRAN_to_setup_t *drb = pdu->DRBnGRanList + j;
 
@@ -1177,6 +1180,7 @@ void rrc_gNB_send_NGAP_UE_CAPABILITIES_IND(const protocol_ctxt_t *const ctxt_pP,
   NR_UERadioAccessCapabilityInformation_t rac = {0};
   gNB_RRC_UE_t *UE = &ue_context_pP->ue_context;
 
+  AssertFatal(ueCapabilityRATContainerList, "ueCapabilityRATContainerList cannot be NULL\n");
   if (ueCapabilityRATContainerList->list.count == 0) {
     LOG_W(RRC, "[gNB %d][UE %x] bad UE capabilities\n", ctxt_pP->module_id, UE->rnti);
     }

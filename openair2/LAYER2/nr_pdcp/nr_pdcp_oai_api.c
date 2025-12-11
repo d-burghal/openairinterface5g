@@ -307,6 +307,7 @@ typedef struct {
   pthread_cond_t c;
 } pdcp_data_ind_queue;
 
+static pdcp_data_ind_queue rx_pq_pc5;
 static pdcp_data_ind_queue pq;
 
 static void do_pdcp_data_ind(
@@ -315,7 +316,8 @@ static void do_pdcp_data_ind(
   const MBMS_flag_t MBMS_flagP,
   const rb_id_t rb_id,
   const sdu_size_t sdu_buffer_size,
-  mem_block_t *const sdu_buffer)
+  mem_block_t *const sdu_buffer,
+  nr_intf_type_t intf_type)
 {
   nr_pdcp_ue_t *ue;
   nr_pdcp_entity_t *rb;
@@ -339,8 +341,12 @@ static void do_pdcp_data_ind(
   if (srb_flagP == 1) {
     if (rb_id < 1 || rb_id > 2)
       rb = NULL;
-    else
-      rb = ue->srb[rb_id - 1];
+    else {
+      if (intf_type == PC5)
+        rb = ue->sl_srb[rb_id - 1];
+      else
+        rb = ue->srb[rb_id - 1];
+    }
   } else {
     if (rb_id < 1 || rb_id > MAX_DRBS_PER_UE)
       rb = NULL;
@@ -377,7 +383,8 @@ static void *pdcp_data_ind_thread(void *_)
                      pq.q[i].MBMS_flagP,
                      pq.q[i].rb_id,
                      pq.q[i].sdu_buffer_size,
-                     pq.q[i].sdu_buffer);
+                     pq.q[i].sdu_buffer,
+                     UU);
 
     if (pthread_mutex_lock(&pq.m) != 0) abort();
 
@@ -389,17 +396,88 @@ static void *pdcp_data_ind_thread(void *_)
   }
 }
 
-static void init_nr_pdcp_data_ind_queue(void)
+static void *pdcp_pc5_data_ind_thread(void *_)
 {
-  pthread_t t;
+  int i;
+
+  pthread_setname_np(pthread_self(), "PDCP data ind");
+  while (1) {
+    if (pthread_mutex_lock(&rx_pq_pc5.m) != 0) abort();
+    while (rx_pq_pc5.length == 0)
+      if (pthread_cond_wait(&rx_pq_pc5.c, &rx_pq_pc5.m) != 0) abort();
+    i = rx_pq_pc5.start;
+    if (pthread_mutex_unlock(&rx_pq_pc5.m) != 0) abort();
+
+    do_pdcp_data_ind(&rx_pq_pc5.q[i].ctxt_pP,
+                     rx_pq_pc5.q[i].srb_flagP,
+                     rx_pq_pc5.q[i].MBMS_flagP,
+                     rx_pq_pc5.q[i].rb_id,
+                     rx_pq_pc5.q[i].sdu_buffer_size,
+                     rx_pq_pc5.q[i].sdu_buffer,
+                     PC5);
+
+    if (pthread_mutex_lock(&rx_pq_pc5.m) != 0) abort();
+
+    rx_pq_pc5.length--;
+    rx_pq_pc5.start = (rx_pq_pc5.start + 1) % PDCP_DATA_IND_QUEUE_SIZE;
+
+    if (pthread_cond_signal(&rx_pq_pc5.c) != 0) abort();
+    if (pthread_mutex_unlock(&rx_pq_pc5.m) != 0) abort();
+  }
+}
+
+static void init_nr_pdcp_data_ind_queue(bool gNB_flag)
+{
+  pthread_t t1, t2;
+  if (!gNB_flag) {
+    pthread_mutex_init(&rx_pq_pc5.m, NULL);
+    pthread_cond_init(&rx_pq_pc5.c, NULL);
+    if (pthread_create(&t1, NULL, pdcp_pc5_data_ind_thread, NULL) != 0) {
+      LOG_E(PDCP, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
+      exit(1);
+    }
+  }
 
   pthread_mutex_init(&pq.m, NULL);
   pthread_cond_init(&pq.c, NULL);
-
-  if (pthread_create(&t, NULL, pdcp_data_ind_thread, NULL) != 0) {
+  if (pthread_create(&t2, NULL, pdcp_data_ind_thread, NULL) != 0) {
     LOG_E(PDCP, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
     exit(1);
   }
+}
+
+static void enqueue_pdcp_pc5_data_ind(
+  const protocol_ctxt_t *const ctxt_pP,
+  const srb_flag_t srb_flagP,
+  const MBMS_flag_t MBMS_flagP,
+  const rb_id_t rb_id,
+  const sdu_size_t sdu_buffer_size,
+  mem_block_t *const sdu_buffer)
+{
+  int i;
+  int logged = 0;
+
+  if (pthread_mutex_lock(&rx_pq_pc5.m) != 0) abort();
+  while (rx_pq_pc5.length == PDCP_DATA_IND_QUEUE_SIZE) {
+    if (!logged) {
+      logged = 1;
+      LOG_W(PDCP, "%s: pdcp_data_ind queue is full\n", __FUNCTION__);
+    }
+    if (pthread_cond_wait(&rx_pq_pc5.c, &rx_pq_pc5.m) != 0) abort();
+  }
+
+  i = (rx_pq_pc5.start + rx_pq_pc5.length) % PDCP_DATA_IND_QUEUE_SIZE;
+  rx_pq_pc5.length++;
+
+  rx_pq_pc5.q[i].ctxt_pP         = *ctxt_pP;
+  rx_pq_pc5.q[i].srb_flagP       = srb_flagP;
+  rx_pq_pc5.q[i].MBMS_flagP      = MBMS_flagP;
+  rx_pq_pc5.q[i].rb_id           = rb_id;
+  rx_pq_pc5.q[i].sdu_buffer_size = sdu_buffer_size;
+  rx_pq_pc5.q[i].sdu_buffer      = sdu_buffer;
+
+  if (pthread_cond_signal(&rx_pq_pc5.c) != 0) abort();
+  if (pthread_mutex_unlock(&rx_pq_pc5.m) != 0) abort();
 }
 
 static void enqueue_pdcp_data_ind(
@@ -443,14 +521,23 @@ bool pdcp_data_ind(const protocol_ctxt_t *const  ctxt_pP,
                    const sdu_size_t sdu_buffer_size,
                    mem_block_t *const sdu_buffer,
                    const uint32_t *const srcID,
-                   const uint32_t *const dstID)
+                   const uint32_t *const dstID,
+                   nr_intf_type_t intf_type)
 {
-  enqueue_pdcp_data_ind(ctxt_pP,
-                        srb_flagP,
-                        MBMS_flagP,
-                        rb_id,
-                        sdu_buffer_size,
-                        sdu_buffer);
+  if (intf_type == PC5)
+    enqueue_pdcp_pc5_data_ind(ctxt_pP,
+                              srb_flagP,
+                              MBMS_flagP,
+                              rb_id,
+                              sdu_buffer_size,
+                              sdu_buffer);
+  else
+    enqueue_pdcp_data_ind(ctxt_pP,
+                          srb_flagP,
+                          MBMS_flagP,
+                          rb_id,
+                          sdu_buffer_size,
+                          sdu_buffer);
   return true;
 }
 
@@ -530,8 +617,11 @@ static void *ue_tun_read_thread(void *_)
   ue_id_t rntiMaybeUEid;
   int has_ue;
 
+  bool relay_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
+  bool is_relay_ue = get_softmodem_params()->is_relay_ue;
   int rb_id = 1;
-  pthread_setname_np( pthread_self(),"ue_tun_read"); 
+  rb_id = ((get_softmodem_params()->sl_mode == 2) && relay_enabled && !is_relay_ue) ? 2 : rb_id;
+  pthread_setname_np( pthread_self(),"ue_tun_read");
   LOG_I(PDCP,"ue_tun_read_thread created on core %d\n",sched_getcpu());
   while (1) {
     len = read(nas_sock_fd[0], &rx_buf, NL_MAX_PAYLOAD);
@@ -560,17 +650,7 @@ static void *ue_tun_read_thread(void *_)
     bool dc = SDAP_HDR_UL_DATA_PDU;
     extern uint8_t nas_qfi;
     extern uint8_t nas_pduid;
-    bool srap_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
-    if (srap_enabled) {
-      if (!get_softmodem_params()->is_relay_ue) {
-        sdap_data_req(&ctxt, rntiMaybeUEid, SRB_FLAG_NO, rb_id, RLC_MUI_UNDEFINED, RLC_SDU_CONFIRM_NO, len, (unsigned char *)rx_buf, PDCP_TRANSMISSION_MODE_DATA, NULL, NULL, nas_qfi, dc, nas_pduid);
-      } else {
-        // TODO: add the Relay UE transmission support
-        LOG_D(PDCP, "Relay UE transmission on PDCP is not supported yet!!!\n");
-      }
-    } else {
-      sdap_data_req(&ctxt, rntiMaybeUEid, SRB_FLAG_NO, rb_id, RLC_MUI_UNDEFINED, RLC_SDU_CONFIRM_NO, len, (unsigned char *)rx_buf, PDCP_TRANSMISSION_MODE_DATA, NULL, NULL, nas_qfi, dc, nas_pduid);
-    }
+    sdap_data_req(&ctxt, rntiMaybeUEid, SRB_FLAG_NO, rb_id, RLC_MUI_UNDEFINED, RLC_SDU_CONFIRM_NO, len, (unsigned char *)rx_buf, PDCP_TRANSMISSION_MODE_DATA, NULL, NULL, nas_qfi, dc, nas_pduid);
   }
 
   return NULL;
@@ -620,7 +700,7 @@ void pdcp_layer_init(void)
   abort();
 }
 
-void nr_pdcp_layer_init(void)
+void nr_pdcp_layer_init(bool gNB_flag)
 {
   /* hack: be sure to initialize only once */
   static pthread_mutex_t m = PTHREAD_MUTEX_INITIALIZER;
@@ -641,7 +721,7 @@ void nr_pdcp_layer_init(void)
     init_nr_rlc_data_req_queue();
   }
 
-  init_nr_pdcp_data_ind_queue();
+  init_nr_pdcp_data_ind_queue(gNB_flag);
   nr_pdcp_init_timer_thread(nr_pdcp_ue_manager);
 }
 
@@ -687,7 +767,8 @@ uint64_t nr_pdcp_module_init(uint64_t _pdcp_optmask, int id)
       //Add --nr-ip-over-lte option check for next line
       if (IS_SOFTMODEM_NOS1){
         nas_config(1, 1, !get_softmodem_params()->nsa ? 2 : 3, ifsuffix_ue);
-        set_qfi_pduid(7, 10);
+        int pdusession_id = 10;
+        set_qfi_pduid(7, pdusession_id);
       }
       LOG_I(PDCP, "UE pdcp will use tun interface\n");
       start_pdcp_tun_ue();
@@ -730,14 +811,15 @@ static void deliver_sdu_drb(void *_ue, nr_pdcp_entity_t *entity,
 
     rb_found:
     {
-      LOG_D(PDCP, "%s() (drb %d) sending message to SDAP size %d\n", __func__, rb_id, size);
+      LOG_D(PDCP, "%s() (drb %d) sending message to SDAP size %d with pdusession_id %d \n",
+                  __func__, rb_id, size, ue->drb[rb_id - 1]->pdusession_id);
       sdap_data_ind(rb_id, ue->drb[rb_id - 1]->is_gnb, ue->drb[rb_id - 1]->has_sdap_rx, ue->drb[rb_id - 1]->pdusession_id, ue->rntiMaybeUEid, buf, size);
     }
   }
 }
 
 static void deliver_pdu_drb(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
-                            char *buf, int size, int sdu_id)
+                            char *buf, int size, int sdu_id, nr_intf_type_t intf_type)
 {
   DevAssert(deliver_pdu_data == NULL);
   protocol_ctxt_t ctxt = { .enb_flag = 1, .rntiMaybeUEid = ue_id };
@@ -768,10 +850,10 @@ static void deliver_pdu_drb(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
     extern instance_t CUuniqInstance;
     itti_send_msg_to_task(TASK_GTPV1_U, CUuniqInstance, message_p);
   } else if (remote_UE_flag && srap_enabled) { // only remote UE should send PDCP traffic
+    rb_id = 1; // set rb_id to 1 to reduce RLC layer delay.
     nr_srap_data_req_drb(&ctxt, rb_id, sdu_id, size, buf, PC5);
-  } else if (is_relay_ue && srap_enabled) {
-    nr_srap_data_req_drb(&ctxt, rb_id, sdu_id, size, buf, UU); // TODO: Interface type can be PC5 as well.
-  } else if (gNB_flag && srap_enabled) { // gNB
+  } else if (gNB_flag && srap_enabled && rb_id > 1) {
+    rb_id = 1; // set rb_id to 1 to reduce RLC layer delay.
     nr_srap_data_req_drb(&ctxt, rb_id, sdu_id, size, buf, UU);
   } else { // without srap
     mem_block_t *memblock = get_free_mem_block(size, __FUNCTION__);
@@ -792,8 +874,11 @@ static void deliver_sdu_srb(void *_ue, nr_pdcp_entity_t *entity,
   int srb_id;
   int i;
 
-  for (i = 0; i < sizeofArray(ue->srb) ; i++) {
-    if (entity == ue->srb[i]) {
+  uint16_t srb_size = (entity->type == NR_PDCP_SRB) ? sizeofArray(ue->srb) : sizeofArray(ue->sl_srb);
+
+  for (i = 0; i < srb_size ; i++) {
+    nr_pdcp_entity_t *srb_entity = (entity->type == NR_PDCP_SRB) ? ue->srb[i] : ue->sl_srb[i];
+    if (entity == srb_entity) {
       srb_id = i+1;
       goto srb_found;
     }
@@ -829,18 +914,16 @@ srb_found:
 }
 
 void deliver_pdu_srb_rlc(void *deliver_pdu_data, ue_id_t ue_id, int srb_id,
-                         char *buf, int size, int sdu_id)
+                         char *buf, int size, int sdu_id, nr_intf_type_t intf_type)
 {
   protocol_ctxt_t ctxt = { .enb_flag = 1, .rntiMaybeUEid = ue_id };
   mem_block_t *memblock = get_free_mem_block(size, __FUNCTION__);
   memcpy(memblock->data, buf, size);
-  // TODO: intf_type will need to be updated for SL Mode 1
-  nr_intf_type_t intf_type = ((get_softmodem_params()->sl_mode == 2) && (node_type == -1)) ? PC5 : UU;
   enqueue_rlc_data_req(&ctxt, 1, MBMS_FLAG_NO, srb_id, sdu_id, 0, size, memblock, intf_type);
 }
 
 void deliver_pdu_srb_f1(void *deliver_pdu_data, ue_id_t ue_id, int srb_id,
-                        char *buf, int size, int sdu_id)
+                        char *buf, int size, int sdu_id, nr_intf_type_t intf_type)
 {
   DevAssert(deliver_pdu_data != NULL);
   gNB_RRC_INST *rrc = deliver_pdu_data;
@@ -852,7 +935,7 @@ void deliver_pdu_srb_f1(void *deliver_pdu_data, ue_id_t ue_id, int srb_id,
   rrc->mac_rrc.dl_rrc_message_transfer(0, &dl_rrc);
 }
 
-static void add_srb(int is_gnb, ue_id_t rntiMaybeUEid, struct NR_SRB_ToAddMod *s, int ciphering_algorithm, int integrity_algorithm, unsigned char *ciphering_key, unsigned char *integrity_key)
+static void add_srb(int is_gnb, ue_id_t rntiMaybeUEid, struct NR_SRB_ToAddMod *s, int ciphering_algorithm, int integrity_algorithm, unsigned char *ciphering_key, unsigned char *integrity_key, nr_intf_type_t intf_type)
 {
   nr_pdcp_entity_t *pdcp_srb;
   nr_pdcp_ue_t *ue;
@@ -863,12 +946,16 @@ static void add_srb(int is_gnb, ue_id_t rntiMaybeUEid, struct NR_SRB_ToAddMod *s
       s->pdcp_Config->t_Reordering == NULL) t_Reordering = 3000;
   else t_Reordering = decode_t_reordering(*s->pdcp_Config->t_Reordering);
 
+  AssertFatal((intf_type == PC5) || (intf_type == UU), "Invalid interface type is provided!!!");
+
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
   ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, rntiMaybeUEid);
-  if (ue->srb[srb_id-1] != NULL) {
+  nr_pdcp_entity_t *pdcp_entity = (intf_type == PC5) ? ue->sl_srb[srb_id - 1] : ue->srb[srb_id - 1];
+  if (pdcp_entity != NULL) {
     LOG_D(PDCP, "%s:%d:%s: warning SRB %d already exist for UE ID/RNTI %ld, do nothing\n", __FILE__, __LINE__, __FUNCTION__, srb_id, rntiMaybeUEid);
   } else {
-    pdcp_srb = new_nr_pdcp_entity(NR_PDCP_SRB, is_gnb, srb_id,
+    nr_pdcp_entity_type_t pdcp_entity_type = (intf_type == UU) ? NR_PDCP_SRB : NR_PDCP_SL_SRB;
+    pdcp_srb = new_nr_pdcp_entity(pdcp_entity_type, is_gnb, srb_id,
                                   0, false, false, // sdap parameters
                                   deliver_sdu_srb, ue, NULL, ue,
                                   12, t_Reordering, -1,
@@ -876,7 +963,7 @@ static void add_srb(int is_gnb, ue_id_t rntiMaybeUEid, struct NR_SRB_ToAddMod *s
                                   integrity_algorithm,
                                   ciphering_key,
                                   integrity_key);
-    nr_pdcp_ue_add_srb_pdcp_entity(ue, srb_id, pdcp_srb);
+    nr_pdcp_ue_add_srb_pdcp_entity(ue, srb_id, pdcp_srb, intf_type);
     static bool srap_uu_created;
     bool srap_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
     if (srap_enabled && !srap_uu_created) {
@@ -1040,7 +1127,8 @@ void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, int ciphering_a
   if (ue->drb[slrb_id-1] != NULL) {
     LOG_W(PDCP, "%s:%d:%s: warning DRB %d already exist for UE ID/RNTI %ld, do nothing\n", __FILE__, __LINE__, __FUNCTION__, slrb_id, srcid);
   } else {
-    pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM, 0, slrb_id, 0,
+    int pdusession_id = 10;
+    pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM, 0, slrb_id, pdusession_id,
                                   has_sdap, has_sdap,
                                   deliver_sdu_drb, ue, deliver_pdu_drb, ue,
                                   sn_size, t_reordering, discard_timer,
@@ -1052,7 +1140,7 @@ void add_drb_sl(ue_id_t srcid, NR_SL_RadioBearerConfig_r16_t *s, int ciphering_a
 
     LOG_I(PDCP, "%s:%d:%s: added slrb %d to UE ID %ld\n", __FILE__, __LINE__, __FUNCTION__, slrb_id, srcid);
     add_srap_entity(srcid);
-    new_nr_sdap_entity(0, has_sdap, has_sdap, srcid, 0, is_sdap_DefaultRB, slrb_id, mappedQFIs2Add, mappedQFIs2AddCount);
+    new_nr_sdap_entity(0, has_sdap, has_sdap, srcid, pdusession_id, is_sdap_DefaultRB, slrb_id, mappedQFIs2Add, mappedQFIs2AddCount);
   }
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
@@ -1083,11 +1171,11 @@ static void add_drb(int is_gnb,
   LOG_I(PDCP, "%s:%s:%d: added DRB for UE ID/RNTI %ld\n", __FILE__, __FUNCTION__, __LINE__, rntiMaybeUEid);
 }
 
-void nr_pdcp_add_srbs(eNB_flag_t enb_flag, ue_id_t rntiMaybeUEid, NR_SRB_ToAddModList_t *const srb2add_list, const uint8_t security_modeP, uint8_t *const kRRCenc, uint8_t *const kRRCint)
+void nr_pdcp_add_srbs(eNB_flag_t enb_flag, ue_id_t rntiMaybeUEid, NR_SRB_ToAddModList_t *const srb2add_list, const uint8_t security_modeP, uint8_t *const kRRCenc, uint8_t *const kRRCint, nr_intf_type_t intf_type)
 {
   if (srb2add_list != NULL) {
     for (int i = 0; i < srb2add_list->list.count; i++) {
-      add_srb(enb_flag, rntiMaybeUEid, srb2add_list->list.array[i], security_modeP & 0x0f, (security_modeP >> 4) & 0x0f, kRRCenc, kRRCint);
+      add_srb(enb_flag, rntiMaybeUEid, srb2add_list->list.array[i], security_modeP & 0x0f, (security_modeP >> 4) & 0x0f, kRRCenc, kRRCint, intf_type);
     }
   } else
     LOG_W(PDCP, "nr_pdcp_add_srbs() with void list\n");
@@ -1105,6 +1193,16 @@ void nr_pdcp_add_drbs(eNB_flag_t enb_flag,
   if (drb2add_list != NULL) {
     for (int i = 0; i < drb2add_list->list.count; i++) {
       add_drb(enb_flag, rntiMaybeUEid, reestablish_ue_id, drb2add_list->list.array[i], rlc_bearer2add_list->list.array[i]->rlc_Config, security_modeP & 0x0f, (security_modeP >> 4) & 0x0f, kUPenc, kUPint);
+#if 1
+      bool relay_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
+      if (relay_enabled && enb_flag) {
+        drb2add_list->list.array[i]->drb_Identity = drb2add_list->list.array[i]->drb_Identity + 1;
+        LOG_D(NR_RRC, "Calling add_drb from nr_pdcp_add_drbs for relay specific drb %ld.\n",
+                      drb2add_list->list.array[i]->drb_Identity);
+        add_drb(enb_flag, rntiMaybeUEid, reestablish_ue_id, drb2add_list->list.array[i], rlc_bearer2add_list->list.array[i]->rlc_Config, security_modeP & 0x0f, (security_modeP >> 4) & 0x0f, kUPenc, kUPint);
+        drb2add_list->list.array[i]->drb_Identity = drb2add_list->list.array[i]->drb_Identity - 1;
+      }
+#endif
     }
   } else
     LOG_W(PDCP, "nr_pdcp_add_drbs() with void list\n");
@@ -1204,18 +1302,17 @@ bool nr_pdcp_data_req_srb(ue_id_t ue_id,
                           const sdu_size_t sdu_buffer_size,
                           unsigned char *const sdu_buffer,
                           deliver_pdu deliver_pdu_cb,
-                          void *data)
+                          void *data,
+                          nr_intf_type_t intf_type)
 {
   LOG_D(PDCP, "%s() called, size %d\n", __func__, sdu_buffer_size);
   nr_pdcp_ue_t *ue;
   nr_pdcp_entity_t *rb;
 
   bool srap_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
-  srap_enabled = false; // TODO: Temporary - We are not following standard; control messages are not passed through SRAP
+  // WE may need to keep control msgs on non-srap
+  srap_enabled = false;// FIXME: Temporary - We are not following standard; control messages are not passed through SRAP
   // We only send to SRAP from PDCP if we are CU (split occurs at PDCP/SRAP) or a standard gNB
-  bool gNB_flag = (NODE_IS_MONOLITHIC(node_type) || NODE_IS_CU(node_type));
-  bool is_relay_ue = get_softmodem_params()->is_relay_ue;
-  bool remote_UE_flag = ((node_type == -1) && !is_relay_ue);
 
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
 
@@ -1223,8 +1320,12 @@ bool nr_pdcp_data_req_srb(ue_id_t ue_id,
 
   if (rb_id < 1 || rb_id > 2)
     rb = NULL;
-  else
-    rb = ue->srb[rb_id - 1];
+  else {
+    if (intf_type == PC5)
+      rb = ue->sl_srb[rb_id - 1];
+    else
+      rb = ue->srb[rb_id - 1];
+  }
 
   if (rb == NULL) {
     LOG_E(PDCP, "%s:%d:%s: no SRB found (ue_id %ld, rb_id %ld)\n", __FILE__, __LINE__, __FUNCTION__, ue_id, rb_id);
@@ -1239,14 +1340,10 @@ bool nr_pdcp_data_req_srb(ue_id_t ue_id,
 
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
   protocol_ctxt_t ctxt = { .enb_flag = 1, .rntiMaybeUEid = ue_id };
-  if (remote_UE_flag && srap_enabled) { // Remote UE
-    nr_srap_data_req_srb(&ctxt, rb_id, pdu_size, pdu_buf, srap_deliver_pdu_srb, muiP, PC5);
-  } else if (is_relay_ue && srap_enabled) { // Relay UE
-    nr_srap_data_req_srb(&ctxt, rb_id, pdu_size, pdu_buf, srap_deliver_pdu_srb, muiP, UU);
-  } else if (gNB_flag && srap_enabled) { // Only gNB
-    nr_srap_data_req_srb(&ctxt, rb_id, pdu_size, pdu_buf, srap_deliver_pdu_srb, muiP, UU);
+  if (srap_enabled) {
+    nr_srap_data_req_srb(&ctxt, rb_id, pdu_size, pdu_buf, srap_deliver_pdu_srb, muiP, intf_type);
   } else { // Sending directly to RLC
-    deliver_pdu_cb(data, ue_id, rb_id, pdu_buf, pdu_size, muiP);
+    deliver_pdu_cb(data, ue_id, rb_id, pdu_buf, pdu_size, muiP, intf_type);
   }
 
   return 1;
@@ -1301,8 +1398,9 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
   deliver_pdu deliver_pdu_cb = rb->deliver_pdu;
 
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
-
-  deliver_pdu_cb(NULL, ue_id, rb_id, pdu_buf, pdu_size, muiP);
+  bool is_pc5_link = sourceL2Id != 0 || destinationL2Id != 0;
+  nr_intf_type_t intf_type = is_pc5_link ? PC5 : UU;
+  deliver_pdu_cb(NULL, ue_id, rb_id, pdu_buf, pdu_size, muiP, intf_type);
 
   return 1;
 }
@@ -1325,7 +1423,7 @@ bool cu_f1u_data_req(protocol_ctxt_t  *ctxt_pP,
     exit(1);
   }
   memcpy(memblock->data,sdu_buffer, sdu_buffer_size);
-  int ret=pdcp_data_ind(ctxt_pP,srb_flagP, false, rb_id, sdu_buffer_size, memblock, NULL, NULL);
+  int ret = pdcp_data_ind(ctxt_pP, srb_flagP, false, rb_id, sdu_buffer_size, memblock, NULL, NULL, UU);
   if (!ret) {
     LOG_E(RLC, "%s:%d:%s: ERROR: pdcp_data_ind failed\n", __FILE__, __LINE__, __FUNCTION__);
     /* what to do in case of failure? for the moment: nothing */

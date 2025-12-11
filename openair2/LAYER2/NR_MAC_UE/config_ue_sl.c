@@ -25,6 +25,15 @@
 #include "mac_proto.h"
 #include "common/config/config_paramdesc.h"
 #include <executables/nr-uesoftmodem.h>
+#include "openair2/RRC/NR_UE/sl_preconfig_paramvalues.h"
+#include "openair2/RRC/NR/nr_rrc_config.h"
+#include "openair2/LAYER2/nr_srap/nr_srap_oai_api.h"
+
+// NR Constants from 38.211
+#define DELTA_F_MAX   480000.0    // Hz
+#define N_F           4096
+#define DELTA_F_REF   15000.0     // Hz
+#define N_F_REF       2048
 
 #define SL_CONFIG_STRING_SL_PRECONFIGURATION                        "SIDELINK_PRECONFIGURATION"
 
@@ -207,7 +216,8 @@ static int sl_set_tdd_config_nr_ue(sl_nr_phy_config_request_t *cfg,
 //Prepares the PHY config to be sent to PHY. Prepares from the Valus from MAC context.
 static void  sl_prepare_phy_config(int module_id,
                                    sl_nr_phy_config_request_t *phycfg,
-                                   NR_SL_FreqConfigCommon_r16_t *freqcfg,
+                                   NR_SL_FreqConfigCommon_r16_t *freqcfg_cmn,
+                                   NR_SL_FreqConfig_r16_t *freqcfg,
                                    uint8_t sync_source,
                                    uint32_t sl_OffsetDFN,
                                    NR_TDD_UL_DL_ConfigCommon_t *sl_TDD_config)
@@ -216,7 +226,8 @@ static void  sl_prepare_phy_config(int module_id,
   phycfg->sl_sync_source.sync_source = sync_source;
   LOG_I(NR_MAC, "Sidelink CFG: sync source:%d\n", phycfg->sl_sync_source.sync_source);
 
-  uint32_t pointA_ARFCN = freqcfg->sl_AbsoluteFrequencyPointA_r16;
+  uint32_t pointA_ARFCN = freqcfg ? *freqcfg->sl_AbsoluteFrequencyPointA_r16 :
+                                  freqcfg_cmn->sl_AbsoluteFrequencyPointA_r16;
   AssertFatal(pointA_ARFCN, "sl_AbsoluteFrequencyPointA_r16 cannot be 0\n");
 
   int sl_band = 0;
@@ -227,8 +238,8 @@ static void  sl_prepare_phy_config(int module_id,
 
   AssertFatal(sl_band, "not valid band for Sidelink operation\n");
 
-  uint32_t SSB_ARFCN = (freqcfg->sl_AbsoluteFrequencySSB_r16)
-                            ? *freqcfg->sl_AbsoluteFrequencySSB_r16 : 0;
+  uint32_t SSB_ARFCN = freqcfg ? ((freqcfg->sl_AbsoluteFrequencySSB_r16) ? *freqcfg->sl_AbsoluteFrequencySSB_r16 : 0) :
+                                 ((freqcfg_cmn->sl_AbsoluteFrequencySSB_r16) ? *freqcfg_cmn->sl_AbsoluteFrequencySSB_r16 : 0);
 
   AssertFatal(SSB_ARFCN, "sl_AbsoluteFrequencySSB cannot be 0\n");
 
@@ -237,12 +248,12 @@ static void  sl_prepare_phy_config(int module_id,
 
 #define SL_VALUE_FREQSHIFT_7P5KHZ_DISABLED 0
   phycfg->sl_carrier_config.sl_frequency_shift_7p5khz = SL_VALUE_FREQSHIFT_7P5KHZ_DISABLED;
-  phycfg->sl_carrier_config.sl_value_N = freqcfg->valueN_r16;
+  phycfg->sl_carrier_config.sl_value_N = freqcfg ? freqcfg->valueN_r16 : freqcfg_cmn->valueN_r16;
   phycfg->sl_carrier_config.sl_num_tx_ant = 1;
   phycfg->sl_carrier_config.sl_num_rx_ant = 1;
 
-  NR_SCS_SpecificCarrier_t *carriercfg =
-            freqcfg->sl_SCS_SpecificCarrierList_r16.list.array[0];
+  NR_SCS_SpecificCarrier_t *carriercfg = freqcfg ? freqcfg->sl_SCS_SpecificCarrierList_r16.list.array[0] :
+                                                   freqcfg_cmn->sl_SCS_SpecificCarrierList_r16.list.array[0];
 
   AssertFatal(carriercfg, "SCS_SpecificCarrier cannot be NULL");
 
@@ -259,10 +270,17 @@ static void  sl_prepare_phy_config(int module_id,
   //phycfg->sl_carrier_config.sl_k0 = carriercfg->offsetToCarrier;
 
   NR_SL_BWP_Generic_r16_t *bwp_generic = NULL;
-  if (freqcfg->sl_BWP_List_r16 &&
-      freqcfg->sl_BWP_List_r16->list.array[0] &&
-      freqcfg->sl_BWP_List_r16->list.array[0]->sl_BWP_Generic_r16)
-    bwp_generic = freqcfg->sl_BWP_List_r16->list.array[0]->sl_BWP_Generic_r16;
+  if (freqcfg &&
+      freqcfg->sl_BWP_ToAddModList_r16 &&
+      freqcfg->sl_BWP_ToAddModList_r16->list.array[0] &&
+      freqcfg->sl_BWP_ToAddModList_r16->list.array[0]->sl_BWP_Generic_r16)
+    bwp_generic = freqcfg->sl_BWP_ToAddModList_r16->list.array[0]->sl_BWP_Generic_r16;
+
+  if (freqcfg_cmn &&
+      freqcfg_cmn->sl_BWP_List_r16 &&
+      freqcfg_cmn->sl_BWP_List_r16->list.array[0] &&
+      freqcfg_cmn->sl_BWP_List_r16->list.array[0]->sl_BWP_Generic_r16)
+    bwp_generic = freqcfg_cmn->sl_BWP_List_r16->list.array[0]->sl_BWP_Generic_r16;
 
   AssertFatal(bwp_generic, "SL-BWP Generic cannot be NULL");
 
@@ -602,12 +620,249 @@ int nr_rrc_mac_config_req_sl_preconfig(module_id_t module_id,
   sl_phy_cfg->CC_id = 0;
 
   sl_prepare_phy_config(module_id, &sl_phy_cfg->sl_config_req,
-                        freqcfg, sync_source, sl_OffsetDFN, sl_mac->sl_TDD_config);
+                        freqcfg, NULL, sync_source, sl_OffsetDFN, sl_mac->sl_TDD_config);
 
   sl_mac->mac_tx_params.packet_delay_budget_ms = 30;
   return 0;
 }
 
+// Compute Tc
+static double compute_Tc(void) {
+  double Tc = 1.0 / (DELTA_F_MAX * N_F);
+  return Tc;
+}
+
+void nr_rrc_mac_config_grant_type1_req_ue(NR_UE_MAC_INST_t *mac,
+                                          NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig,
+                                          NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig,
+                                          uint8_t mu) {
+  if (sl_ScheduledConfig->present == NR_SetupRelease_SL_ScheduledConfig_r16_PR_setup) {
+    if (sl_ScheduledConfig->choice.setup) {
+      if (sl_ScheduledConfig->choice.setup->sl_ConfiguredGrantConfigList_r16) {
+        struct NR_SL_ConfiguredGrantConfigList_r16 *sl_ConfiguredGrantConfigList = sl_ScheduledConfig->choice.setup->sl_ConfiguredGrantConfigList_r16;
+        int cg1_periodValues[10] = {100, 200, 300, 400, 500, 600, 700, 800, 900, 1000};  // (ms)
+        for(int i = 0; i < sl_ConfiguredGrantConfigList->sl_ConfiguredGrantConfigToAddModList_r16->list.count; i++) {
+          struct NR_SL_ConfiguredGrantConfig_r16 *sl_CGConfig = sl_ConfiguredGrantConfigList->sl_ConfiguredGrantConfigToAddModList_r16->list.array[i];
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_period_cg = cg1_periodValues[sl_CGConfig->sl_PeriodCG_r16->choice.sl_PeriodCG1_r16];
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_psfch_to_pucch_cg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_n1pucch_an = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_N1PUCCH_AN_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->harq_feedback_enabled = *sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->mu_sl = 1;
+          mac->sl_cg_per_bwp.sl_cg[i]->mu_ul = 1;
+          mac->sl_cg_per_bwp.sl_cg[i]->Tc = compute_Tc();
+          mac->sl_cg_per_bwp.sl_cg[i]->active = true;
+          mac->sl_cg_per_bwp.sl_cg[i]->cg_id = sl_CGConfig->sl_ConfigIndexCG_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_priority = sl_CGConfig->sl_CG_MaxTransNumList_r16->list.array[0]->sl_Priority_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_cg_maxtransnum = sl_CGConfig->sl_CG_MaxTransNumList_r16->list.array[0]->sl_MaxTransNum_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_freqresource_cg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_resource_pool_id = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_ResourcePoolID_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_startsubchannelcg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_timeoffsetcg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_TimeOffsetCG_Type1_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_timereferencesfn_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_TimeReferenceSFN_Type1_r16;
+          mac->sl_cg_per_bwp.sl_cg[i]->sl_timeresource_cg_type1 = *sl_CGConfig->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16;
+        }
+      }
+    }
+  }
+}
+
+// RRC calls this API when RRC is configured with Sidelink PRE-configuration I.E
+int nr_rrc_mac_config_req_sl_dedicated_config(module_id_t module_id,
+                                              NR_SL_ConfigDedicatedNR_r16_t *sl_dedicated_cfg,
+                                              uint8_t sync_source,
+                                              uint8_t mu)
+{
+
+  LOG_D(NR_MAC,"[UE%d] SL RRC->MAC CONFIG RECEIVED. Syncsource:%d\n", module_id, sync_source);
+
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  AssertFatal(sl_dedicated_cfg != NULL, "SL Dedicated config cannot be NULL");
+  AssertFatal(mac, "mac should have an instance");
+
+  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
+
+  NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RLC_Config = sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16;
+  if ((get_softmodem_params()->sl_mode == 1) && (get_softmodem_params()->relay_type == U2N)) {
+    NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig = sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list.count > 0 ?
+                                                        sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list.array[0] : NULL;
+    NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig = sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
+    nr_rrc_mac_config_grant_type1_req_ue(mac, sl_ScheduledConfig, sl_RLC_BearerConfig, mu);
+  }
+  // Only one entry supported in rel16.
+  // Carrier freq config used for Sidelink
+
+  NR_SL_FreqConfig_r16_t *freqcfg = sl_PHY_MAC_RLC_Config ? sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.array[0] : NULL;
+
+  AssertFatal(freqcfg != NULL, "SL fcfg Cannot be NULL");
+
+  // Max num of consecutive HARQ DTX before triggering RLF.
+  const uint8_t MaxNumConsecutiveDTX[] = {1, 2, 3, 4, 6, 8, 16, 32};
+  sl_mac->sl_MaxNumConsecutiveDTX = (sl_PHY_MAC_RLC_Config->sl_MaxNumConsecutiveDTX_r16)
+                                     ? MaxNumConsecutiveDTX[*sl_PHY_MAC_RLC_Config->sl_MaxNumConsecutiveDTX_r16]
+                                     : 0;
+
+  // priority of SL-SSB tx and rx
+  sl_mac->sl_SSB_PriorityNR = (sl_PHY_MAC_RLC_Config->sl_SSB_PriorityNR_r16)
+                               ? *sl_PHY_MAC_RLC_Config->sl_SSB_PriorityNR_r16 : 0;
+
+  // Used for DFN calculation in case Sync source = GNSS.
+  uint32_t sl_OffsetDFN = 0;
+
+  NR_SL_BWP_Config_r16_t *bwp = NULL;
+  if (freqcfg->sl_BWP_ToAddModList_r16 &&
+      freqcfg->sl_BWP_ToAddModList_r16->list.array[0])
+    bwp = freqcfg->sl_BWP_ToAddModList_r16->list.array[0];
+  mac->sl_bwp_dedicated = bwp;
+
+  AssertFatal(bwp != NULL, "BWP config dedicated cannot be NULL\n");
+  if (bwp->sl_BWP_PoolConfig_r16) {
+    if (bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16) {
+      int k = 0;
+      for (int i = 0; i < bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.count; i++) {
+        if (get_softmodem_params()->is_relay_ue && (i != 0)) // only index 0 contains resource for relay UE
+          continue;
+        else if (!get_softmodem_params()->is_relay_ue && (i != 1)) // only index 1 contains resource for remote UE
+          continue;
+
+        NR_SL_ResourcePool_r16_t *rxpool = bwp->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[i];
+        if (rxpool) {
+          if (sl_mac->sl_RxPool[k] == NULL)
+            sl_mac->sl_RxPool[k] = malloc16_clear(sizeof(SL_ResourcePool_params_t));
+          mac->sl_rx_res_pool = rxpool;
+          sl_mac->sl_RxPool[k]->respool = rxpool;
+          uint16_t sci_1a_len = 0, num_subch = 0;
+          sci_1a_len = sl_determine_sci_1a_len(&num_subch,
+                                               sl_mac->sl_RxPool[k]->respool,
+                                               &sl_mac->sl_RxPool[k]->sci_1a);
+          sl_mac->sl_RxPool[k]->num_subch = num_subch;
+          sl_mac->sl_RxPool[k]->sci_1a_len = sci_1a_len;
+          k++;
+        }
+      }
+    }
+    if (bwp->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16) {
+      int k = 0;
+      for (int i = 0; i < bwp->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.count; i++) {
+        if (get_softmodem_params()->is_relay_ue && (i != 0)) // only index 0 contains resource for relay UE
+          continue;
+        else if (!get_softmodem_params()->is_relay_ue && (i != 1)) // only index 1 contains resource for remote UE
+          continue;
+
+        NR_SL_ResourcePool_r16_t *txpool =
+                bwp->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[i]->sl_ResourcePool_r16;
+        if (txpool) {
+          if (txpool->sl_MinMaxMCS_List_r16) {
+            sl_mac->sl_bler.min_mcs = txpool->sl_MinMaxMCS_List_r16->list.array[0]->sl_MinMCS_PSSCH_r16;
+            sl_mac->sl_bler.max_mcs = txpool->sl_MinMaxMCS_List_r16->list.array[0]->sl_MaxMCS_PSSCH_r16;
+          } else {
+            sl_mac->sl_bler.min_mcs = 0;
+            sl_mac->sl_bler.max_mcs = MAX_MCS;
+          }
+          mac->sl_tx_res_pool = txpool;
+          if (sl_mac->sl_TxPool[k] == NULL)
+            sl_mac->sl_TxPool[k] = malloc16_clear(sizeof(SL_ResourcePool_params_t));
+          sl_mac->sl_TxPool[k]->respool = txpool;
+          uint16_t sci_1a_len = 0, num_subch = 0;
+          sci_1a_len = sl_determine_sci_1a_len(&num_subch,
+                                               sl_mac->sl_TxPool[k]->respool,
+                                               &sl_mac->sl_TxPool[k]->sci_1a);
+
+          sl_mac->sl_TxPool[k]->num_subch = num_subch;
+          sl_mac->sl_TxPool[k]->sci_1a_len = sci_1a_len;
+
+          NR_TDD_UL_DL_ConfigCommon_t *tdd_uldl_config = NULL;
+          if (txpool &&
+              txpool->sl_RxParametersNcell_r16 &&
+              txpool->sl_RxParametersNcell_r16->sl_TDD_Configuration_r16)
+            tdd_uldl_config = txpool->sl_RxParametersNcell_r16->sl_TDD_Configuration_r16;
+          LOG_D(NR_RRC, "Configured %s %d, nrofDownlinkSlots %ld, nrofDownlinkSymbols %ld, nrofUplinkSlots %ld, nrofUplinkSymbols %ld\n",
+                __FUNCTION__,
+                __LINE__,
+                tdd_uldl_config->pattern1.nrofDownlinkSlots,
+                tdd_uldl_config->pattern1.nrofDownlinkSymbols,
+                tdd_uldl_config->pattern1.nrofUplinkSlots,
+                tdd_uldl_config->pattern1.nrofUplinkSymbols
+                );
+          AssertFatal((tdd_uldl_config != NULL), "Sidelink MAC CFG: TDD Config cannot be NULL");
+          AssertFatal((tdd_uldl_config->pattern2 == NULL), "Sidelink MAC CFG: pattern2 not yet supported");
+          sl_mac->sl_TDD_config = tdd_uldl_config;
+          if (sync_source == SL_SYNC_SOURCE_GNBENB) {
+              // Sync source is identified, timing needs to be adjusted.
+              sl_mac->adjust_timing = 1;
+          }
+          k++;
+        }
+      }
+    }
+  }
+
+  if (get_nrUE_params()->sync_ref) {
+    const int nr_slots_frame = nr_slots_per_frame[mu];
+    NR_TDD_UL_DL_Pattern_t *tdd = &sl_mac->sl_TDD_config->pattern1;
+    const int n_ul_slots_period = tdd ? tdd->nrofUplinkSlots + (tdd->nrofUplinkSymbols > 0 ? 1 : 0) : nr_slots_frame;
+    uint16_t num_subch = sl_get_num_subch(mac->sl_tx_res_pool);
+    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch = CALLOC(n_ul_slots_period * num_subch, sizeof(SL_sched_feedback_t));
+    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_frame = -1;
+    mac->sl_info.list[0]->UE_sched_ctrl.sched_psfch->feedback_slot = -1;
+
+    int nr_slots_period = nr_slots_frame;
+    int nr_ulstart_slot = 0;
+    if (tdd) {
+      nr_ulstart_slot = get_first_ul_slot(tdd->nrofDownlinkSlots, tdd->nrofDownlinkSymbols, tdd->nrofUplinkSymbols);
+      nr_slots_period /= get_nb_periods_per_frame(tdd->dl_UL_TransmissionPeriodicity);
+    }
+    for (int slot = 0; slot < nr_slots_frame; ++slot) {
+      mac->ulsch_slot_bitmap[slot / 64] |= (uint64_t)((slot % nr_slots_period) >= nr_ulstart_slot) << (slot % 64);
+      LOG_D(NR_MAC,
+            "slot %d UL %d\n",
+            slot,
+            (mac->ulsch_slot_bitmap[slot / 64] & ((uint64_t)1 << (slot % 64))) != 0);
+    }
+    BIT_STRING_t *sl_tx_time_rsrc = mac->sl_tx_res_pool->ext1->sl_TimeResource_r16;
+    int total_downlink_slots_in_bitmap = (((sl_tx_time_rsrc->size << 3) - sl_tx_time_rsrc->bits_unused) / n_ul_slots_period) * (nr_slots_period - n_ul_slots_period);
+    int total_uplink_slots_in_bitmap = (((sl_tx_time_rsrc->size << 3) - sl_tx_time_rsrc->bits_unused) / n_ul_slots_period) * (n_ul_slots_period);
+    int phy_sl_size = ((sl_tx_time_rsrc->size << 3) - sl_tx_time_rsrc->bits_unused) + total_downlink_slots_in_bitmap;
+    LOG_D(NR_MAC, "size of phy_sl_map  %d total_downlink_slots %d, sl_tx_time_rsrc.size %ld, n_ul_slots_period %d, (nr_slots_period - n_ul_slots_period) %d\n",
+          phy_sl_size, total_downlink_slots_in_bitmap, ((sl_tx_time_rsrc->size << 3) - sl_tx_time_rsrc->bits_unused), n_ul_slots_period, (nr_slots_period - n_ul_slots_period));
+
+    AssertFatal(((sl_tx_time_rsrc->size << 3) - sl_tx_time_rsrc->bits_unused) == total_uplink_slots_in_bitmap, "The computation for total uplink slots is invalid. %ld != %d\n",
+                ((sl_tx_time_rsrc->size << 3) - sl_tx_time_rsrc->bits_unused), total_uplink_slots_in_bitmap);
+    AssertFatal(total_downlink_slots_in_bitmap + total_uplink_slots_in_bitmap == phy_sl_size, "The total number of uplink and downlink slots must equal the total bitmap size!");
+
+    uint8_t pool_id = 0;
+    size_t byte_capacity = (phy_sl_size + 7) / 8;
+
+    SL_ResourcePool_params_t *sl_tx_rsrc_pool = sl_mac->sl_TxPool[pool_id];
+    BIT_STRING_t *phy_sl_tx_bitmap = &sl_tx_rsrc_pool->phy_sl_bitmap;
+    phy_sl_tx_bitmap->buf = (uint8_t*)malloc16_clear(byte_capacity);
+    phy_sl_tx_bitmap->size = byte_capacity;
+    phy_sl_tx_bitmap->bits_unused = ((phy_sl_tx_bitmap->size << 3) - phy_sl_size) % 8;
+    uint16_t tx_phy_map_sz = get_physical_sl_pool(mac, sl_tx_time_rsrc, phy_sl_tx_bitmap);
+
+    SL_ResourcePool_params_t *sl_rx_rsrc_pool = sl_mac->sl_RxPool[pool_id];
+    BIT_STRING_t *phy_sl_rx_bitmap = &sl_rx_rsrc_pool->phy_sl_bitmap;
+    phy_sl_rx_bitmap->buf = (uint8_t*)malloc16_clear(byte_capacity);
+    phy_sl_rx_bitmap->size = byte_capacity;
+    phy_sl_rx_bitmap->bits_unused = ((phy_sl_rx_bitmap->size << 3) - phy_sl_size) % 8;
+    BIT_STRING_t *sl_rx_time_rsrc = mac->sl_rx_res_pool->ext1->sl_TimeResource_r16;
+    uint16_t rx_phy_map_sz = get_physical_sl_pool(mac, sl_rx_time_rsrc, phy_sl_rx_bitmap);
+
+    AssertFatal(tx_phy_map_sz == rx_phy_map_sz, "Transmit %d and receive %d phy_map_sz is different.\n",
+                tx_phy_map_sz, rx_phy_map_sz);
+  }
+  // Configuring CSI-RS parameters locally at MAC.
+  nr_sl_params_read_conf(module_id);
+
+  nr_sl_phy_config_t *sl_phy_cfg = &sl_mac->sl_phy_config;
+  sl_phy_cfg->Mod_id = module_id;
+  sl_phy_cfg->CC_id = 0;
+
+  sl_prepare_phy_config(module_id, &sl_phy_cfg->sl_config_req,
+                        NULL, freqcfg, sync_source, sl_OffsetDFN, sl_mac->sl_TDD_config);
+
+  sl_mac->mac_tx_params.packet_delay_budget_ms = 30;
+  return 0;
+}
 
 //Copies the values of SSB time allocation from ASN format to MAC context
 static void sl_mac_config_ssb_time_alloc(uint8_t module_id,
@@ -636,7 +891,9 @@ void nr_rrc_mac_transmit_slss_req(module_id_t module_id,
                                   NR_SL_SSB_TimeAllocation_r16_t *ssb_ta)
 {
 
-  sl_nr_ue_mac_params_t *sl_mac = get_mac_inst(module_id)->SL_MAC_PARAMS;
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  if (get_softmodem_params()->relay_type > 0 && mac->is_synced_sl) return;
+  sl_nr_ue_mac_params_t *sl_mac = mac->SL_MAC_PARAMS;
   AssertFatal(sl_mac,"sidelink MAC cannot be NULL");
   AssertFatal(tx_slss_id < 672,"SLSS id cannot be >= 672. id:%d", tx_slss_id);
   AssertFatal(ssb_ta,"ssb_ta cannot be NULL");
@@ -652,7 +909,7 @@ void nr_rrc_mac_transmit_slss_req(module_id_t module_id,
                                ssb_ta,
                                &sl_mac->tx_sl_bch.ssb_time_alloc);
 
-  LOG_I(NR_MAC,"[UE%d]SL RRC->MAC: TX SLSS REQ SLSS-id:%d, SL-MIB:%x, numssb:%d, offset:%d, interval:%d\n",
+  LOG_D(NR_MAC,"[UE%d]SL RRC->MAC: TX SLSS REQ SLSS-id:%d, SL-MIB:%x, numssb:%d, offset:%d, interval:%d\n",
                                                   module_id, sl_mac->tx_sl_bch.slss_id,
                                                   *((uint32_t *)sl_mib_payload),
                                                   sl_mac->tx_sl_bch.ssb_time_alloc.sl_NumSSB_WithinPeriod,
@@ -851,7 +1108,12 @@ void nr_sl_params_read_conf(module_id_t module_id) {
   // Only 1 is supported (38211, 8.4.1.5.3) - means CSI-RS transmission in every resource block
   sl_mac->freq_density = 1;
   sl_mac->freq_domain = 0b000000000001; //bitmap size is dependent upon row size; for row 2 length is 12 bits else 6 bits;
-  int loc_bw = mac->sl_bwp->sl_BWP_Generic_r16->sl_BWP_r16->locationAndBandwidth;
+  bool non_relay = get_softmodem_params()->sl_mode == 2 && get_softmodem_params()->relay_type == 0;
+  NR_SL_BWP_Generic_r16_t *sl_bwp_generic = (non_relay || (mac->sl_bwp_dedicated == NULL))
+                                            ? mac->sl_bwp->sl_BWP_Generic_r16
+                                            : mac->sl_bwp_dedicated->sl_BWP_Generic_r16;
+
+  int loc_bw = sl_bwp_generic->sl_BWP_r16->locationAndBandwidth;
   uint16_t bwp_start = NRRIV2PRBOFFSET(loc_bw, MAX_BWP_SIZE);
   // PRB where this CSI resource starts in relation to common resource block #0 (CRB#0) on the common resource block grid.
   // Only multiples of 4 are allowed (0, 4, ...)

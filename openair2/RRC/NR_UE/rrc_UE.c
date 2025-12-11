@@ -98,6 +98,19 @@ nr_rrc_ue_process_ueCapabilityEnquiry(
 );
 
 void
+nr_ue_rrc_SL_UEInformation_trigger(
+  int module_id,
+  uint32_t frame,
+  uint8_t slot
+);
+
+void nr_rrc_ue_process_sidelink_radioResourceConfig(
+  const protocol_ctxt_t *const ctxt_pP,
+  const uint8_t gNB_index,
+  NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_ConfigDedicatedNR
+);
+
+void
 nr_rrc_ue_process_RadioBearerConfig(
     const protocol_ctxt_t *const       ctxt_pP,
     const uint8_t                      gNB_index,
@@ -204,6 +217,10 @@ static void nr_rrc_addmod_drbs(int rnti,
           && bearer->servedRadioBearer->present == NR_RLC_BearerConfig__servedRadioBearer_PR_drb_Identity
           && drb->drb_Identity == bearer->servedRadioBearer->choice.drb_Identity) {
         nr_rlc_add_drb(rnti, drb->drb_Identity, bearer);
+        bool relay_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
+        if (relay_enabled) {
+          nr_rlc_add_drb(rnti, drb->drb_Identity + 1, bearer);
+        }
       }
     }
   }
@@ -1059,8 +1076,7 @@ static void rrc_ue_generate_RRCSetupComplete(
 
   //for (int i=0;i<size;i++) printf("%02x ",buffer[i]);
   //printf("\n");
-
-  nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, size, buffer, deliver_pdu_srb_rlc, NULL);
+  nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, size, buffer, deliver_pdu_srb_rlc, NULL, UU);
 }
 
 int8_t nr_rrc_ue_decode_ccch( const protocol_ctxt_t *const ctxt_pP, const NR_SRB_INFO *const Srb_info, const uint8_t gNB_index ){
@@ -1363,8 +1379,7 @@ void nr_rrc_ue_process_securityModeCommand(const protocol_ctxt_t *const ctxt_pP,
     //TODO the SecurityModeCommand message needs to pass the integrity protection check
     // for the UE to declare AS security to be activated
     ue_rrc->as_security_activated = true;
-
-    nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, (enc_rval.encoded + 7) / 8, buffer, deliver_pdu_srb_rlc, NULL);
+    nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, (enc_rval.encoded + 7) / 8, buffer, deliver_pdu_srb_rlc, NULL, UU);
   } else
     LOG_W(NR_RRC,"securityModeCommand->criticalExtensions.present (%d) != NR_SecurityModeCommand__criticalExtensions_PR_securityModeCommand\n",
           securityModeCommand->criticalExtensions.present);
@@ -1436,6 +1451,17 @@ int32_t nr_rrc_ue_establish_srb2(module_id_t ue_mod_idP,
   NR_UE_rrc_inst[ue_mod_idP].Srb2[gNB_index].Active = 1;
   NR_UE_rrc_inst[ue_mod_idP].Srb2[gNB_index].status = RADIO_CONFIG_OK; // RADIO CFG
   LOG_I(NR_RRC, "[UE %d], CONFIG_SRB2 %d corresponding to gNB_index %d\n", ue_mod_idP, DCCH1, gNB_index);
+  return(0);
+}
+
+int32_t nr_rrc_ue_establish_sl_srb1(module_id_t ue_mod_idP,
+                                    frame_t frameP,
+                                    uint8_t remote_ue_index)
+{
+  // add descriptor from RRC PDU
+  NR_UE_rrc_inst[ue_mod_idP].sl_Srb1[remote_ue_index].Active = 1;
+  NR_UE_rrc_inst[ue_mod_idP].sl_Srb1[remote_ue_index].status = RADIO_CONFIG_OK;
+  LOG_D(NR_RRC, "[RelayUE %d], CONFIG_SL_SRB1 SCCH for RemoteUE[%d]\n", ue_mod_idP, remote_ue_index);
   return(0);
 }
 
@@ -1605,6 +1631,73 @@ int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
    }
  }
 
+void nr_rrc_ue_process_RadioBearerConfig_sl(const protocol_ctxt_t *const ctxt_pP,
+                                            const uint8_t ue_index,
+                                            NR_RadioBearerConfig_t *const radioBearerConfig,
+                                            NR_SL_RLC_BearerConfig_r16_t *nr_rlc_BearerConfig)
+ {
+  long SRB_id;
+
+  if(radioBearerConfig->srb3_ToRelease != NULL){
+    if(*radioBearerConfig->srb3_ToRelease == true){
+      //TODO (release the PDCP entity and the srb-Identity of the SRB3.)
+    }
+  }
+
+  NR_UE_RRC_INST_t *ue_rrc = &NR_UE_rrc_inst[ctxt_pP->module_id];
+  if (radioBearerConfig->srb_ToAddModList != NULL) {
+    if (radioBearerConfig->securityConfig != NULL) {
+      if (*radioBearerConfig->securityConfig->keyToUse == NR_SecurityConfig__keyToUse_master) {
+      ue_rrc->cipheringAlgorithm = radioBearerConfig->securityConfig->securityAlgorithmConfig->cipheringAlgorithm;
+      ue_rrc->integrityProtAlgorithm = *radioBearerConfig->securityConfig->securityAlgorithmConfig->integrityProtAlgorithm;
+      }
+    }
+
+    uint8_t kRRCenc[16] = {0};
+    uint8_t kRRCint[16] = {0};
+    nr_derive_key(RRC_ENC_ALG,
+                  NR_UE_rrc_inst[ctxt_pP->module_id].cipheringAlgorithm,
+                  NR_UE_rrc_inst[ctxt_pP->module_id].kgnb,
+                  kRRCenc);
+
+    nr_derive_key(RRC_INT_ALG,
+                  NR_UE_rrc_inst[ctxt_pP->module_id].integrityProtAlgorithm,
+                  NR_UE_rrc_inst[ctxt_pP->module_id].kgnb,
+                  kRRCint);
+
+    // Refresh SRBs
+    nr_pdcp_add_srbs(ctxt_pP->enb_flag,
+                    ctxt_pP->rntiMaybeUEid,
+                    radioBearerConfig->srb_ToAddModList,
+                    ue_rrc->cipheringAlgorithm | (ue_rrc->integrityProtAlgorithm << 4),
+                    kRRCenc,
+                    kRRCint, PC5);
+
+    // Refresh SRBs
+    nr_rlc_add_srb_sl(ctxt_pP->rntiMaybeUEid, 1, nr_rlc_BearerConfig);
+
+    for (int cnt = 0; cnt < radioBearerConfig->srb_ToAddModList->list.count; cnt++) {
+      SRB_id = radioBearerConfig->srb_ToAddModList->list.array[cnt]->srb_Identity;
+      LOG_D(NR_RRC, "[UE %d]: Frame %d SL-SRB config cnt %d (SL-SRB%ld)\n", ctxt_pP->module_id, ctxt_pP->frame, cnt, SRB_id);
+      if (SRB_id == 1) { // sl-srb1
+        if (NR_UE_rrc_inst[ctxt_pP->module_id].sl_SRB1_config[ue_index]) {
+          memcpy(NR_UE_rrc_inst[ctxt_pP->module_id].sl_SRB1_config[ue_index],
+                  radioBearerConfig->srb_ToAddModList->list.array[cnt], sizeof(NR_SRB_ToAddMod_t));
+        } else {
+          NR_UE_rrc_inst[ctxt_pP->module_id].sl_SRB1_config[ue_index] = radioBearerConfig->srb_ToAddModList->list.array[cnt];
+          nr_rrc_ue_establish_sl_srb1(ctxt_pP->module_id,
+                                      ctxt_pP->frame,
+                                      ue_index);
+
+          LOG_D(NR_RRC, "[FRAME %05d][RRC_UE][MOD %02d][][--- MAC_CONFIG_REQ  (SRB2 gNB %d) --->][MAC_UE][MOD %02d][]\n",
+                        ctxt_pP->frame, ctxt_pP->module_id, ue_index, ctxt_pP->module_id);
+        }
+      }
+    }
+  }
+
+  LOG_D(NR_RRC, "[UE %d] State = NR_RRC_CONNECTED (peer ue %d)\n", ctxt_pP->module_id, ue_index);
+}
  //-----------------------------------------------------------------------------
  void
  nr_rrc_ue_process_RadioBearerConfig(
@@ -1649,7 +1742,7 @@ int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
                       radioBearerConfig->srb_ToAddModList,
                       ue_rrc->cipheringAlgorithm | (ue_rrc->integrityProtAlgorithm << 4),
                       kRRCenc,
-                      kRRCint);
+                      kRRCint, UU);
      // Refresh SRBs
      nr_rrc_addmod_srbs(ctxt_pP->rntiMaybeUEid,
                         radioBearerConfig->srb_ToAddModList,
@@ -1776,13 +1869,742 @@ int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
    LOG_I(NR_RRC,"[UE %d] State = NR_RRC_CONNECTED (gNB %d)\n", ctxt_pP->module_id, gNB_index);
  }
 
+void extract_nr_sl_mac_logical_channel_config(struct NR_SL_LogicalChannelConfig_r16 *sl_MAC_LogicalChannelConfig_r16, struct NR_SL_LogicalChannelConfig_r16 *rcvd_sl_MAC_LogicalChannelConfig_r16) {
+  sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16 = CALLOC(1, sizeof(struct NR_SL_LogicalChannelConfig_r16__sl_AllowedCG_List_r16));
+
+  for (int j = 0; j < rcvd_sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16->list.count; j++) {
+    NR_SL_ConfigIndexCG_r16_t *sl_AllowedCG = CALLOC(1, sizeof(NR_SL_ConfigIndexCG_r16_t));
+    *sl_AllowedCG = *rcvd_sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16->list.array[j];
+    ASN_SEQUENCE_ADD(&sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16->list, sl_AllowedCG);
+  }
+  if (rcvd_sl_MAC_LogicalChannelConfig_r16->sl_ConfiguredGrantType1Allowed_r16) {
+    sl_MAC_LogicalChannelConfig_r16->sl_ConfiguredGrantType1Allowed_r16 = CALLOC(1, sizeof(long));
+    *sl_MAC_LogicalChannelConfig_r16->sl_ConfiguredGrantType1Allowed_r16 = *rcvd_sl_MAC_LogicalChannelConfig_r16->sl_ConfiguredGrantType1Allowed_r16;
+  }
+
+  if (rcvd_sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16) {
+    sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16 = CALLOC(1, sizeof(long));
+    *sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16 = *rcvd_sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16;
+  }
+
+  if (rcvd_sl_MAC_LogicalChannelConfig_r16->sl_MaxPUSCH_Duration_r16) {
+    sl_MAC_LogicalChannelConfig_r16->sl_MaxPUSCH_Duration_r16 = CALLOC(1, sizeof(long));
+    *sl_MAC_LogicalChannelConfig_r16->sl_MaxPUSCH_Duration_r16 = *rcvd_sl_MAC_LogicalChannelConfig_r16->sl_MaxPUSCH_Duration_r16;
+  }
+
+  if (rcvd_sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16) {
+    sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16 = CALLOC(1, sizeof(long));
+    *sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16 = *rcvd_sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16;
+  }
+
+  if (rcvd_sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16) {
+    sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16 = CALLOC(1, sizeof(struct NR_SL_LogicalChannelConfig_r16__sl_AllowedSCS_List_r16));
+    for (int j = 0; j < rcvd_sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16->list.count; j++) {
+      NR_SubcarrierSpacing_t *subCarrierSpacing = CALLOC(1, sizeof(NR_SubcarrierSpacing_t));
+      *subCarrierSpacing = *rcvd_sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16->list.array[j];
+      ASN_SEQUENCE_ADD(&sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16->list, subCarrierSpacing);
+    }
+  }
+
+  sl_MAC_LogicalChannelConfig_r16->sl_BucketSizeDuration_r16 = rcvd_sl_MAC_LogicalChannelConfig_r16->sl_BucketSizeDuration_r16;
+  sl_MAC_LogicalChannelConfig_r16->sl_Priority_r16 = rcvd_sl_MAC_LogicalChannelConfig_r16->sl_Priority_r16;
+  sl_MAC_LogicalChannelConfig_r16->sl_PrioritisedBitRate_r16 = rcvd_sl_MAC_LogicalChannelConfig_r16->sl_PrioritisedBitRate_r16;
+}
+
+void extract_nr_sl_rlc_config(NR_SL_RLC_Config_r16_t *sl_RLC_Config, NR_SL_RLC_Config_r16_t *rcvd_sl_RLC_Config_r16) {
+  if (rcvd_sl_RLC_Config_r16->present == NR_SL_RLC_Config_r16_PR_sl_AM_RLC_r16) {
+    sl_RLC_Config->choice.sl_AM_RLC_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_AM_RLC_r16));
+    sl_RLC_Config->present = rcvd_sl_RLC_Config_r16->present;
+    sl_RLC_Config->choice.sl_AM_RLC_r16->sl_MaxRetxThreshold_r16 = rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_MaxRetxThreshold_r16;
+    sl_RLC_Config->choice.sl_AM_RLC_r16->sl_PollByte_r16 = rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_PollByte_r16;
+    sl_RLC_Config->choice.sl_AM_RLC_r16->sl_PollPDU_r16 = rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_PollPDU_r16;
+    if (rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16 != NULL) {
+      sl_RLC_Config->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16 = CALLOC(1, sizeof(NR_SN_FieldLengthAM_t));
+      *sl_RLC_Config->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16 = *rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16;
+    }
+    sl_RLC_Config->choice.sl_AM_RLC_r16->sl_T_PollRetransmit_r16 = rcvd_sl_RLC_Config_r16->choice.sl_AM_RLC_r16->sl_T_PollRetransmit_r16;
+  } else if (rcvd_sl_RLC_Config_r16->present == NR_SL_RLC_Config_r16_PR_sl_UM_RLC_r16) {
+    sl_RLC_Config->present = rcvd_sl_RLC_Config_r16->present;
+    if (rcvd_sl_RLC_Config_r16->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16 != NULL) {
+      sl_RLC_Config->choice.sl_UM_RLC_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_UM_RLC_r16));
+      sl_RLC_Config->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16 = CALLOC(1, sizeof(long));
+      *sl_RLC_Config->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16 = *rcvd_sl_RLC_Config_r16->choice.sl_UM_RLC_r16->sl_SN_FieldLengthUM_r16;
+    }
+  }
+}
+
+void extract_nr_sl_scs_specific_carrier(NR_SL_FreqConfig_r16_t *sl_FreqInfoToAddMod, NR_SL_FreqConfig_r16_t *recvd_sl_FreqInfoToAddMod) {
+  for (int j = 0; j < recvd_sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list.count; j++) {
+    struct NR_SCS_SpecificCarrier *sl_SCS_SpecificCarrier = CALLOC(1, sizeof(NR_SCS_SpecificCarrier_t));
+    sl_SCS_SpecificCarrier->carrierBandwidth = recvd_sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list.array[j]->carrierBandwidth;
+    sl_SCS_SpecificCarrier->offsetToCarrier = recvd_sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list.array[j]->offsetToCarrier;
+    sl_SCS_SpecificCarrier->subcarrierSpacing = recvd_sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list.array[j]->subcarrierSpacing;
+    ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list, sl_SCS_SpecificCarrier);
+  }
+}
+
+void extract_nr_sl_SyncConfig(NR_SL_SyncConfig_r16_t *sl_syncconfig, NR_SL_SyncConfig_r16_t *rcvd_sl_syncconfig) {
+  // Hysteris when evaluating SyncRef UE
+  if (rcvd_sl_syncconfig->sl_SyncRefMinHyst_r16) {
+    sl_syncconfig->sl_SyncRefMinHyst_r16 = CALLOC(1, sizeof(long));
+    *sl_syncconfig->sl_SyncRefMinHyst_r16 = *rcvd_sl_syncconfig->sl_SyncRefMinHyst_r16;
+  }
+
+  // Hysteris when evaluating SyncRef UE
+  if (rcvd_sl_syncconfig->sl_SyncRefDiffHyst_r16) {
+    sl_syncconfig->sl_SyncRefDiffHyst_r16 = CALLOC(1, sizeof(long));
+    *sl_syncconfig->sl_SyncRefDiffHyst_r16 = *rcvd_sl_syncconfig->sl_SyncRefDiffHyst_r16;
+  }
+
+  // Filtering for SL RSRP
+  if (rcvd_sl_syncconfig->sl_filterCoefficient_r16) {
+    sl_syncconfig->sl_filterCoefficient_r16 = CALLOC(1, sizeof(long));
+    *sl_syncconfig->sl_filterCoefficient_r16 = *rcvd_sl_syncconfig->sl_filterCoefficient_r16;
+  }
+
+  // SSB Periodicity within 16 frames.
+  if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation1_r16) {
+    sl_syncconfig->sl_SSB_TimeAllocation1_r16 = CALLOC(1, sizeof(NR_SL_SSB_TimeAllocation_r16_t));
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_NumSSB_WithinPeriod_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_NumSSB_WithinPeriod_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_NumSSB_WithinPeriod_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_NumSSB_WithinPeriod_r16;
+    }
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_TimeOffsetSSB_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_TimeOffsetSSB_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_TimeOffsetSSB_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_TimeOffsetSSB_r16;
+    }
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_TimeInterval_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_TimeInterval_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_TimeInterval_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation1_r16->sl_TimeInterval_r16;
+    }
+  }
+
+  if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16) {
+    sl_syncconfig->sl_SSB_TimeAllocation2_r16 = CALLOC(1, sizeof(NR_SL_SSB_TimeAllocation_r16_t));
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_NumSSB_WithinPeriod_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_NumSSB_WithinPeriod_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_NumSSB_WithinPeriod_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_NumSSB_WithinPeriod_r16;
+    }
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeOffsetSSB_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeOffsetSSB_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeOffsetSSB_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeOffsetSSB_r16;
+    }
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeInterval_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeInterval_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeInterval_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation2_r16->sl_TimeInterval_r16;
+    }
+  }
+
+  if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16) {
+    sl_syncconfig->sl_SSB_TimeAllocation3_r16 = CALLOC(1, sizeof(NR_SL_SSB_TimeAllocation_r16_t));
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_NumSSB_WithinPeriod_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_NumSSB_WithinPeriod_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_NumSSB_WithinPeriod_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_NumSSB_WithinPeriod_r16;
+    }
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeOffsetSSB_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeOffsetSSB_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeOffsetSSB_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeOffsetSSB_r16;
+    }
+
+    if (rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeInterval_r16) {
+      sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeInterval_r16 = CALLOC(1, sizeof(long));
+      *sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeInterval_r16 = *rcvd_sl_syncconfig->sl_SSB_TimeAllocation3_r16->sl_TimeInterval_r16;
+    }
+  }
+
+  if (rcvd_sl_syncconfig->sl_SSID_r16) {
+    sl_syncconfig->sl_SSID_r16 = CALLOC(1, sizeof(long));
+    *sl_syncconfig->sl_SSID_r16 = *rcvd_sl_syncconfig->sl_SSID_r16;
+  }
+
+  if (rcvd_sl_syncconfig->txParameters_r16.syncTxThreshIC_r16) {
+    sl_syncconfig->txParameters_r16.syncTxThreshIC_r16 = CALLOC(1, sizeof(long));
+    *sl_syncconfig->txParameters_r16.syncTxThreshIC_r16 = *rcvd_sl_syncconfig->txParameters_r16.syncTxThreshIC_r16;
+  }
+
+  if (rcvd_sl_syncconfig->txParameters_r16.syncTxThreshOoC_r16) {
+    sl_syncconfig->txParameters_r16.syncTxThreshOoC_r16 = CALLOC(1, sizeof(long));
+    *sl_syncconfig->txParameters_r16.syncTxThreshOoC_r16 = *rcvd_sl_syncconfig->txParameters_r16.syncTxThreshOoC_r16;
+  }
+
+  if (rcvd_sl_syncconfig->gnss_Sync_r16) {
+    sl_syncconfig->gnss_Sync_r16 = CALLOC(1, sizeof(long));
+    *sl_syncconfig->gnss_Sync_r16 = *rcvd_sl_syncconfig->gnss_Sync_r16;
+  }
+}
+
+void extract_nr_sl_scheduled_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig,
+                                    NR_SetupRelease_SL_ScheduledConfig_r16_t *recvd_sl_ScheduledConfig,
+                                    NR_RNTI_Value_t sl_rnti)
+{
+  sl_ScheduledConfig->present = recvd_sl_ScheduledConfig->present;
+  sl_ScheduledConfig->choice.setup = CALLOC(1, sizeof(NR_SL_ScheduledConfig_r16_t));
+  struct NR_SL_ScheduledConfig_r16 *recvd_nr_sl_Scheduled_Config = recvd_sl_ScheduledConfig->choice.setup;
+  struct NR_SL_ScheduledConfig_r16 *nr_sl_Scheduled_Config = sl_ScheduledConfig->choice.setup;
+  if (recvd_nr_sl_Scheduled_Config) {
+    nr_sl_Scheduled_Config->sl_RNTI_r16 = (sl_rnti == -1) ? recvd_nr_sl_Scheduled_Config->sl_RNTI_r16 : sl_rnti;
+    if (recvd_nr_sl_Scheduled_Config->sl_CS_RNTI_r16) {
+      nr_sl_Scheduled_Config->sl_CS_RNTI_r16 = CALLOC(1, sizeof(NR_RNTI_Value_t));
+      *nr_sl_Scheduled_Config->sl_CS_RNTI_r16 = *recvd_nr_sl_Scheduled_Config->sl_CS_RNTI_r16;
+    }
+    if (recvd_nr_sl_Scheduled_Config->sl_PSFCH_ToPUCCH_r16) {
+      nr_sl_Scheduled_Config->sl_PSFCH_ToPUCCH_r16 = CALLOC(1, sizeof(struct NR_SL_ScheduledConfig_r16__sl_PSFCH_ToPUCCH_r16));
+      for (int i = 0; i < recvd_nr_sl_Scheduled_Config->sl_PSFCH_ToPUCCH_r16->list.count; i++) {
+        nr_sl_Scheduled_Config->sl_PSFCH_ToPUCCH_r16->list.array[i] = recvd_nr_sl_Scheduled_Config->sl_PSFCH_ToPUCCH_r16->list.array[i];
+      }
+    } else {
+      nr_sl_Scheduled_Config->sl_PSFCH_ToPUCCH_r16 = NULL;
+    }
+    struct NR_SL_ConfiguredGrantConfigList_r16 *recvd_sl_CG_ConfigList = recvd_nr_sl_Scheduled_Config->sl_ConfiguredGrantConfigList_r16;
+    if (recvd_sl_CG_ConfigList) {
+      nr_sl_Scheduled_Config->sl_ConfiguredGrantConfigList_r16 = CALLOC(1, sizeof(struct NR_SL_ConfiguredGrantConfigList_r16));
+      NR_SL_ConfiguredGrantConfigList_r16_t *sl_CG_ConfigList = nr_sl_Scheduled_Config->sl_ConfiguredGrantConfigList_r16;
+      sl_CG_ConfigList->sl_ConfiguredGrantConfigToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_ConfiguredGrantConfigList_r16__sl_ConfiguredGrantConfigToAddModList_r16));
+      struct NR_SL_ConfiguredGrantConfigList_r16__sl_ConfiguredGrantConfigToAddModList_r16 *recvd_sl_CGConfigToAddModList = recvd_sl_CG_ConfigList->sl_ConfiguredGrantConfigToAddModList_r16;
+      struct NR_SL_ConfiguredGrantConfigList_r16__sl_ConfiguredGrantConfigToAddModList_r16 *sl_CGConfigToAddModList = sl_CG_ConfigList->sl_ConfiguredGrantConfigToAddModList_r16;
+      if (recvd_sl_CGConfigToAddModList) {
+        for (int k = 0; k < recvd_sl_CGConfigToAddModList->list.count; k++) {
+          NR_SL_ConfiguredGrantConfig_r16_t *recvd_sl_CG_Config = recvd_sl_CGConfigToAddModList->list.array[k];
+          if (recvd_sl_CG_Config) {
+            NR_SL_ConfiguredGrantConfig_r16_t *sl_CG_Config = CALLOC(1, sizeof(NR_SL_ConfiguredGrantConfig_r16_t));
+            if (recvd_sl_CG_Config->sl_PeriodCG_r16) {
+              sl_CG_Config->sl_PeriodCG_r16 = CALLOC(1, sizeof(struct NR_SL_PeriodCG_r16));
+              sl_CG_Config->sl_PeriodCG_r16->present = recvd_sl_CG_Config->sl_PeriodCG_r16->present;
+              sl_CG_Config->sl_PeriodCG_r16->choice.sl_PeriodCG1_r16 = recvd_sl_CG_Config->sl_PeriodCG_r16->choice.sl_PeriodCG1_r16;
+            }
+            if (recvd_sl_CG_Config->sl_NrOfHARQ_Processes_r16) {
+              sl_CG_Config->sl_NrOfHARQ_Processes_r16 = CALLOC(1, sizeof(long));
+              *sl_CG_Config->sl_NrOfHARQ_Processes_r16 = *recvd_sl_CG_Config->sl_NrOfHARQ_Processes_r16;
+            }
+            if (recvd_sl_CG_Config->sl_HARQ_ProcID_offset_r16) {
+              sl_CG_Config->sl_HARQ_ProcID_offset_r16 = CALLOC(1, sizeof(long));
+              *sl_CG_Config->sl_HARQ_ProcID_offset_r16 = *recvd_sl_CG_Config->sl_HARQ_ProcID_offset_r16;
+            }
+            if (recvd_sl_CG_Config->sl_CG_MaxTransNumList_r16) {
+              sl_CG_Config->sl_CG_MaxTransNumList_r16 = CALLOC(1, sizeof(struct NR_SL_CG_MaxTransNumList_r16));
+              for (int i = 0; i < recvd_sl_CG_Config->sl_CG_MaxTransNumList_r16->list.count; i++) {
+                NR_SL_CG_MaxTransNum_r16_t *sl_CG_MaxTransNum = CALLOC(1, sizeof(NR_SL_CG_MaxTransNum_r16_t));
+                sl_CG_MaxTransNum->sl_Priority_r16 = recvd_sl_CG_Config->sl_CG_MaxTransNumList_r16->list.array[i]->sl_Priority_r16;
+                sl_CG_MaxTransNum->sl_MaxTransNum_r16 = recvd_sl_CG_Config->sl_CG_MaxTransNumList_r16->list.array[i]->sl_MaxTransNum_r16;
+                ASN_SEQUENCE_ADD(&sl_CG_Config->sl_CG_MaxTransNumList_r16->list, sl_CG_MaxTransNum);
+              }
+            }
+            if (recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16) {
+              sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16 = CALLOC(1, sizeof(struct NR_SL_ConfiguredGrantConfig_r16__rrc_ConfiguredSidelinkGrant_r16));
+              if (recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16) {
+                sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16 = CALLOC(1, sizeof(long));
+                *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16 = *recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16;
+              }
+              if (recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_N1PUCCH_AN_r16) {
+                sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_N1PUCCH_AN_r16 = CALLOC(1, sizeof(long));
+                *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_N1PUCCH_AN_r16 = *recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_N1PUCCH_AN_r16;
+              }
+              if (recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16) {
+                sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16 = CALLOC(1, sizeof(long));
+                *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16 = *recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16;
+              }
+              if (recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_ResourcePoolID_r16) {
+                sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_ResourcePoolID_r16 = CALLOC(1, sizeof(long));
+                *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_ResourcePoolID_r16 = *recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_ResourcePoolID_r16;
+              }
+              if (recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16) {
+                sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16 = CALLOC(1, sizeof(long));
+                *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16 = *recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16;
+              }
+              if (recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeOffsetCG_Type1_r16) {
+                sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeOffsetCG_Type1_r16 = CALLOC(1, sizeof(long));
+                *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeOffsetCG_Type1_r16 = *recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeOffsetCG_Type1_r16;
+              }
+              if (recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeReferenceSFN_Type1_r16) {
+                sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeReferenceSFN_Type1_r16 = CALLOC(1, sizeof(long));
+                *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeReferenceSFN_Type1_r16 = *recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeReferenceSFN_Type1_r16;
+              }
+              if (recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16) {
+                sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16 = CALLOC(1, sizeof(long));
+                *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16 = *recvd_sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16;
+              }
+            }
+            ASN_SEQUENCE_ADD(&sl_CGConfigToAddModList->list, sl_CG_Config);
+          }
+        }
+      }
+    }
+  }
+}
+
+void extract_nr_sl_rlc_bearer_config(NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig, NR_SL_RLC_BearerConfig_r16_t *rcvd_sl_RLC_BearerConfig) {
+  if (rcvd_sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16) {
+    sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16 = CALLOC(1, sizeof(NR_SL_LogicalChannelConfig_r16_t));
+    extract_nr_sl_mac_logical_channel_config(sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16, rcvd_sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16);
+  }
+
+  sl_RLC_BearerConfig->sl_RLC_BearerConfigIndex_r16 = rcvd_sl_RLC_BearerConfig->sl_RLC_BearerConfigIndex_r16;
+
+  if (rcvd_sl_RLC_BearerConfig->sl_RLC_Config_r16) {
+    sl_RLC_BearerConfig->sl_RLC_Config_r16 = CALLOC(1, sizeof(NR_SL_RLC_Config_r16_t));
+    extract_nr_sl_rlc_config(sl_RLC_BearerConfig->sl_RLC_Config_r16, rcvd_sl_RLC_BearerConfig->sl_RLC_Config_r16);
+  }
+
+  sl_RLC_BearerConfig->sl_ServedRadioBearer_r16 = NULL;
+}
+
+void extract_nr_sl_FreqInfoToAddMod(NR_SL_FreqConfig_r16_t *sl_FreqInfoToAddMod, NR_SL_FreqConfig_r16_t *recvd_sl_FreqInfoToAddMod) {
+  if (recvd_sl_FreqInfoToAddMod->frequencyShift7p5khzSL_r16) {
+    sl_FreqInfoToAddMod->frequencyShift7p5khzSL_r16 = CALLOC(1, sizeof(long));
+    *sl_FreqInfoToAddMod->frequencyShift7p5khzSL_r16 = *recvd_sl_FreqInfoToAddMod->frequencyShift7p5khzSL_r16;
+  }
+
+  if (recvd_sl_FreqInfoToAddMod->sl_AbsoluteFrequencyPointA_r16) {
+    sl_FreqInfoToAddMod->sl_AbsoluteFrequencyPointA_r16 = CALLOC(1, sizeof(NR_ARFCN_ValueNR_t));;
+    *sl_FreqInfoToAddMod->sl_AbsoluteFrequencyPointA_r16 = *recvd_sl_FreqInfoToAddMod->sl_AbsoluteFrequencyPointA_r16;
+  }
+
+  if (recvd_sl_FreqInfoToAddMod->sl_AbsoluteFrequencySSB_r16) {
+    sl_FreqInfoToAddMod->sl_AbsoluteFrequencySSB_r16 = CALLOC(1, sizeof(NR_ARFCN_ValueNR_t));;
+    *sl_FreqInfoToAddMod->sl_AbsoluteFrequencySSB_r16 = *recvd_sl_FreqInfoToAddMod->sl_AbsoluteFrequencySSB_r16;
+  }
+
+  sl_FreqInfoToAddMod->sl_Freq_Id_r16 = recvd_sl_FreqInfoToAddMod->sl_Freq_Id_r16;
+
+  if (recvd_sl_FreqInfoToAddMod->sl_SyncPriority_r16) {
+    sl_FreqInfoToAddMod->sl_SyncPriority_r16 = CALLOC(1, sizeof(long));
+    *sl_FreqInfoToAddMod->sl_SyncPriority_r16 = *recvd_sl_FreqInfoToAddMod->sl_SyncPriority_r16;
+  }
+
+  sl_FreqInfoToAddMod->valueN_r16 = recvd_sl_FreqInfoToAddMod->valueN_r16;
+
+  if (recvd_sl_FreqInfoToAddMod->sl_BWP_ToReleaseList_r16) {
+    sl_FreqInfoToAddMod->sl_BWP_ToReleaseList_r16 = CALLOC(1, sizeof(struct NR_SL_FreqConfig_r16__sl_BWP_ToReleaseList_r16));
+    for (int k = 0; k < recvd_sl_FreqInfoToAddMod->sl_BWP_ToReleaseList_r16->list.count; k++) {
+      NR_BWP_Id_t *nr_bwd_id = CALLOC(1, sizeof(NR_BWP_Id_t));
+      *nr_bwd_id = *recvd_sl_FreqInfoToAddMod->sl_BWP_ToReleaseList_r16->list.array[k];
+      ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_BWP_ToReleaseList_r16->list, nr_bwd_id);
+    }
+  }
+}
+
+void extract_nr_sl_bwp_generic(NR_SL_BWP_Config_r16_t *sl_BWP_ToAddMod, NR_SL_BWP_Config_r16_t *recvd_sl_BWP_ToAddMod) {
+  sl_BWP_ToAddMod->sl_BWP_Id = recvd_sl_BWP_ToAddMod->sl_BWP_Id;
+  sl_BWP_ToAddMod->sl_BWP_Generic_r16 = CALLOC(1, sizeof(NR_SL_BWP_Generic_r16_t));
+  sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_BWP_r16 = CALLOC(1, sizeof(NR_BWP_t));
+  sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_LengthSymbols_r16 = CALLOC(1, sizeof(long));
+  sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_StartSymbol_r16 = CALLOC(1, sizeof(long));
+  if (recvd_sl_BWP_ToAddMod->sl_BWP_Generic_r16) {
+    if (recvd_sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_BWP_r16->cyclicPrefix) {
+      sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_BWP_r16->cyclicPrefix = CALLOC(1, sizeof(long));
+      *sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_BWP_r16->cyclicPrefix = *recvd_sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_BWP_r16->cyclicPrefix;
+    }
+    sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_BWP_r16->locationAndBandwidth = recvd_sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_BWP_r16->locationAndBandwidth;
+    sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_BWP_r16->subcarrierSpacing = recvd_sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_BWP_r16->subcarrierSpacing;
+    if (recvd_sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_LengthSymbols_r16) {
+      *sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_LengthSymbols_r16 = *recvd_sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_LengthSymbols_r16;
+    }
+    if (recvd_sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_StartSymbol_r16) {
+      *sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_StartSymbol_r16 = *recvd_sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_StartSymbol_r16;
+    }
+
+  } else {
+    sl_BWP_ToAddMod->sl_BWP_Generic_r16 = NULL;
+  }
+}
+
+static void get_mu_from_bwp_id(NR_SL_BWP_Config_r16_t *nr_sl_BWP_Config, uint8_t *mu) {
+  *mu = nr_sl_BWP_Config->sl_BWP_Generic_r16->sl_BWP_r16->subcarrierSpacing;
+}
+
+uint8_t extract_sl_phy_mac_rlc_config(NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RLC_Config,
+                                   NR_SL_PHY_MAC_RLC_Config_r16_t *rcvd_sl_PHY_MAC_RLC_Config,
+                                   NR_RNTI_Value_t sl_rnti,
+                                   bool relay_to_remote_ue) {
+  // extract sl_ScheduledConfig
+  if (rcvd_sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16)
+    *sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = *rcvd_sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16;
+
+  NR_SetupRelease_SL_ScheduledConfig_r16_t *recv_sl_ScheduledConfig = rcvd_sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
+  if (recv_sl_ScheduledConfig) {
+    if (sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16) {
+      free_nr_sl_ScheduledConfig_r16(sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16);
+    }
+    sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ScheduledConfig_r16_t));
+    NR_SetupRelease_SL_ScheduledConfig_r16_t *sl_ScheduledConfig = sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
+    extract_nr_sl_scheduled_config(sl_ScheduledConfig, recv_sl_ScheduledConfig, sl_rnti);
+  }
+  // extract sl_RLC_BearerConfig
+  if (rcvd_sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16) {
+    for (int i = 0; i < rcvd_sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list.count; i++) {
+      NR_SL_RLC_BearerConfig_r16_t *rcvd_sl_RLC_BearerConfig = rcvd_sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list.array[i];
+      if (rcvd_sl_RLC_BearerConfig) {
+        sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16__sl_RLC_BearerToAddModList_r16));
+        NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig = CALLOC(1, sizeof(NR_SL_RLC_BearerConfig_r16_t));
+        extract_nr_sl_rlc_bearer_config(sl_RLC_BearerConfig, rcvd_sl_RLC_BearerConfig);
+        ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list, sl_RLC_BearerConfig);
+      }
+    }
+  }
+  // extract sl_FreqInfoToAddMod
+  NR_SL_FreqConfig_r16_t *sl_FreqInfoToAddMod = CALLOC(1, sizeof(NR_SL_FreqConfig_r16_t));
+  uint8_t mu = 0;
+  for (int i = 0; i < rcvd_sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.count; i++) {
+    NR_SL_FreqConfig_r16_t *recvd_sl_FreqInfoToAddMod = rcvd_sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.array[i];
+    if (recvd_sl_FreqInfoToAddMod) {
+      extract_nr_sl_FreqInfoToAddMod(sl_FreqInfoToAddMod, recvd_sl_FreqInfoToAddMod);
+      if (recvd_sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list.count > 0) {
+        extract_nr_sl_scs_specific_carrier(sl_FreqInfoToAddMod, recvd_sl_FreqInfoToAddMod);
+      }
+
+      if (recvd_sl_FreqInfoToAddMod->sl_SyncConfigList_r16) {
+        sl_FreqInfoToAddMod->sl_SyncConfigList_r16 = CALLOC(1, sizeof(NR_SL_SyncConfigList_r16_t));
+        for (int k = 0; k < recvd_sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list.count; k++) {
+          struct NR_SL_SyncConfig_r16 *recvd_sl_SyncConfig = recvd_sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list.array[k];
+          if (recvd_sl_SyncConfig) {
+            NR_SL_SyncConfig_r16_t *sl_SyncConfig = CALLOC(1, sizeof(NR_SL_SyncConfig_r16_t));
+            ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list, sl_SyncConfig);
+            // extract config info related to rx and tx of SL SYNC SIGNALS (SLSS)
+            extract_nr_sl_SyncConfig(sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list.array[k], recvd_sl_SyncConfig);
+          }
+        }
+      }
+
+      sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16__sl_FreqInfoToAddModList_r16));
+      ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list, sl_FreqInfoToAddMod);
+      for (int j = 0; j < recvd_sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list.count; j++) {
+        NR_SL_BWP_Config_r16_t *recvd_sl_BWP_ToAddMod = recvd_sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list.array[j];
+        NR_SL_BWP_Config_r16_t *sl_BWP_ToAddMod = CALLOC(1, sizeof(NR_SL_BWP_Config_r16_t));
+
+        if (recvd_sl_BWP_ToAddMod) {
+          // extract config info related to nr_sl_bwp_generic
+          extract_nr_sl_bwp_generic(sl_BWP_ToAddMod, recvd_sl_BWP_ToAddMod);
+
+          // sl_RxPool
+          sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16 = CALLOC(1, sizeof(NR_SL_BWP_PoolConfig_r16_t));
+          sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_RxPool_r16 = CALLOC(1, sizeof(struct NR_SL_BWP_PoolConfig_r16__sl_RxPool_r16));
+          for (int k = 0; k < recvd_sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.count; k++) {
+            NR_SL_ResourcePool_r16_t *recvd_sl_RxPool = recvd_sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list.array[k];
+            NR_SL_ResourcePool_r16_t *sl_RxPool_r16 = CALLOC(1, sizeof(NR_SL_ResourcePool_r16_t));
+            LOG_D(RRC, "Extracting nr rx sl resource pool\n");
+            extract_nr_sl_ResourcePool(sl_RxPool_r16, recvd_sl_RxPool, relay_to_remote_ue);
+            ASN_SEQUENCE_ADD(&sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_RxPool_r16->list, sl_RxPool_r16);
+          }
+          // sl_TxPool
+          sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16 = CALLOC(1, sizeof(NR_SL_TxPoolDedicated_r16_t));
+          sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_TxPoolDedicated_r16__sl_PoolToAddModList_r16));
+          for (int k = 0; k < recvd_sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.count; k++) {
+            struct NR_SL_ResourcePoolConfig_r16 *recvd_sl_TxPoolConfig = recvd_sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list.array[k];
+            NR_SL_ResourcePoolConfig_r16_t *sl_ResourcePoolConfig = CALLOC(1, sizeof(NR_SL_ResourcePoolConfig_r16_t));
+            sl_ResourcePoolConfig->sl_ResourcePool_r16 = CALLOC(1, sizeof(NR_SL_ResourcePool_r16_t));
+            sl_ResourcePoolConfig->sl_ResourcePoolID_r16 = recvd_sl_TxPoolConfig->sl_ResourcePoolID_r16;
+            LOG_D(RRC, "Extracting nr rx sl resource pool\n");
+            extract_nr_sl_ResourcePool(sl_ResourcePoolConfig->sl_ResourcePool_r16, recvd_sl_TxPoolConfig->sl_ResourcePool_r16, relay_to_remote_ue);
+            ASN_SEQUENCE_ADD(&sl_BWP_ToAddMod->sl_BWP_PoolConfig_r16->sl_TxPoolScheduling_r16->sl_PoolToAddModList_r16->list, sl_ResourcePoolConfig);
+          }
+        }
+        sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.array[i]->sl_BWP_ToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_FreqConfig_r16__sl_BWP_ToAddModList_r16));
+        ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list.array[i]->sl_BWP_ToAddModList_r16->list, sl_BWP_ToAddMod);
+      } // sl_BWP_ToAddModList_r16->list.count
+    }
+    // FIXIT: current mu value considers same subcarrierspacing for all the bwps
+    uint8_t bwp_id = 0;
+    NR_SL_BWP_Config_r16_t *nr_sl_BWP_Config = recvd_sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list.array[bwp_id];
+    get_mu_from_bwp_id(nr_sl_BWP_Config, &mu);
+  } // sl_FreqInfoToAddMod
+  AssertFatal(mu == 1, "mu %d is not supported!!!\n", mu);
+  return mu;
+}
+
+void nr_rrc_ue_process_sl_ConfigDedicatedNR(const protocol_ctxt_t *const ctxt_pP,
+                                            const uint8_t gNB_index,
+                                            NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_conf) {
+  LOG_D(NR_RRC,"[UE %d] SFN/SF %d/%d: Processing sl_ConfigDedicatedNR %p\n",
+        ctxt_pP->module_id, ctxt_pP->frame, ctxt_pP->subframe, sl_conf);
+  NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[ctxt_pP->module_id];
+  uint8_t mu = 0;
+  if (sl_conf) {
+    rrc->sl_dedicated_cfg = CALLOC(1, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
+    if (sl_conf->present == NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_setup) {
+      rrc->sl_dedicated_cfg->present = sl_conf->present;
+      if (sl_conf->choice.setup) {
+        rrc->sl_dedicated_cfg->choice.setup = CALLOC(1, sizeof(NR_SL_ConfigDedicatedNR_r16_t));
+        if (sl_conf->choice.setup->sl_PHY_MAC_RLC_Config_r16) {
+          rrc->sl_dedicated_cfg->choice.setup->sl_PHY_MAC_RLC_Config_r16 = CALLOC(1, sizeof(NR_SL_PHY_MAC_RLC_Config_r16_t));
+          NR_SL_PHY_MAC_RLC_Config_r16_t *sl_PHY_MAC_RLC_Config = rrc->sl_dedicated_cfg->choice.setup->sl_PHY_MAC_RLC_Config_r16;
+          NR_SL_PHY_MAC_RLC_Config_r16_t *rcvd_sl_PHY_MAC_RLC_Config = sl_conf->choice.setup->sl_PHY_MAC_RLC_Config_r16;
+          sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = CALLOC(1, sizeof(long));
+          NR_RNTI_Value_t sl_rnti = -1; // -1 means read from rcvd_sl_PHY_MAC_RLC_Config otherwise it is set to remote UE sl_rnti on relay UE
+          bool relay_to_remote_ue = false;
+          mu = extract_sl_phy_mac_rlc_config(sl_PHY_MAC_RLC_Config, rcvd_sl_PHY_MAC_RLC_Config, sl_rnti, relay_to_remote_ue);
+          if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
+            xer_fprint(stdout, &asn_DEF_NR_SL_PHY_MAC_RLC_Config_r16, (void *)sl_PHY_MAC_RLC_Config);
+          }
+        } // rcvd_sl_PHY_MAC_RLC_Config
+      }
+    }
+  }
+  uint8_t is_sync_source = get_nrUE_params()->sync_ref;
+  NR_UE_MAC_INST_t *mac = get_mac_inst(ctxt_pP->module_id);
+  nr_UE_configure_Sidelink_Dedicated_Cfg(0, is_sync_source, mac->src_id, mu);
+}
+
+// Process PSCCH Configurations received from gNB
+void extract_nr_sl_PSCCH_Config(NR_SL_PSCCH_Config_r16_t *recvd_sl_PSCCH_Config, NR_SL_PSCCH_Config_r16_t *targeted_sl_PSCCH_Config) {
+  if (recvd_sl_PSCCH_Config->sl_DMRS_ScrambleID_r16) {
+    targeted_sl_PSCCH_Config->sl_DMRS_ScrambleID_r16 = CALLOC(1, sizeof(long));
+    *targeted_sl_PSCCH_Config->sl_DMRS_ScrambleID_r16 = *recvd_sl_PSCCH_Config->sl_DMRS_ScrambleID_r16;
+  }
+
+  if (recvd_sl_PSCCH_Config->sl_FreqResourcePSCCH_r16) {
+    targeted_sl_PSCCH_Config->sl_FreqResourcePSCCH_r16 = CALLOC(1, sizeof(long));
+    *targeted_sl_PSCCH_Config->sl_FreqResourcePSCCH_r16 = *recvd_sl_PSCCH_Config->sl_FreqResourcePSCCH_r16;
+  }
+
+  if (recvd_sl_PSCCH_Config->sl_NumReservedBits_r16) {
+    targeted_sl_PSCCH_Config->sl_NumReservedBits_r16 = CALLOC(1, sizeof(long));
+    *targeted_sl_PSCCH_Config->sl_NumReservedBits_r16 = *recvd_sl_PSCCH_Config->sl_NumReservedBits_r16;
+  }
+
+  if (recvd_sl_PSCCH_Config->sl_TimeResourcePSCCH_r16) {
+    targeted_sl_PSCCH_Config->sl_TimeResourcePSCCH_r16 = CALLOC(1, sizeof(long));
+    *targeted_sl_PSCCH_Config->sl_TimeResourcePSCCH_r16 = *recvd_sl_PSCCH_Config->sl_TimeResourcePSCCH_r16;
+  }
+}
+
+// Process PSSCH Configurations received from gNB
+void extract_nr_sl_PSSCH_Config(NR_SL_PSSCH_Config_r16_t *recvd_sl_PSSCH_Config, NR_SL_PSSCH_Config_r16_t *targeted_sl_PSSCH_Config) {
+  if (recvd_sl_PSSCH_Config->sl_BetaOffsets2ndSCI_r16) {
+    targeted_sl_PSSCH_Config->sl_BetaOffsets2ndSCI_r16 = CALLOC(1, sizeof(struct NR_SL_PSSCH_Config_r16__sl_BetaOffsets2ndSCI_r16));
+    for (int i = 0; i < recvd_sl_PSSCH_Config->sl_BetaOffsets2ndSCI_r16->list.count; i++) {
+      NR_SL_BetaOffsets_r16_t *nr_sl_BetaOffsets = CALLOC(1, sizeof(NR_SL_BetaOffsets_r16_t));
+      *nr_sl_BetaOffsets = *recvd_sl_PSSCH_Config->sl_BetaOffsets2ndSCI_r16->list.array[i];
+      ASN_SEQUENCE_ADD(&targeted_sl_PSSCH_Config->sl_BetaOffsets2ndSCI_r16->list, nr_sl_BetaOffsets);
+    }
+  }
+
+  if (recvd_sl_PSSCH_Config->sl_Scaling_r16) {
+    targeted_sl_PSSCH_Config->sl_Scaling_r16 = CALLOC(1, sizeof(long));
+    *targeted_sl_PSSCH_Config->sl_Scaling_r16 = *recvd_sl_PSSCH_Config->sl_Scaling_r16;
+  }
+
+  if (recvd_sl_PSSCH_Config->sl_PSSCH_DMRS_TimePatternList_r16) {
+    targeted_sl_PSSCH_Config->sl_PSSCH_DMRS_TimePatternList_r16 = CALLOC(1, sizeof(struct NR_SL_PSSCH_Config_r16__sl_PSSCH_DMRS_TimePatternList_r16));
+    for (int i = 0; i < recvd_sl_PSSCH_Config->sl_PSSCH_DMRS_TimePatternList_r16->list.count; i++) {
+      long* recvd_sl_PSSCH_DMRS_TimePattern = recvd_sl_PSSCH_Config->sl_PSSCH_DMRS_TimePatternList_r16->list.array[i];
+      long* sl_PSSCH_DMRS_TimePattern = CALLOC(1, sizeof(long));
+      *sl_PSSCH_DMRS_TimePattern = *recvd_sl_PSSCH_DMRS_TimePattern;
+      ASN_SEQUENCE_ADD(&targeted_sl_PSSCH_Config->sl_PSSCH_DMRS_TimePatternList_r16->list,  sl_PSSCH_DMRS_TimePattern);
+    }
+  }
+}
+
+// Process PSFCH Configurations received from gNB
+void extract_nr_sl_PSFCH_Config(NR_SL_PSFCH_Config_r16_t *recvd_sl_PSFCH_Config, NR_SL_PSFCH_Config_r16_t *targeted_sl_PSFCH_Config) {
+  if (recvd_sl_PSFCH_Config->sl_PSFCH_Period_r16) {
+    targeted_sl_PSFCH_Config->sl_PSFCH_Period_r16 = CALLOC(1, sizeof(long));
+    *targeted_sl_PSFCH_Config->sl_PSFCH_Period_r16 = *recvd_sl_PSFCH_Config->sl_PSFCH_Period_r16;
+  }
+
+  if (recvd_sl_PSFCH_Config->sl_PSFCH_HopID_r16) {
+    targeted_sl_PSFCH_Config->sl_PSFCH_HopID_r16 = CALLOC(1, sizeof(long));
+    *targeted_sl_PSFCH_Config->sl_PSFCH_HopID_r16 = *recvd_sl_PSFCH_Config->sl_PSFCH_HopID_r16;
+  }
+
+  if (recvd_sl_PSFCH_Config->sl_NumMuxCS_Pair_r16) {
+    targeted_sl_PSFCH_Config->sl_NumMuxCS_Pair_r16 = CALLOC(1, sizeof(long));
+    *targeted_sl_PSFCH_Config->sl_NumMuxCS_Pair_r16 = *recvd_sl_PSFCH_Config->sl_NumMuxCS_Pair_r16;
+  }
+
+  if (recvd_sl_PSFCH_Config->sl_MinTimeGapPSFCH_r16) {
+    targeted_sl_PSFCH_Config->sl_MinTimeGapPSFCH_r16 = CALLOC(1, sizeof(long));
+    *targeted_sl_PSFCH_Config->sl_MinTimeGapPSFCH_r16 = *recvd_sl_PSFCH_Config->sl_MinTimeGapPSFCH_r16;
+  }
+
+  if (recvd_sl_PSFCH_Config->sl_PSFCH_CandidateResourceType_r16) {
+    targeted_sl_PSFCH_Config->sl_PSFCH_CandidateResourceType_r16 = CALLOC(1, sizeof(long));
+    *targeted_sl_PSFCH_Config->sl_PSFCH_CandidateResourceType_r16 = *recvd_sl_PSFCH_Config->sl_PSFCH_CandidateResourceType_r16;
+  }
+
+  if (recvd_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16) {
+    if (*recvd_sl_PSFCH_Config->sl_PSFCH_Period_r16 > 0) {
+      targeted_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16 = CALLOC(1, sizeof(BIT_STRING_t));
+      targeted_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16->size = recvd_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16->size;
+      targeted_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16->bits_unused = recvd_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16->bits_unused;
+      targeted_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16->buf = CALLOC(recvd_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16->size, sizeof(uint8_t));
+      memcpy(targeted_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16->buf, recvd_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16->buf, recvd_sl_PSFCH_Config->sl_PSFCH_RB_Set_r16->size);
+    }
+  }
+}
+
+// Process PSFCH Configurations received from gNB
+void extract_nr_sl_Rest_ResourcePool_Config(struct NR_SL_ResourcePool_r16 *sl_ResourcePool, struct NR_SL_ResourcePool_r16 *recvd_sl_RxPool, bool relay_to_remote_ue) {
+  if (recvd_sl_RxPool->sl_SyncAllowed_r16) {
+    sl_ResourcePool->sl_SyncAllowed_r16 = CALLOC(1, sizeof(NR_SL_SyncAllowed_r16_t));
+    if (recvd_sl_RxPool->sl_SyncAllowed_r16->gnbEnb_Sync_r16) {
+      sl_ResourcePool->sl_SyncAllowed_r16->gnbEnb_Sync_r16 = CALLOC(1, sizeof(long));
+      *sl_ResourcePool->sl_SyncAllowed_r16->gnbEnb_Sync_r16 = *recvd_sl_RxPool->sl_SyncAllowed_r16->gnbEnb_Sync_r16;
+    }
+    if (recvd_sl_RxPool->sl_SyncAllowed_r16->gnss_Sync_r16) {
+      sl_ResourcePool->sl_SyncAllowed_r16->gnss_Sync_r16 = CALLOC(1, sizeof(long));
+      *sl_ResourcePool->sl_SyncAllowed_r16->gnss_Sync_r16 = *recvd_sl_RxPool->sl_SyncAllowed_r16->gnss_Sync_r16;
+    }
+    if (recvd_sl_RxPool->sl_SyncAllowed_r16->ue_Sync_r16) {
+      sl_ResourcePool->sl_SyncAllowed_r16->ue_Sync_r16 = CALLOC(1, sizeof(long));
+      *sl_ResourcePool->sl_SyncAllowed_r16->ue_Sync_r16 = *recvd_sl_RxPool->sl_SyncAllowed_r16->ue_Sync_r16;
+    }
+  }
+
+  if (recvd_sl_RxPool->sl_SubchannelSize_r16) {
+    sl_ResourcePool->sl_SubchannelSize_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_SubchannelSize_r16 = *recvd_sl_RxPool->sl_SubchannelSize_r16;
+  }
+
+  if (recvd_sl_RxPool->dummy) {
+    sl_ResourcePool->dummy = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->dummy = *recvd_sl_RxPool->dummy;
+  }
+
+  if (recvd_sl_RxPool->sl_StartRB_Subchannel_r16) {
+    sl_ResourcePool->sl_StartRB_Subchannel_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_StartRB_Subchannel_r16 = *recvd_sl_RxPool->sl_StartRB_Subchannel_r16;
+  }
+
+  if (recvd_sl_RxPool->sl_NumSubchannel_r16) {
+    sl_ResourcePool->sl_NumSubchannel_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_NumSubchannel_r16 = *recvd_sl_RxPool->sl_NumSubchannel_r16;
+  }
+
+  if (recvd_sl_RxPool->sl_Additional_MCS_Table_r16) {
+    sl_ResourcePool->sl_Additional_MCS_Table_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_Additional_MCS_Table_r16 = *recvd_sl_RxPool->sl_Additional_MCS_Table_r16;
+  }
+
+  if (recvd_sl_RxPool->sl_ThreshS_RSSI_CBR_r16) {
+    sl_ResourcePool->sl_ThreshS_RSSI_CBR_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_ThreshS_RSSI_CBR_r16 = *recvd_sl_RxPool->sl_ThreshS_RSSI_CBR_r16;
+  }
+
+  if (recvd_sl_RxPool->sl_TimeWindowSizeCBR_r16) {
+    sl_ResourcePool->sl_TimeWindowSizeCBR_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_TimeWindowSizeCBR_r16 = *recvd_sl_RxPool->sl_TimeWindowSizeCBR_r16;
+  }
+
+  if (recvd_sl_RxPool->sl_TimeWindowSizeCR_r16) {
+    sl_ResourcePool->sl_TimeWindowSizeCR_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_TimeWindowSizeCR_r16 = *recvd_sl_RxPool->sl_TimeWindowSizeCR_r16;
+  }
+
+  if (recvd_sl_RxPool->sl_UE_SelectedConfigRP_r16) {
+    sl_ResourcePool->sl_UE_SelectedConfigRP_r16 = CALLOC(1, sizeof(struct NR_SL_UE_SelectedConfigRP_r16));
+    sl_ResourcePool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16 = *recvd_sl_RxPool->sl_UE_SelectedConfigRP_r16->sl_MaxNumPerReserve_r16;
+  }
+
+  if (recvd_sl_RxPool->sl_RxParametersNcell_r16) {
+    sl_ResourcePool->sl_RxParametersNcell_r16 = CALLOC(1, sizeof(struct NR_SL_ResourcePool_r16__sl_RxParametersNcell_r16));
+    sl_ResourcePool->sl_RxParametersNcell_r16->sl_SyncConfigIndex_r16 = recvd_sl_RxPool->sl_RxParametersNcell_r16->sl_SyncConfigIndex_r16;
+    sl_ResourcePool->sl_RxParametersNcell_r16->sl_TDD_Configuration_r16 = CALLOC(1, sizeof(struct NR_TDD_UL_DL_ConfigCommon));
+    struct NR_TDD_UL_DL_ConfigCommon *sl_TDD_Configuration_r16 = sl_ResourcePool->sl_RxParametersNcell_r16->sl_TDD_Configuration_r16;
+    sl_TDD_Configuration_r16->pattern1.ext1 = NULL;
+    sl_TDD_Configuration_r16->pattern2 = NULL;
+    struct NR_TDD_UL_DL_ConfigCommon *recvd_sl_TDD_Configuration_r16 = recvd_sl_RxPool->sl_RxParametersNcell_r16->sl_TDD_Configuration_r16;
+    sl_TDD_Configuration_r16->referenceSubcarrierSpacing = recvd_sl_TDD_Configuration_r16->referenceSubcarrierSpacing;
+    sl_TDD_Configuration_r16->pattern1.dl_UL_TransmissionPeriodicity = recvd_sl_TDD_Configuration_r16->pattern1.dl_UL_TransmissionPeriodicity;
+    sl_TDD_Configuration_r16->pattern1.nrofDownlinkSlots = recvd_sl_TDD_Configuration_r16->pattern1.nrofDownlinkSlots;
+    sl_TDD_Configuration_r16->pattern1.nrofDownlinkSymbols = recvd_sl_TDD_Configuration_r16->pattern1.nrofDownlinkSymbols;
+    sl_TDD_Configuration_r16->pattern1.nrofUplinkSlots = recvd_sl_TDD_Configuration_r16->pattern1.nrofUplinkSlots;
+    sl_TDD_Configuration_r16->pattern1.nrofUplinkSymbols = recvd_sl_TDD_Configuration_r16->pattern1.nrofUplinkSymbols;
+  }
+
+  sl_ResourcePool->sl_FilterCoefficient_r16 = NULL;
+
+  if (recvd_sl_RxPool->sl_RB_Number_r16) {
+    sl_ResourcePool->sl_RB_Number_r16 = CALLOC(1, sizeof(long));
+    *sl_ResourcePool->sl_RB_Number_r16 = *recvd_sl_RxPool->sl_RB_Number_r16;
+  }
+
+  sl_ResourcePool->sl_PreemptionEnable_r16 = NULL;
+  sl_ResourcePool->sl_PriorityThreshold_UL_URLLC_r16 = NULL;
+  sl_ResourcePool->sl_PriorityThreshold_r16 = NULL;
+  sl_ResourcePool->sl_X_Overhead_r16 = NULL;
+
+  if (recvd_sl_RxPool->sl_PowerControl_r16) {
+    sl_ResourcePool->sl_PowerControl_r16 = CALLOC(1, sizeof(*recvd_sl_RxPool->sl_PowerControl_r16));
+    sl_ResourcePool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16 = CALLOC(1, sizeof(*sl_ResourcePool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16));
+    *sl_ResourcePool->sl_PowerControl_r16->sl_Alpha_PSSCH_PSCCH_r16 = 0;
+  }
+
+  if (recvd_sl_RxPool->sl_MinMaxMCS_List_r16) {
+    sl_ResourcePool->sl_MinMaxMCS_List_r16 = CALLOC(1, sizeof(struct NR_SL_MinMaxMCS_List_r16));
+    for (int i = 0; i < recvd_sl_RxPool->sl_MinMaxMCS_List_r16->list.count; i++) {
+      NR_SL_MinMaxMCS_Config_r16_t *mcs_config = CALLOC(1, sizeof(struct NR_SL_MinMaxMCS_Config_r16));
+      mcs_config->sl_MCS_Table_r16 = recvd_sl_RxPool->sl_MinMaxMCS_List_r16->list.array[i]->sl_MCS_Table_r16;
+      mcs_config->sl_MinMCS_PSSCH_r16 = recvd_sl_RxPool->sl_MinMaxMCS_List_r16->list.array[i]->sl_MinMCS_PSSCH_r16;
+      mcs_config->sl_MaxMCS_PSSCH_r16 = recvd_sl_RxPool->sl_MinMaxMCS_List_r16->list.array[i]->sl_MaxMCS_PSSCH_r16;
+      ASN_SEQUENCE_ADD(&sl_ResourcePool->sl_MinMaxMCS_List_r16->list, mcs_config);
+    }
+  }
+
+  if (recvd_sl_RxPool->ext1 &&
+      recvd_sl_RxPool->ext1->sl_TimeResource_r16) {
+    sl_ResourcePool->ext1 = CALLOC(1, sizeof(*sl_ResourcePool->ext1));
+    sl_ResourcePool->ext1->sl_TimeResource_r16 = CALLOC(1, sizeof(*sl_ResourcePool->ext1->sl_TimeResource_r16));
+    sl_ResourcePool->ext1->sl_TimeResource_r16->size = recvd_sl_RxPool->ext1->sl_TimeResource_r16->size;
+    sl_ResourcePool->ext1->sl_TimeResource_r16->bits_unused = recvd_sl_RxPool->ext1->sl_TimeResource_r16->bits_unused;
+    sl_ResourcePool->ext1->sl_TimeResource_r16->buf = CALLOC(sl_ResourcePool->ext1->sl_TimeResource_r16->size, sizeof(uint8_t));
+
+    size_t size = recvd_sl_RxPool->ext1->sl_TimeResource_r16->size;
+    memcpy(sl_ResourcePool->ext1->sl_TimeResource_r16->buf, recvd_sl_RxPool->ext1->sl_TimeResource_r16->buf, size);
+  }
+}
+
+void extract_nr_sl_ResourcePool(struct NR_SL_ResourcePool_r16 *sl_ResourcePool, struct NR_SL_ResourcePool_r16 *recvd_sl_ResourcePool, bool relay_to_remote_ue) {
+  // Processing sl_PSCCH_Config_r16
+  if (recvd_sl_ResourcePool->sl_PSCCH_Config_r16 && recvd_sl_ResourcePool->sl_PSCCH_Config_r16->present == NR_SetupRelease_SL_PSCCH_Config_r16_PR_setup) {
+    struct NR_SL_PSCCH_Config_r16 *recvd_sl_PSCCH_Config = recvd_sl_ResourcePool->sl_PSCCH_Config_r16->choice.setup;
+    sl_ResourcePool->sl_PSCCH_Config_r16 = CALLOC(1, sizeof(struct NR_SetupRelease_SL_PSCCH_Config_r16));
+    sl_ResourcePool->sl_PSCCH_Config_r16->present = recvd_sl_ResourcePool->sl_PSCCH_Config_r16->present;
+    sl_ResourcePool->sl_PSCCH_Config_r16->choice.setup = CALLOC(1, sizeof(struct NR_SL_PSCCH_Config_r16));
+    struct NR_SL_PSCCH_Config_r16 *targeted_sl_PSCCH_Config = sl_ResourcePool->sl_PSCCH_Config_r16->choice.setup;
+    extract_nr_sl_PSCCH_Config(recvd_sl_PSCCH_Config, targeted_sl_PSCCH_Config);
+  }
+
+  // Processing sl_PSSCH_Config_r16
+  if (recvd_sl_ResourcePool->sl_PSSCH_Config_r16 && recvd_sl_ResourcePool->sl_PSSCH_Config_r16->present == NR_SetupRelease_SL_PSSCH_Config_r16_PR_setup) {
+    struct NR_SL_PSSCH_Config_r16 *recvd_sl_PSSCH_Config = recvd_sl_ResourcePool->sl_PSSCH_Config_r16->choice.setup;
+    sl_ResourcePool->sl_PSSCH_Config_r16 = CALLOC(1, sizeof(struct NR_SetupRelease_SL_PSSCH_Config_r16));
+    sl_ResourcePool->sl_PSSCH_Config_r16->present = recvd_sl_ResourcePool->sl_PSSCH_Config_r16->present;
+    sl_ResourcePool->sl_PSSCH_Config_r16->choice.setup = CALLOC(1, sizeof(struct NR_SL_PSSCH_Config_r16));
+    struct NR_SL_PSSCH_Config_r16 *targeted_sl_PSSCH_Config = sl_ResourcePool->sl_PSSCH_Config_r16->choice.setup;
+    extract_nr_sl_PSSCH_Config(recvd_sl_PSSCH_Config, targeted_sl_PSSCH_Config);
+  }
+
+  // Processing sl_PSFCH_Config_r16
+  if (recvd_sl_ResourcePool->sl_PSFCH_Config_r16 && recvd_sl_ResourcePool->sl_PSFCH_Config_r16->present == NR_SetupRelease_SL_PSFCH_Config_r16_PR_setup) {
+    struct NR_SL_PSFCH_Config_r16 *recvd_sl_PSFCH_Config = recvd_sl_ResourcePool->sl_PSFCH_Config_r16->choice.setup;
+    sl_ResourcePool->sl_PSFCH_Config_r16 = CALLOC(1, sizeof(struct NR_SetupRelease_SL_PSFCH_Config_r16));
+    sl_ResourcePool->sl_PSFCH_Config_r16->present = recvd_sl_ResourcePool->sl_PSFCH_Config_r16->present;
+    sl_ResourcePool->sl_PSFCH_Config_r16->choice.setup = CALLOC(1, sizeof(struct NR_SL_PSFCH_Config_r16));
+    struct NR_SL_PSFCH_Config_r16 *targeted_sl_PSFCH_Config = sl_ResourcePool->sl_PSFCH_Config_r16->choice.setup;
+
+    if (recvd_sl_PSFCH_Config) {
+      extract_nr_sl_PSFCH_Config(recvd_sl_PSFCH_Config, targeted_sl_PSFCH_Config);
+    }
+  } // End of sl_PSFCH_Config_r16 Extraction
+  extract_nr_sl_Rest_ResourcePool_Config(sl_ResourcePool, recvd_sl_ResourcePool, relay_to_remote_ue);
+} // sl_BWP_PoolConfig_r16->sl_RxPool_r16
+
  //-----------------------------------------------------------------------------
  static void rrc_ue_process_rrcReconfiguration(const protocol_ctxt_t *const  ctxt_pP,
                                                NR_RRCReconfiguration_t *rrcReconfiguration,
                                                uint8_t gNB_index)
  //-----------------------------------------------------------------------------
  {
-   LOG_I(NR_RRC, "[UE %d] Frame %d: Receiving from SRB1 (DL-DCCH), Processing RRCReconfiguration (gNB %d)\n",
+   LOG_D(NR_RRC, "[UE %d] Frame %d: Receiving from SRB1 (DL-DCCH), Processing RRCReconfiguration (gNB %d)\n",
        ctxt_pP->module_id, ctxt_pP->frame, gNB_index);
 
    NR_RRCReconfiguration_IEs_t *ie = NULL;
@@ -1826,14 +2648,26 @@ int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
 
        free (ie->nonCriticalExtension->dedicatedNAS_MessageList);
      }
+
+     if((ie->nonCriticalExtension) &&
+        (ie->nonCriticalExtension->nonCriticalExtension != NULL) &&
+        (ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension != NULL) &&
+        (ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension != NULL) &&
+        (ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_ConfigDedicatedNR_r16 != NULL)) {
+        NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_conf = ie->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->sl_ConfigDedicatedNR_r16;
+        nr_rrc_ue_process_sidelink_radioResourceConfig(ctxt_pP, gNB_index, sl_conf);
+        free_nr_sl_SetupRelease_SL_ConfigDedicatedNR_r16(sl_conf);
+     }
    }
  }
 
  //-----------------------------------------------------------------------------
  void nr_rrc_ue_generate_RRCReconfigurationComplete( const protocol_ctxt_t *const ctxt_pP, const uint8_t gNB_index, const uint8_t Transaction_id ) {
    uint8_t buffer[32], size;
+   bool is_remote_ue = get_softmodem_params()->relay_type > 0 && !get_softmodem_params()->is_relay_ue;
+   if (is_remote_ue) return;
    size = do_NR_RRCReconfigurationComplete(ctxt_pP, buffer, sizeof(buffer), Transaction_id);
-   LOG_I(NR_RRC,PROTOCOL_RRC_CTXT_UE_FMT" Logical Channel UL-DCCH (SRB1), Generating RRCReconfigurationComplete (bytes %d, gNB_index %d)\n",
+   LOG_D(NR_RRC,PROTOCOL_RRC_CTXT_UE_FMT" Logical Channel UL-DCCH (SRB1), Generating RRCReconfigurationComplete (bytes %d, gNB_index %d)\n",
 	 PROTOCOL_RRC_CTXT_UE_ARGS(ctxt_pP), size, gNB_index);
    LOG_D(RLC,
 	 "[FRAME %05d][RRC_UE][INST %02d][][--- PDCP_DATA_REQ/%d Bytes (RRCReconfigurationComplete to gNB %d MUI %d) --->][PDCP][INST %02d][RB %02d]\n",
@@ -1844,7 +2678,7 @@ int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
 	 nr_rrc_mui,
 	 UE_MODULE_ID_TO_INSTANCE(ctxt_pP->module_id),
 	 DCCH);
-   nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, size, buffer, deliver_pdu_srb_rlc, NULL);
+   nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, size, buffer, deliver_pdu_srb_rlc, NULL, UU);
  }
 
  // from NR SRB1
@@ -1898,9 +2732,13 @@ int32_t nr_rrc_ue_establish_drb(module_id_t ue_mod_idP,
          rrc_ue_process_rrcReconfiguration(ctxt_pP,
            dl_dcch_msg->message.choice.c1->choice.rrcReconfiguration,
            gNB_indexP);
+        bool is_remote_ue = get_softmodem_params()->relay_type > 0 && !get_softmodem_params()->is_relay_ue;
+        if (is_remote_ue) return 0;
          nr_rrc_ue_generate_RRCReconfigurationComplete(ctxt_pP,
            gNB_indexP,
            dl_dcch_msg->message.choice.c1->choice.rrcReconfiguration->rrc_TransactionIdentifier);
+         if (get_softmodem_params()->sl_mode == 1)
+           nr_ue_rrc_SL_UEInformation_trigger(ctxt_pP->module_id, ctxt_pP->frame, 0);
          break;
        }
 
@@ -1992,6 +2830,45 @@ void nr_rrc_handle_ra_indication(unsigned int mod_id, bool ra_succeeded)
   }
 }
 
+void nr_rrc_copy_received_NR_SetupRelease_SL_ConfigDedicatedNR(struct NR_SetupRelease_SL_ConfigDedicatedNR_r16 *sl_ConfigDedicatedNR_r16,
+                                                               rnti_t sl_rnti,
+                                                               NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *rcvd_sl_ConfigDedicatedNR_r16)
+{
+  if (rcvd_sl_ConfigDedicatedNR_r16) {
+    sl_ConfigDedicatedNR_r16->present = rcvd_sl_ConfigDedicatedNR_r16->present;
+    if (rcvd_sl_ConfigDedicatedNR_r16->choice.setup) {
+      sl_ConfigDedicatedNR_r16->choice.setup = CALLOC(1, sizeof(NR_SL_ConfigDedicatedNR_r16_t));
+      if (rcvd_sl_ConfigDedicatedNR_r16->choice.setup->sl_PHY_MAC_RLC_Config_r16) {
+        sl_ConfigDedicatedNR_r16->choice.setup->sl_PHY_MAC_RLC_Config_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16));
+        struct NR_SL_PHY_MAC_RLC_Config_r16 *sl_PHY_MAC_RLC_Config = sl_ConfigDedicatedNR_r16->choice.setup->sl_PHY_MAC_RLC_Config_r16;
+        if (rcvd_sl_ConfigDedicatedNR_r16->choice.setup->sl_PHY_MAC_RLC_Config_r16->sl_CSI_Acquisition_r16) {
+          sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = CALLOC(1, sizeof(long));
+          *sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = *rcvd_sl_ConfigDedicatedNR_r16->choice.setup->sl_PHY_MAC_RLC_Config_r16->sl_CSI_Acquisition_r16;
+        }
+        struct NR_SL_PHY_MAC_RLC_Config_r16 *rcvd_sl_PHY_MAC_RLC_Config = rcvd_sl_ConfigDedicatedNR_r16->choice.setup->sl_PHY_MAC_RLC_Config_r16;
+        if (rcvd_sl_PHY_MAC_RLC_Config) {
+          bool relay_to_remote_ue = true;
+          extract_sl_phy_mac_rlc_config(sl_PHY_MAC_RLC_Config, rcvd_sl_PHY_MAC_RLC_Config, sl_rnti, relay_to_remote_ue);
+          if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
+            xer_fprint(stdout, &asn_DEF_NR_SL_PHY_MAC_RLC_Config_r16, (void *)sl_PHY_MAC_RLC_Config);
+          }
+        } // rcvd_sl_PHY_MAC_RLC_Config
+      }
+    }
+  }
+}
+
+NR_RRCReconfiguration_v1610_IEs_t* prepare_rrc_reconfiguration_for_Remote_UE(rnti_t remote_ue_rnti,
+                                                                             NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *rcvd_sl_ConfigDedicatedNR_r16)
+{
+  NR_RRCReconfiguration_v1610_IEs_t *v1610_ies = CALLOC(1, sizeof(NR_RRCReconfiguration_v1610_IEs_t));
+  v1610_ies->sl_ConfigDedicatedNR_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t));
+  nr_rrc_copy_received_NR_SetupRelease_SL_ConfigDedicatedNR(v1610_ies->sl_ConfigDedicatedNR_r16,
+                                                            remote_ue_rnti,
+                                                            rcvd_sl_ConfigDedicatedNR_r16);
+  return v1610_ies;
+}
+
 void *rrc_nrue_task(void *args_p)
 {
    MessageDef *msg_p;
@@ -2036,6 +2913,30 @@ void *rrc_nrue_task(void *args_p)
          nr_rrc_handle_timers(timers);
          NR_UE_RRC_SI_INFO *SInfo = &NR_UE_rrc_inst[ue_mod_id].SInfo[NRRRC_SLOT_PROCESS (msg_p).gnb_id];
          nr_rrc_SI_timers(SInfo);
+#ifdef PERIODIC_UE_ASSISTANCE_INFO
+         if(NRRRC_SLOT_PROCESS (msg_p).frame % 128 == 0 && NRRRC_SLOT_PROCESS (msg_p).slot == 0 && get_NAS_status()) {
+            uint32_t length;
+            uint8_t *buffer;
+            length = do_NR_UEAssistanceInformation(&buffer, 1);
+            PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, NRRRC_SLOT_PROCESS (msg_p).frame, NRRRC_SLOT_PROCESS (msg_p).slot, 0);
+            rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
+            nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL, UU);
+         }
+#endif
+         break;
+
+       case RLC_TRAFFIC_PTN_CHG_IND:
+         LOG_D(NR_RRC, "[UE %d] Received %s: frame %d ch_id %d is_pc5 %d tp_type %d\n",
+               ue_mod_id, ITTI_MSG_NAME (msg_p), RLC_TRAFFIC_PTN_CHG_IND (msg_p).frame, RLC_TRAFFIC_PTN_CHG_IND (msg_p).ch_id,
+               RLC_TRAFFIC_PTN_CHG_IND (msg_p).is_pc5, RLC_TRAFFIC_PTN_CHG_IND (msg_p).tp_type);
+         if(get_NAS_status()) {
+            uint32_t length;
+            uint8_t *buffer;
+            length = do_NR_UEAssistanceInformation(&buffer, RLC_TRAFFIC_PTN_CHG_IND (msg_p).tp_type + 1);
+            PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, RLC_TRAFFIC_PTN_CHG_IND (msg_p).frame, 0, 0);
+            rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
+            nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL, UU);
+         }
          break;
 
        case NR_RRC_MAC_RA_IND:
@@ -2144,10 +3045,65 @@ void *rrc_nrue_task(void *args_p)
         PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, 0, 0,0);
         // check if SRB2 is created, if yes request data_req on DCCH1 (SRB2)
         rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
-        nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL);
+        nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL, UU);
         break;
       }
 
+      case NRRRC_SIDELINK_UE_INFO: {
+        uint32_t length;
+        uint8_t *buffer;
+        LOG_I(NR_RRC, "[UE %d] Received %s\n", ue_mod_id, ITTI_MSG_NAME (msg_p));
+        /* Create message for RRC Sidelink UEInformation */
+        length = do_NR_SidelinkUEInformation(&buffer, NR_RRC_DCCH_DATA_REQ (msg_p).sdu_size, NULL);
+        /* Transfer data to PDCP */
+        PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, ue_mod_id, GNB_FLAG_NO, NR_UE_rrc_inst[ue_mod_id].rnti, NR_RRC_DCCH_DATA_REQ (msg_p).frame, 0, 0);
+        // check if SRB2 is created, if yes request data_req on DCCH1 (SRB2)
+        rb_id_t srb_id = NR_UE_rrc_inst[ue_mod_id].SRB2_config[0] == NULL ? DCCH : DCCH1;
+        nr_pdcp_data_req_srb(ctxt.rntiMaybeUEid, srb_id, nr_rrc_mui++, length, buffer, deliver_pdu_srb_rlc, NULL, UU);
+        break;
+      }
+
+      case NR_RRC_RECONFIGURATION_IND: {
+        rnti_t remote_ue_rnti = 0x1; // remote UE ID
+        NR_RRCReconfiguration_v1610_IEs_t *rrc_ext_v1610 = prepare_rrc_reconfiguration_for_Remote_UE(remote_ue_rnti, NR_UE_rrc_inst[ue_mod_id].sl_dedicated_cfg);
+        uint8_t xid = 3;
+        protocol_ctxt_t ctxt_pP;
+        ctxt_pP.brOption = 0;
+        ctxt_pP.enb_flag = 0;
+        ctxt_pP.eNB_index = 0;
+        ctxt_pP.frame = 0;
+        ctxt_pP.instance = 0;
+        ctxt_pP.module_id = 0;
+        ctxt_pP.rntiMaybeUEid = 0x0;
+        ctxt_pP.subframe = 0;
+        uint8_t buffer[RRC_BUF_SIZE];
+        mui_t nr_rrc_mui = 5;
+        uint8_t srb_id = 1;
+        int size = do_RRCReconfiguration(&ctxt_pP,
+                                         buffer,
+                                         RRC_BUF_SIZE,
+                                         xid,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         rrc_ext_v1610,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL,
+                                         NULL);
+
+        if (rrc_ext_v1610->sl_ConfigDedicatedNR_r16)
+          free_nr_sl_SetupRelease_SL_ConfigDedicatedNR_r16(rrc_ext_v1610->sl_ConfigDedicatedNR_r16);
+
+        NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[ue_mod_id];
+        nr_pdcp_data_req_srb(ctxt_pP.rntiMaybeUEid, srb_id, nr_rrc_mui++, size, buffer, deliver_pdu_srb_rlc, rrc, PC5);
+        break;
+      }
       default:
         LOG_E(NR_RRC, "[UE %d] Received unexpected message %s\n", ue_mod_id, ITTI_MSG_NAME (msg_p));
         break;
@@ -2158,16 +3114,28 @@ void *rrc_nrue_task(void *args_p)
     msg_p = NULL;
   }
 }
-void nr_rrc_ue_process_sidelink_radioResourceConfig(
-  module_id_t                                Mod_idP,
-  uint8_t                                    gNB_index,
-  NR_SetupRelease_SL_ConfigDedicatedNR_r16_t  *sl_ConfigDedicatedNR
-)
+
+void nr_rrc_ue_process_sidelink_radioResourceConfig(const protocol_ctxt_t *const ctxt_pP,
+                                                    const uint8_t gNB_index,
+                                                    NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_ConfigDedicatedNR)
 {
   //process sl_CommConfig, configure MAC/PHY for transmitting SL communication (RRC_CONNECTED)
   if (sl_ConfigDedicatedNR != NULL) {
     switch (sl_ConfigDedicatedNR->present){
       case NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_setup:
+        LOG_D(NR_RRC, "[UE %d] Received message sidelink_radioResourceConfig\n", ctxt_pP->module_id);
+        nr_rrc_ue_process_sl_ConfigDedicatedNR(ctxt_pP,
+                                               gNB_index,
+                                               sl_ConfigDedicatedNR);
+        NR_RNTI_Value_t sl_rnti = sl_ConfigDedicatedNR->choice.setup->sl_PHY_MAC_RLC_Config_r16->sl_ScheduledConfig_r16->choice.setup->sl_RNTI_r16;
+        if (get_softmodem_params()->is_relay_ue) {
+          MessageDef *message_p;
+          message_p = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_RRC_RECONFIGURATION_IND);
+          NR_RRC_RECONFIGURATION_IND(message_p).frame = ctxt_pP->frame;
+          NR_RRC_RECONFIGURATION_IND(message_p).slot = ctxt_pP->subframe;
+          itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(0), message_p);
+        }
+        LOG_W(NR_RRC, "Received sl-RNTI-r16 = %lu\n", sl_rnti);
         //TODO
         break;
       case NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_release:
@@ -2288,7 +3256,7 @@ nr_rrc_ue_process_ueCapabilityEnquiry(
       }
 
       LOG_I(NR_RRC, "UECapabilityInformation Encoded %zd bits (%zd bytes)\n",enc_rval.encoded,(enc_rval.encoded+7)/8);
-      nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, (enc_rval.encoded + 7) / 8, buffer, deliver_pdu_srb_rlc, NULL);
+      nr_pdcp_data_req_srb(ctxt_pP->rntiMaybeUEid, DCCH, nr_rrc_mui++, (enc_rval.encoded + 7) / 8, buffer, deliver_pdu_srb_rlc, NULL, UU);
     }
   }
 }
@@ -2537,4 +3505,20 @@ void nr_ue_rrc_timer_trigger(int module_id, int frame, int slot, int gnb_id)
   NRRRC_SLOT_PROCESS(message_p).gnb_id = gnb_id;
   LOG_D(NR_RRC, "RRC timer trigger: frame %d slot %d \n", frame, slot);
   itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(module_id), message_p);
+}
+
+void nr_ue_rrc_SL_UEInformation_trigger(int module_id, uint32_t frame, uint8_t slot)
+{
+  static bool done = false;
+  int status = get_NAS_status();
+  if (status && !done) {
+    MessageDef *message_p;
+    message_p = itti_alloc_new_message(TASK_RRC_NRUE, 0, NRRRC_SIDELINK_UE_INFO);
+    NRRRC_SIDELINK_UE_INFO(message_p).frame = frame;
+    NRRRC_SIDELINK_UE_INFO(message_p).slot = slot;
+    NRRRC_SIDELINK_UE_INFO(message_p).gnb_id = GNB_MODULE_ID_TO_INSTANCE(module_id);
+    LOG_W(NR_RRC, "RRC SL_UEInformation trigger: frame %d slot %d \n", frame, slot);
+    itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(module_id), message_p);
+    done = true;
+  }
 }

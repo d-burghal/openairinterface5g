@@ -55,7 +55,6 @@
 #define RRC_MAC_PCCH_DATA_REQ(mSGpTR)           (mSGpTR)->ittiMsg.rrc_mac_pcch_data_req
 
 #define NR_RRC_MAC_RA_IND(mSGpTR)               (mSGpTR)->ittiMsg.nr_rrc_mac_ra_ind
-
 #define RRC_MAC_DRX_CONFIG_REQ(mSGpTR)          (mSGpTR)->ittiMsg.rrc_mac_drx_config_req
 
 // Some constants from "LAYER2/MAC/defs.h"
@@ -64,6 +63,7 @@
 #define CCCH_SDU_SIZE                           (1024)
 #define MCCH_SDU_SIZE                           (512)
 #define PCCH_SDU_SIZE                           (512)
+#define DCCH_SDU_SIZE                           (512)
 
 //-------------------------------------------------------------------------------------------//
 // Messages between RRC and MAC layers

@@ -43,6 +43,7 @@
 #include "NR_CG-ConfigInfo.h"
 #include "NR_SecurityConfig.h"
 #include "NR_CellGroupConfig.h"
+#include "NR_UL-DCCH-Message.h"
 
 #define NR_MAX_SUPPORTED_DL_LAYERS 2
 
@@ -134,6 +135,11 @@ int nr_rrc_reconfiguration_req(rrc_gNB_ue_context_t         *const ue_context_pP
                                const int                    dl_bwp_id,
                                const int                    ul_bwp_id);
 
+int nr_rrc_reconfiguration_req_sidelink(rrc_gNB_ue_context_t                         *const ue_context_pP,
+                                        const protocol_ctxt_t                        *const ctxt_pP,
+                                        NR_SidelinkUEInformationNR_r16_IEs_t         *sl_UEInfo_r16,
+                                        const NR_SL_UE_AssistanceInformationNR_r16_t *trafficPatternList);
+
 void
 rrc_gNB_generate_dedicatedRRCReconfiguration_release(
     const protocol_ctxt_t   *const ctxt_pP,
@@ -160,7 +166,7 @@ NR_DRB_ToAddModList_t *fill_DRB_configList(gNB_RRC_UE_t *ue);
 
 void prepare_and_send_ue_context_modification_f1(rrc_gNB_ue_context_t *ue_context_p,
                                                  e1ap_bearer_setup_resp_t *e1ap_resp);
-void nr_pdcp_add_srbs(eNB_flag_t enb_flag, ue_id_t rntiMaybeUEid, NR_SRB_ToAddModList_t *const srb2add_list, const uint8_t security_modeP, uint8_t *const kRRCenc, uint8_t *const kUPint);
+void nr_pdcp_add_srbs(eNB_flag_t enb_flag, ue_id_t rntiMaybeUEid, NR_SRB_ToAddModList_t *const srb2add_list, const uint8_t security_modeP, uint8_t *const kRRCenc, uint8_t *const kUPint, nr_intf_type_t intf_type);
 
 void nr_pdcp_add_drbs(eNB_flag_t enb_flag,
                       ue_id_t rntiMaybeUEid,
@@ -172,4 +178,6 @@ void nr_pdcp_add_drbs(eNB_flag_t enb_flag,
                       struct NR_CellGroupConfig__rlc_BearerToAddModList *rlc_bearer2add_list);
 
 int rrc_gNB_generate_pcch_msg(uint32_t tmsi, uint8_t paging_drx, instance_t instance, uint8_t CC_id);
+
+void prepare_nr_sl_SyncConfig_gNB(NR_SL_SyncConfig_r16_t *sl_syncconfig);
 #endif

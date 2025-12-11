@@ -83,12 +83,12 @@ void nr_srap_entity_recv_pdu(protocol_ctxt_t *const  ctxt_pP,
       forwarding_entity = nr_srap_get_entity(m, NR_SRAP_PC5);
     }
     AssertFatal(forwarding_entity != NULL, "Forwarding entity is NULL!!!");
-    LOG_D(NR_SRAP, "%s: Received SRAP SDU on %s; forwarding on %s\n", __FUNCTION__, entity_types[entity->type], entity_types[forwarding_entity->type]);
+    LOG_D(NR_SRAP, "%s: Received SRAP SDU from %s; forwarding to %s with rb_id %ld.\n", __FUNCTION__, entity_types[entity->type], entity_types[forwarding_entity->type], rb_id);
     ctxt_pP->rntiMaybeUEid = forwarding_entity->rnti;
     srap_forward_sdu_drb(ctxt_pP, forwarding_entity, srb_flagP, MBMS_flagP, buffer, size, rb_id, src_id, dest_id);
   }
-  if (!is_relay_ue || (!is_relay_ue && entity->type == NR_SRAP_UU)) {
-    LOG_W(NR_SRAP, "Sending upstream: src_id = %d  dest_id = %d\n", src_id, dest_id);
+  if (!is_relay_ue || (!is_relay_ue && (entity->type == NR_SRAP_UU))) {
+    LOG_D(NR_SRAP, "Sending upstream: src_id = %d  dest_id = %d\n", src_id, dest_id);
     if (entity->type == NR_SRAP_PC5) {
       LOG_D(NR_SRAP, "Sending PC5 SRAP indication to above layer from SRAP %s\n", __FUNCTION__);
     } else {

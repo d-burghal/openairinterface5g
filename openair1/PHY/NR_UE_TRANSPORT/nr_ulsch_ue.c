@@ -220,7 +220,7 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
     AssertFatal(csi_params->symb_l0 > pscch_pssch_pdu->pscch_numsym, "CSI-RS (symb_l0 %d) MUST not be sent in PSCCH symbol (%d)\n", csi_params->symb_l0, pscch_pssch_pdu->pscch_numsym);
   uint8_t nb_dmrs_re_per_rb = ((dmrs_type == pusch_dmrs_type1) ? 6:4)*cdm_grps_no_data;
 
-#ifdef DEBUG_ULSCH_PROCEDURES 
+#ifdef DEBUG_ULSCH_PROCEDURES
   LOG_I(NR_PHY, "%s TX %x : start_rb %d nb_rb %d mod_order %d Nl %d Tpmi %d bwp_start %d start_sc %d start_symbol %d num_symbols %d cdmgrpsnodata %d num_dmrs %d dmrs_re_per_rb %d\n", !is_pc5 ? "PUSCH" : "PSSCH",
         rnti, start_rb, nb_rb, mod_order, Nl, Tpmi, !is_pc5 ? pusch_pdu->bwp_start : 0, start_sc, start_symbol, number_of_symbols, cdm_grps_no_data, number_dmrs_symbols, nb_dmrs_re_per_rb);
 #endif

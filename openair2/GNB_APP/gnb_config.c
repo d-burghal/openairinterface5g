@@ -2361,7 +2361,8 @@ void nr_read_config_and_init(void) {
   }
 
   if (NODE_IS_CU(RC.nrrrc[0]->node_type) && RC.nrrrc[0]->node_type != ngran_gNB_CUCP) {
-    nr_pdcp_layer_init();
+    bool gNB_flag = true;
+    nr_pdcp_layer_init(gNB_flag);
   }
 }
 

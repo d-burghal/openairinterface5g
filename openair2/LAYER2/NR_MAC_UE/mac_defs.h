@@ -74,6 +74,7 @@
 #define NB_NR_UE_MAC_INST 1
 #define MAX_NUM_BWP_UE       4
 #define NUM_SLOT_FRAME    10
+#define MAX_CONFIGURED_GRANTS 8
 
 /*!\brief value for indicating BSR Timer is not running */
 #define NR_MAC_UE_BSR_TIMER_NOT_RUNNING   (0xFFFF)
@@ -607,6 +608,9 @@ typedef struct {
   frameslot_t sfn;
   uint8_t sl_subchan_start;
   uint8_t sl_subchan_len;
+  uint16_t sl_timeresource_cg_type1;
+  uint16_t sl_freqresource_cg_type1;
+  cg_type_t cg_type;
   bool slot_busy;
 } sl_resource_info_t;
 
@@ -642,6 +646,11 @@ typedef struct {
   uint64_t abs_slot_index; // Indicates the the absolute slot index
   uint32_t slot_offset; // Indicates the positive offset between two slots
 } slot_info_t;
+
+typedef struct {
+  uint8_t bwp_id;
+  sl_config_grant_t *sl_cg[MAX_CONFIGURED_GRANTS];
+} sl_config_grant_bwp_t;
 
 /*!\brief Top level UE MAC structure */
 typedef struct {
@@ -681,6 +690,7 @@ typedef struct {
 
 // sidelink
   NR_SL_BWP_ConfigCommon_r16_t *sl_bwp;
+  NR_SL_BWP_Config_r16_t *sl_bwp_dedicated;
   int max_fb_time;
   NR_SL_ResourcePool_r16_t *sl_rx_res_pool;
   NR_SL_ResourcePool_r16_t *sl_tx_res_pool;
@@ -770,7 +780,7 @@ typedef struct {
   time_stats_t rlc_data_req;
   int src_id;
   pthread_mutex_t sl_sched_lock;
-  bool is_synced;
+  bool is_synced_sl;
 
   allowed_rsc_selection_t rsc_selection_method; // Flag to enable NR Sidelink resource selection based on
                                                 // sensing; otherwise, use random selection
@@ -785,6 +795,7 @@ typedef struct {
   uint64_t ulsch_slot_bitmap[3];
   List_t *sl_candidate_resources;
   uint16_t reselection_timer;
+  sl_config_grant_bwp_t sl_cg_per_bwp;
 } NR_UE_MAC_INST_t;
 
 /*@}*/

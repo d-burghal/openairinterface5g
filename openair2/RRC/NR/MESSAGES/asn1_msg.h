@@ -132,6 +132,7 @@ int16_t do_RRCReconfiguration(
     NR_SDAP_Config_t             *sdap_config,
     NR_MeasConfig_t              *meas_config,
     struct NR_RRCReconfiguration_v1530_IEs__dedicatedNAS_MessageList *dedicatedNAS_MessageList,
+    NR_RRCReconfiguration_v1610_IEs_t *rrc_ext_v1610,
     rrc_gNB_ue_context_t         *const ue_context_pP,
     rrc_gNB_carrier_data_t       *carrier,
     const gNB_RrcConfigurationReq *configuration,
@@ -169,6 +170,10 @@ do_NR_DLInformationTransfer(
 uint8_t do_NR_ULInformationTransfer(uint8_t **buffer, 
                         uint32_t pdu_length,
                         uint8_t *pdu_buffer);
+
+uint8_t do_NR_SidelinkUEInformation(uint8_t **buffer, uint32_t pdu_length, uint8_t *pdu_buffer);
+
+uint8_t do_NR_UEAssistanceInformation(uint8_t **buffer, long tp_type);
 
 uint8_t do_RRCReestablishmentRequest(uint8_t Mod_id, uint8_t *buffer, uint16_t c_rnti);
 

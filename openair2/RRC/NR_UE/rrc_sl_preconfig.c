@@ -34,6 +34,7 @@
 #include "executables/nr-uesoftmodem.h"
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
+#include "RRC/NR_UE/rrc_proto.h"
 
 #define GNSS_SUPPORT 0
 
@@ -325,7 +326,7 @@ static void prepare_NR_SL_BWPConfigCommon(NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
   // Value can be between symbols 0 to 7
   sl_bwp->sl_BWP_Generic_r16->sl_StartSymbol_r16 = calloc(1, sizeof(long));
 
-  sl_bwp->sl_BWP_Generic_r16->sl_PSBCH_Config_r16 = calloc(1,sizeof(NR_SL_PSBCH_Config_r16_t));
+  sl_bwp->sl_BWP_Generic_r16->sl_PSBCH_Config_r16 = calloc(1, sizeof(NR_SL_PSBCH_Config_r16_t));
   // PSBCH CONFIG contains PO and alpha for PSBCH powercontrol.
   sl_bwp->sl_BWP_Generic_r16->sl_PSBCH_Config_r16->present = NR_SetupRelease_SL_PSBCH_Config_r16_PR_release;
 
@@ -478,7 +479,7 @@ NR_SL_PreconfigurationNR_r16_t *prepare_NR_SL_PRECONFIGURATION(uint16_t num_tx_p
   struct NR_SL_MappedQoS_FlowsListDedicated_r16 *sl_MappedQoS_FlowsListDedicated = sl_SDAP_Config->sl_MappedQoS_Flows_r16->choice.sl_MappedQoS_FlowsListDedicated_r16;
   sl_MappedQoS_FlowsListDedicated->sl_MappedQoS_FlowsToAddList_r16 = calloc(1, sizeof(*sl_MappedQoS_FlowsListDedicated->sl_MappedQoS_FlowsToAddList_r16));
   NR_SL_QoS_FlowIdentity_r16_t *sl_qfi = calloc(1, sizeof(*sl_qfi));
-  *sl_qfi = 1;
+  *sl_qfi = 2;
   ASN_SEQUENCE_ADD(&sl_MappedQoS_FlowsListDedicated->sl_MappedQoS_FlowsToAddList_r16->list, sl_qfi);
   LOG_D(SDAP, "SDAP qfi %ld\n", *sl_MappedQoS_FlowsListDedicated->sl_MappedQoS_FlowsToAddList_r16->list.array[0]);
 
@@ -602,6 +603,86 @@ int configure_NR_SL_Preconfig(uint8_t id,int sync_source)
   return 0;
 }
 
+static NR_SRB_ToAddModList_t *createSRBlist_sl(NR_UE_RRC_INST_t *ue, uint8_t ue_index, bool reestablish) {
+  int first_srb = 1;
+  if (!ue->sl_Srb1[ue_index].Active) {
+    LOG_E(NR_RRC, "Call SRB list while SRB1 doesn't exist\n");
+    return NULL;
+  }
+
+  NR_SRB_ToAddModList_t *list = CALLOC(sizeof(*list), 1);
+  for (int i = first_srb; i < maxSRBs; i++) {
+    // TODO: currently, only sl_srb1 is supported
+    if (i > 1) {
+      return list;
+    }
+    if (ue->sl_Srb1[ue_index].Active) {
+      asn1cSequenceAdd(list->list, NR_SRB_ToAddMod_t, srb);
+      srb->srb_Identity = i;
+      if (reestablish && i == 2) {
+        asn1cCallocOne(srb->reestablishPDCP, NR_SRB_ToAddMod__reestablishPDCP_true);
+      }
+    }
+  }
+  return list;
+}
+
+static NR_SL_RLC_BearerConfig_r16_t *get_SRB_RLC_BearerConfig_sl(long priority,
+                                                                 e_NR_SL_LogicalChannelConfig_r16__sl_BucketSizeDuration_r16 bucketSizeDuration)
+{
+  NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig                = CALLOC(1, sizeof(NR_SL_RLC_BearerConfig_r16_t));
+  sl_RLC_BearerConfig->sl_RLC_Config_r16                           = CALLOC(1, sizeof(NR_SL_RLC_Config_r16_t));
+  NR_SL_RLC_Config_r16_t *sl_rlc_Config                            = sl_RLC_BearerConfig->sl_RLC_Config_r16;
+  sl_rlc_Config->present                                           = NR_SL_RLC_Config_r16_PR_sl_AM_RLC_r16;
+  sl_rlc_Config->choice.sl_AM_RLC_r16                              = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_AM_RLC_r16));
+  sl_rlc_Config->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16     = CALLOC(1, sizeof(NR_SN_FieldLengthAM_t));
+  *sl_rlc_Config->choice.sl_AM_RLC_r16->sl_SN_FieldLengthAM_r16    = NR_SN_FieldLengthAM_size12;
+  sl_rlc_Config->choice.sl_AM_RLC_r16->sl_T_PollRetransmit_r16     = NR_T_PollRetransmit_ms45;
+  sl_rlc_Config->choice.sl_AM_RLC_r16->sl_PollPDU_r16              = NR_PollPDU_infinity;
+  sl_rlc_Config->choice.sl_AM_RLC_r16->sl_PollByte_r16             = NR_PollByte_infinity;
+  sl_rlc_Config->choice.sl_AM_RLC_r16->sl_MaxRetxThreshold_r16     = NR_UL_AM_RLC__maxRetxThreshold_t8;
+
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16             = CALLOC(1, sizeof(NR_SL_LogicalChannelConfig_r16_t));
+  NR_SL_LogicalChannelConfig_r16_t *logicalChannelConfig           = sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16;
+  logicalChannelConfig->sl_Priority_r16                            = priority;
+  logicalChannelConfig->sl_PrioritisedBitRate_r16                  = NR_SL_LogicalChannelConfig_r16__sl_PrioritisedBitRate_r16_kBps128;
+  logicalChannelConfig->sl_BucketSizeDuration_r16                  = bucketSizeDuration;
+
+  logicalChannelConfig->sl_LogicalChannelGroup_r16 = CALLOC(1, sizeof(long));
+  *logicalChannelConfig->sl_LogicalChannelGroup_r16 = 0;
+
+  logicalChannelConfig->sl_SchedulingRequestId_r16 = CALLOC(1, sizeof(NR_SchedulingRequestId_t));
+  *logicalChannelConfig->sl_SchedulingRequestId_r16 = 0;
+
+  logicalChannelConfig->sl_LogicalChannelSR_DelayTimerApplied_r16 = CALLOC(1, sizeof(BOOLEAN_t));
+  *logicalChannelConfig->sl_LogicalChannelSR_DelayTimerApplied_r16 = false;
+
+  return sl_RLC_BearerConfig;
+}
+
+void add_sl_srbs(module_id_t module_id) {
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  protocol_ctxt_t ctxt;
+  ctxt.rntiMaybeUEid = mac->src_id;
+  ctxt.module_id = module_id;
+  ctxt.enb_flag = 0;
+  NR_RadioBearerConfig_t *radioBearerConfig = CALLOC(1, sizeof(NR_RadioBearerConfig_t));
+  // NR_SL_RadioBearerConfig_r16
+  NR_UE_rrc_inst[module_id].sl_Srb1[0].Active = 1;
+
+  uint8_t priority = 3; // TODO: Check priorities from standard
+  NR_SL_RLC_BearerConfig_r16_t *sl_RLC_BearerConfig = get_SRB_RLC_BearerConfig_sl(priority, NR_SL_LogicalChannelConfig_r16__sl_BucketSizeDuration_r16_ms5);
+
+  uint8_t ue_index = 0; // TODO: Currently we are assuming each UE is connected to only one UE
+  NR_SRB_ToAddModList_t *SRB_configList = createSRBlist_sl(&NR_UE_rrc_inst[module_id], ue_index, false);
+  // initialisation by RRC
+  radioBearerConfig->srb_ToAddModList = SRB_configList;
+  LOG_D(NR_RRC, "array[0].srb_Identity %ld\n", radioBearerConfig->srb_ToAddModList->list.array[0]->srb_Identity);
+  radioBearerConfig-> drb_ToAddModList = NULL; // Adding Sidelink drb from "nr_UE_configure_Sidelink" function
+  radioBearerConfig->securityConfig = NULL;
+  nr_rrc_ue_process_RadioBearerConfig_sl(&ctxt, ue_index, radioBearerConfig, sl_RLC_BearerConfig);
+}
+
 /*
 * This functions configures SIdelink operation in the UE.
 * RRC configures MAC with sidelink parameters
@@ -628,13 +709,29 @@ void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *uein
   nr_rrc_mac_config_req_sl_preconfig(id, sl_preconfig, sync_source);
 
   if (get_softmodem_params()->sl_mode == 2) {
+    add_sl_srbs(id);
+    bool relay_enabled = get_softmodem_params()->relay_type > 0 ? true : false;
     // SL RadioBearers
     for (int i = 0; i < sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.count; i++) {
       add_drb_sl(ueinfo->srcid, (NR_SL_RadioBearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i], 0, 0, NULL, NULL);
+      if (relay_enabled) {
+        sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i]->slrb_Uu_ConfigIndex_r16 += 1;
+        add_drb_sl(ueinfo->srcid, (NR_SL_RadioBearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i], 0, 0, NULL, NULL);
+        sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i]->slrb_Uu_ConfigIndex_r16 -= 1;
+      }
     }
     // configure RLC
     for (int i = 0; i < sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.count; i++) {
+      LOG_D(NR_RRC, "Calling nr_rlc_add_drb_sl from nr_UE_configure_Sidelink for UE specific drb.\n");
       nr_rlc_add_drb_sl(ueinfo->srcid, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
+      if (relay_enabled) {
+        int relay_specific_drb_id = 2;
+        LOG_D(NR_RRC, "Calling nr_rlc_add_drb_sl from nr_UE_configure_Sidelink_Dedicated_Cfg for relay specific drb.\n");
+        nr_rlc_add_drb_sl(ueinfo->srcid, relay_specific_drb_id, (NR_SL_RLC_BearerConfig_r16_t *) sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
+        // TODO: Need to update configuration with the following after receiving SL RRCReconfiguration message from relay UE.
+        // nr_sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.array[i]);
+        relay_specific_drb_id++;
+      }
     }
   } else if (get_softmodem_params()->sl_mode == 1) {
     // SL RadioBearers
@@ -678,6 +775,76 @@ void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *uein
 
 }
 
+/*
+* This functions configures SIdelink operation in the UE.
+* RRC configures MAC with sidelink parameters
+* In case UE is a sync source/Master UE - then sends transmit SLSS REQ
+*/
+void nr_UE_configure_Sidelink_Dedicated_Cfg(uint8_t id, uint8_t is_sync_source, int src_id, uint8_t mu) {
+
+  NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[id];
+
+  AssertFatal(rrc, "Check if rrc instance was created.");
+
+  NR_SL_ConfigDedicatedNR_r16_t *sl_dedicated_cfg = rrc->sl_dedicated_cfg ? rrc->sl_dedicated_cfg->choice.setup : NULL;
+  AssertFatal(sl_dedicated_cfg, "Check if SL dedicated config was created.");
+
+  uint8_t sync_source = SL_SYNC_SOURCE_NONE;
+
+  if (is_sync_source) {
+    sync_source = SL_SYNC_SOURCE_GNBENB;
+  }
+
+  nr_rrc_mac_config_req_sl_dedicated_config(0, sl_dedicated_cfg, sync_source, mu);
+  if (get_softmodem_params()->sl_mode == 1) {
+    add_sl_srbs(id);
+    // SL RadioBearers
+    add_srap_entity(src_id);
+    // configure RLC
+    int relay_specific_drb_id = 2;
+    int drb_id = get_softmodem_params()->relay_type > 0 ? relay_specific_drb_id : 1;
+    for (int i = 0; i < sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.count; i++) {
+      LOG_D(NR_RRC, "Calling nr_rlc_add_drb_sl from nr_UE_configure_Sidelink_Dedicated_Cfg for relay specific drb.\n");
+      nr_rlc_add_drb_sl(src_id, drb_id, (NR_SL_RLC_BearerConfig_r16_t *)sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_RLC_BearerToAddModList_r16->list.array[i]);
+    }
+  }
+  // TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.
+  // Currently hardcoding the values to these
+  uint16_t slss_id = 671, ssb_ta_index = 1;
+  // 12 bits -sl-TDD-config will be filled by MAC
+  // Incoverage 1bit is FALSE
+  // DFN, sfn will be filled by PHY
+  uint8_t sl_mib_payload[4] = {0, 0, 0, 0};
+
+  NR_SL_SSB_TimeAllocation_r16_t *ssb_ta = NULL;
+  NR_SL_FreqConfig_r16_t *fcfg = NULL;
+  NR_SL_SyncConfig_r16_t *synccfg = NULL;
+  struct NR_SL_PHY_MAC_RLC_Config_r16__sl_FreqInfoToAddModList_r16 *sl_FreqInfoToAddModList = sl_dedicated_cfg->sl_PHY_MAC_RLC_Config_r16->sl_FreqInfoToAddModList_r16;
+  if (sl_FreqInfoToAddModList)
+    fcfg = sl_FreqInfoToAddModList->list.array[0];
+  AssertFatal(fcfg, "Fcfg cannot be NULL\n");
+  if (fcfg->sl_SyncConfigList_r16)
+    synccfg = fcfg->sl_SyncConfigList_r16->list.array[0];
+  AssertFatal(synccfg, "Synccfg cannot be NULL\n");
+
+  if (ssb_ta_index == 1)
+    ssb_ta = synccfg->sl_SSB_TimeAllocation1_r16;
+  else if (ssb_ta_index == 2)
+    ssb_ta = synccfg->sl_SSB_TimeAllocation2_r16;
+  else if (ssb_ta_index == 3)
+    ssb_ta = synccfg->sl_SSB_TimeAllocation3_r16;
+  else DevAssert(0);
+
+  AssertFatal(ssb_ta, "SSB_timeallocation cannot be NULL\n");
+
+  if (get_softmodem_params()->sl_mode == 2) {
+    slss_id = 671;
+  } else if (get_softmodem_params()->sl_mode == 1) {
+    slss_id = *synccfg->sl_SSID_r16;
+  }
+  if (sync_source == SL_SYNC_SOURCE_GNBENB)
+    nr_rrc_mac_transmit_slss_req(id, sl_mib_payload, slss_id, ssb_ta);
+}
 
 /*decode SL-BCH (SL-MIB) message*/
 static int8_t nr_sl_rrc_ue_decode_SL_MIB(const module_id_t module_id,

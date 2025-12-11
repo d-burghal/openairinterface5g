@@ -41,6 +41,7 @@ typedef struct ueinfo {
 // clang-format off
 #define CMDLINE_NRUEPARAMS_DESC {  \
   {"usrp-args",                CONFIG_HLP_USRP_ARGS,           0,               .strptr=&usrp_args,                       .defstrval="type=b200",          TYPE_STRING,   0}, \
+  {"usrp-args-sl",              CONFIG_HLP_USRP_ARGS_SL,       0,               .strptr=&usrp_args_sl,                    .defstrval="type=b200",          TYPE_STRING,   0}, \
   {"tx_subdev",                CONFIG_HLP_TX_SUBDEV,           0,               .strptr=&tx_subdev,                       .defstrval=NULL,                 TYPE_STRING,   0}, \
   {"rx_subdev",                CONFIG_HLP_RX_SUBDEV,           0,               .strptr=&rx_subdev,                       .defstrval=NULL,                 TYPE_STRING,   0}, \
   {"single-thread-disable",    CONFIG_HLP_NOSNGLT,             PARAMFLAG_BOOL,  .iptr=&single_thread_flag,                .defintval=1,                    TYPE_INT,      0}, \
@@ -115,6 +116,7 @@ extern void print_opp_meas(void);
 extern void start_oai_nrue_threads(void);
 void *UE_thread_sl(void *arg);
 void *UE_thread(void *arg);
+void *UE_RU_thread_sl(void *arg);
 void update_curMsg(PHY_VARS_NR_UE *UE, nr_rxtx_thread_data_t *curMsg, int absolute_slot, const int nb_slot_frame, nr_intf_type_t intf_type);
 void rfdevice_trx(PHY_VARS_NR_UE *UE, openair0_device *rfdevice, c16_t **rxdata, int slot_nr, int *rdBlkSz, int *wtBlkSz, openair0_timestamp *ts, openair0_timestamp *wts, int *ta, nr_intf_type_t intf_type);
 void UE_processing(PHY_VARS_NR_UE *UE, nr_rxtx_thread_data_t *curMsg, int readBlockSize, int writeBlockSize, openair0_timestamp writeTimestamp, notifiedFIFO_t *txFifo, nr_intf_type_t intf_type);

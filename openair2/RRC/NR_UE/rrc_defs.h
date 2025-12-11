@@ -216,6 +216,7 @@ typedef struct NR_UE_RRC_INST_s {
   NR_RSRP_Range_t                s_measure;
   NR_SRB_ToAddMod_t              *SRB1_config[NB_CNX_UE];
   NR_SRB_ToAddMod_t              *SRB2_config[NB_CNX_UE];
+  NR_SRB_ToAddMod_t              *sl_SRB1_config[NB_CNX_UE];
   NR_DRB_ToAddMod_t              *DRB_config[NB_CNX_UE][8];
   rb_id_t                        *defaultDRB; // remember the ID of the default DRB
 
@@ -225,6 +226,7 @@ typedef struct NR_UE_RRC_INST_s {
   NR_SRB_INFO                    Srb0[NB_SIG_CNX_UE];
   NR_SRB_INFO_TABLE_ENTRY        Srb1[NB_CNX_UE];
   NR_SRB_INFO_TABLE_ENTRY        Srb2[NB_CNX_UE];
+  NR_SRB_INFO_TABLE_ENTRY        sl_Srb1[NB_CNX_UE];
 
   OAI_NR_UECapability_t          *UECap;
   uint8_t                        *UECapability;
@@ -257,8 +259,8 @@ typedef struct NR_UE_RRC_INST_s {
   Rrc_Sub_State_NR_t nrRrcSubState;
   as_nas_info_t      initialNasMsg;
 
-  //Sidelink params
   NR_SL_PreconfigurationNR_r16_t *sl_preconfig;
+  NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_dedicated_cfg;
   NR_MasterInformationBlockSidelink_t *sl_mib;
 
 } NR_UE_RRC_INST_t;

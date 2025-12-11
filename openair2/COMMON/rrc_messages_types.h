@@ -89,8 +89,13 @@
 
 #define RRC_SUBFRAME_PROCESS(mSGpTR)    (mSGpTR)->ittiMsg.rrc_subframe_process
 #define NRRRC_SLOT_PROCESS(mSGpTR)      (mSGpTR)->ittiMsg.nr_rrc_slot_process
+#define NRRRC_SIDELINK_UE_INFO(mSGpTR)  (mSGpTR)->ittiMsg.nr_rrc_sl_ue_information
+
+#define NR_RRC_RECONFIGURATION_IND(mSGpTR) (mSGpTR)->ittiMsg.nr_rrc_reconfiguration_indication
 
 #define RLC_SDU_INDICATION(mSGpTR)      (mSGpTR)->ittiMsg.rlc_sdu_indication
+#define RLC_TRAFFIC_PTN_CHG_IND(mSGpTR) (mSGpTR)->ittiMsg.rlc_traffic_ptn_chg_indication
+
 #define NRDuDlReq(mSGpTR)      (mSGpTR)->ittiMsg.nr_du_dl_req
 
 #define NAS_OAI_TUN_NSA(mSGpTR)         (mSGpTR)->ittiMsg.nas_oai_tun_nsa
@@ -477,5 +482,24 @@ typedef struct rlc_sdu_indication_s {
   int srb_id;
   int message_id;
 } RlcSduIndication;
+
+typedef struct rlc_traffic_ptn_chg_indication_s {
+  int frame;
+  int ch_id;
+  int is_pc5;
+  int tp_type;
+} RlcTrafficPtnChgIndication;
+
+typedef struct NRRrcSlUEInformation_s {
+  uint32_t  frame;
+  uint8_t   slot;
+  uint8_t   gnb_id;
+} NRRrcSlUEInformation;
+
+typedef struct NRRrcReconfiguration_ind_s {
+  uint32_t  frame;
+  uint8_t   slot;
+  uint8_t   gnb_id;
+} NRRrcReconfiguration_ind;
 
 #endif /* RRC_MESSAGES_TYPES_H_ */

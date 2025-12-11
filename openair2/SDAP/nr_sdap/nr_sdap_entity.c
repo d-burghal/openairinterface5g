@@ -25,10 +25,15 @@
 #include <openair2/LAYER2/nr_pdcp/nr_pdcp_oai_api.h>
 #include <openair3/ocp-gtpu/gtp_itf.h>
 #include "openair2/LAYER2/nr_pdcp/nr_pdcp_ue_manager.h"
+#include "executables/softmodem-common.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+
+#include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
+#include <arpa/inet.h>
 
 typedef struct {
   nr_sdap_entity_t *sdap_entity_llist;
@@ -55,6 +60,26 @@ void nr_pdcp_submit_sdap_ctrl_pdu(ue_id_t ue_id, rb_id_t sdap_ctrl_pdu_drb, nr_s
   LOG_D(SDAP, "Control PDU - Submitting Control PDU to DRB ID:  %ld\n", sdap_ctrl_pdu_drb);
   LOG_D(SDAP, "QFI: %u\n R: %u\n D/C: %u\n", ctrl_pdu.QFI, ctrl_pdu.R, ctrl_pdu.DC);
   return;
+}
+
+void update_drb_id(unsigned char *const sdu_buffer, int offset, rb_id_t *sdap_drb_id)
+{
+  struct iphdr *ip = (struct iphdr *)&sdu_buffer[offset];
+  LOG_D(SDAP, "protocol %d offset %d\n", ip->protocol, offset);
+
+  char src_ip[INET_ADDRSTRLEN];
+  char dst_ip[INET_ADDRSTRLEN];
+  inet_ntop(AF_INET, &ip->saddr, src_ip, INET_ADDRSTRLEN);
+  if (!inet_ntop(AF_INET, &ip->daddr, dst_ip, INET_ADDRSTRLEN))
+    LOG_E(SDAP, "Invalid IP address format.\n");
+  else {
+    LOG_D(SDAP, "Received Packet from %s to %s.\n", src_ip, dst_ip);
+    unsigned char *bytes = (unsigned char *)&ip->daddr;
+    int last_octet = bytes[3];
+    LOG_D(SDAP, "The last octet = %d\n", last_octet);
+    // Fix me: The last octet of remote UE IP address was assumed to have 100.
+    *sdap_drb_id = (last_octet == 100) ? 2 : 1;
+  }
 }
 
 static bool nr_sdap_tx_entity(nr_sdap_entity_t *entity,
@@ -88,10 +113,12 @@ static bool nr_sdap_tx_entity(nr_sdap_entity_t *entity,
   if(pdcp_entity){
     sdap_drb_id = pdcp_entity;
     pdcp_ent_has_sdap = entity->qfi2drb_table[qfi].has_sdap_tx;
-    LOG_D(SDAP, "TX - QFI: %u is mapped to DRB ID: %ld\n", qfi, entity->qfi2drb_table[qfi].drb_id);
+    LOG_D(SDAP, "TX - QFI: %u is mapped to DRB ID: %ld for pdcp_entity %ld\n", qfi, entity->qfi2drb_table[qfi].drb_id, pdcp_entity);
   }
 
   if(!pdcp_ent_has_sdap){
+    if(ctxt_p->enb_flag)
+      update_drb_id(sdu_buffer, offset, &sdap_drb_id);
     LOG_D(SDAP, "TX - DRB ID: %ld does not have SDAP\n", entity->qfi2drb_table[qfi].drb_id);
     ret = nr_pdcp_data_req_drb(ctxt_p,
                                srb_flag,
@@ -206,6 +233,18 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
           LOG_D(SDAP, "RX Entity Received SDAP Control PDU\n");
           break;
       }
+    }
+    if (IS_SOFTMODEM_NOS1) {// Using noS1 at gNB
+      extern int nas_sock_fd[];
+      int len = write(nas_sock_fd[0], &buf[offset], size-offset);
+      LOG_D(SDAP, "RX Entity len : %d\n", len);
+      LOG_D(SDAP, "RX Entity size : %d\n", size);
+      LOG_D(SDAP, "RX Entity offset : %d\n", offset);
+
+      if (len != size-offset)
+        LOG_E(SDAP, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
+
+      return;
     }
 
     // Pushing SDAP SDU to GTP-U Layer
@@ -390,7 +429,8 @@ void nr_sdap_ue_qfi2drb_config(nr_sdap_entity_t *existing_sdap_entity, rb_id_t p
 
   for (int i = 0; i < mappedQFIs2AddCount; i++) {
     qfi = (uint8_t)mapped_qfi_2_add[i];
-    set_qfi_pduid(qfi, 0);
+    int pdusession_id = 10;
+    set_qfi_pduid(qfi, pdusession_id);
     if (existing_sdap_entity->default_drb && existing_sdap_entity->qfi2drb_table[qfi].drb_id == SDAP_NO_MAPPING_RULE) {
       nr_sdap_ul_hdr_t sdap_ctrl_pdu = existing_sdap_entity->sdap_construct_ctrl_pdu(qfi);
       rb_id_t sdap_ctrl_pdu_drb = existing_sdap_entity->sdap_map_ctrl_pdu(existing_sdap_entity, pdcp_entity, SDAP_CTRL_PDU_MAP_DEF_DRB, qfi);
@@ -446,7 +486,8 @@ nr_sdap_entity_t *new_nr_sdap_entity(int is_gnb, bool has_sdap_rx, bool has_sdap
     uint8_t qfi = 0;
     for (int i = 0; i < mappedQFIs2AddCount; i++) {
       qfi = (uint8_t)mapped_qfi_2_add[i];
-      set_qfi_pduid(qfi, 0);
+      int pdusession_id = 10;
+      set_qfi_pduid(qfi, pdusession_id);
       sdap_entity->qfi2drb_map_update(sdap_entity, qfi, sdap_entity->default_drb, has_sdap_rx, has_sdap_tx);
     }
   }

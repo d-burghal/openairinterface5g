@@ -34,8 +34,12 @@
 #include "oai_asn1.h"
 #include "SIMULATION/TOOLS/sim.h" // for taus();
 
+#include "sl_preconfig_paramvalues_gNB.h"
+#include "rrc_proto.h"
+#include "openair2/RRC/NR/nr_rrc_proto.h"
 #include "uper_decoder.h"
 #include "uper_encoder.h"
+#include "openair2/GNB_APP/gnb_paramdef.h"
 
 const uint8_t slotsperframe[5] = {10, 20, 40, 80, 160};
 
@@ -2095,6 +2099,21 @@ static NR_SpCellConfig_t *get_initial_SpCellConfig(int uid,
   NR_UplinkConfig_t *uplinkConfig = SpCellConfig->spCellConfigDedicated->uplinkConfig;
 
   NR_BWP_UplinkDedicated_t *initialUplinkBWP = calloc(1, sizeof(*initialUplinkBWP));
+
+  initialUplinkBWP->ext1 = calloc(1, sizeof(struct NR_BWP_UplinkDedicated__ext1));
+  initialUplinkBWP->ext1->sl_PUCCH_Config_r16 = calloc(1, sizeof(struct NR_SetupRelease_PUCCH_Config));
+  initialUplinkBWP->ext1->sl_PUCCH_Config_r16->present = NR_SetupRelease_PUCCH_Config_PR_setup;
+  NR_PUCCH_Config_t *sl_pucch_Config = calloc(1, sizeof(*sl_pucch_Config));
+  initialUplinkBWP->ext1->sl_PUCCH_Config_r16->choice.setup = sl_pucch_Config;
+  sl_pucch_Config->resourceSetToAddModList = calloc(1, sizeof(*sl_pucch_Config->resourceSetToAddModList));
+  sl_pucch_Config->resourceSetToReleaseList = NULL;
+  sl_pucch_Config->resourceToAddModList = calloc(1, sizeof(*sl_pucch_Config->resourceToAddModList));
+  sl_pucch_Config->resourceToReleaseList = NULL;
+  uint8_t relay_uid = uid + MAX_MOBILES_PER_GNB;
+  config_pucch_resset0(sl_pucch_Config, relay_uid, curr_bwp, NULL);
+  config_pucch_resset1(sl_pucch_Config, NULL);
+  set_pucch_power_config(sl_pucch_Config, configuration->do_CSIRS);
+
   uplinkConfig->initialUplinkBWP = initialUplinkBWP;
   initialUplinkBWP->pucch_Config = calloc(1, sizeof(*initialUplinkBWP->pucch_Config));
   initialUplinkBWP->pucch_Config->present = NR_SetupRelease_PUCCH_Config_PR_setup;
@@ -2871,4 +2890,259 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
     xer_fprint(stdout, &asn_DEF_NR_SpCellConfig, (void *)secondaryCellGroup->spCellConfig);
   }
   return secondaryCellGroup;
+}
+
+// 38.213 Table 16.5-1: N values per numerology μ
+int N_table[4] = {14, 18, 28, 32};
+
+// Compute sl_PSFCH_ToPUCCH_CG_Type1 (slot offset from PSFCH to PUCCH)
+double compute_SL_PSFCH_ToPUCCH_CG_Type1(int mu) {
+  if (mu < 0 || mu > 3) {
+      LOG_I(NR_RRC, "Invalid numerology value. Use mu in [0..3].\n");
+      return -1;
+  }
+
+  double k = compute_k();
+  int N = N_table[mu];
+  double Tc = 1.0 / (DELTA_F_MAX * N_F);
+
+  // 38.213 Section 16.5
+  // Tprep = (N + 1) * (2048 + 144) * k * 2^(-mu) * Tc
+  double Tprep = (N + 1) * (2048 + 144) * k * pow(2.0, -mu) * Tc;
+
+  // Assuming slot duration = 14 symbols per slot (1 ms / 2^mu)
+  double slot_duration = 1e-3 / pow(2.0, mu);
+
+  // Convert preparation time into slot offset k
+  double sl_PSFCH_ToPUCCH_CG_Type1 = Tprep / slot_duration;
+
+  return sl_PSFCH_ToPUCCH_CG_Type1;
+}
+
+void prepare_nr_sl_sched_config(NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_config, rnti_t sl_rnti, uint8_t mu) {
+  sched_config->present = NR_SetupRelease_SL_ScheduledConfig_r16_PR_setup;
+  sched_config->choice.setup = CALLOC(1, sizeof(NR_SL_ScheduledConfig_r16_t));
+  sched_config->choice.setup->sl_RNTI_r16 = sl_rnti;
+  sched_config->choice.setup->sl_CS_RNTI_r16 = CALLOC(1, sizeof(NR_RNTI_Value_t));
+  *sched_config->choice.setup->sl_CS_RNTI_r16 = sl_rnti;
+  sched_config->choice.setup->sl_PSFCH_ToPUCCH_r16 = NULL;
+  sched_config->choice.setup->sl_ConfiguredGrantConfigList_r16 = CALLOC(1, sizeof(struct NR_SL_ConfiguredGrantConfigList_r16));
+  struct NR_SL_ConfiguredGrantConfigList_r16 *sl_ConfiguredGrantConfigList = sched_config->choice.setup->sl_ConfiguredGrantConfigList_r16;
+  sl_ConfiguredGrantConfigList->sl_ConfiguredGrantConfigToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_ConfiguredGrantConfigList_r16__sl_ConfiguredGrantConfigToAddModList_r16));
+  struct NR_SL_ConfiguredGrantConfigList_r16__sl_ConfiguredGrantConfigToAddModList_r16 *sl_CG_ConfigToAddModList = sl_ConfiguredGrantConfigList->sl_ConfiguredGrantConfigToAddModList_r16;
+  NR_SL_ConfiguredGrantConfig_r16_t *sl_CG_Config = CALLOC(1, sizeof(NR_SL_ConfiguredGrantConfig_r16_t));
+  sl_CG_Config->sl_PeriodCG_r16 = CALLOC(1, sizeof(struct NR_SL_PeriodCG_r16));
+  sl_CG_Config->sl_PeriodCG_r16->present = NR_SL_PeriodCG_r16_PR_sl_PeriodCG1_r16;
+  sl_CG_Config->sl_NrOfHARQ_Processes_r16 = CALLOC(1, sizeof(long));
+  sl_CG_Config->sl_HARQ_ProcID_offset_r16 = CALLOC(1, sizeof(long));
+  sl_CG_Config->sl_CG_MaxTransNumList_r16 = CALLOC(1, sizeof(struct NR_SL_CG_MaxTransNumList_r16));
+  sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16 = CALLOC(1, sizeof(struct NR_SL_ConfiguredGrantConfig_r16__rrc_ConfiguredSidelinkGrant_r16));
+  sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16 = CALLOC(1, sizeof(long));
+  sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_N1PUCCH_AN_r16 = CALLOC(1, sizeof(long));
+  sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16 = CALLOC(1, sizeof(long));
+  *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16 = compute_SL_PSFCH_ToPUCCH_CG_Type1(mu);
+  sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_ResourcePoolID_r16 = CALLOC(1, sizeof(long));
+  sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16 = CALLOC(1, sizeof(long));
+  sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeOffsetCG_Type1_r16 = CALLOC(1, sizeof(long));
+  sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeReferenceSFN_Type1_r16 = CALLOC(1, sizeof(long));
+  sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16 = CALLOC(1, sizeof(long));
+
+  NR_SL_CG_MaxTransNum_r16_t *sl_CG_MaxTransNum = CALLOC(1, sizeof(NR_SL_CG_MaxTransNum_r16_t));
+  ASN_SEQUENCE_ADD(&sl_CG_Config->sl_CG_MaxTransNumList_r16->list, sl_CG_MaxTransNum);
+
+  char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
+  paramdef_t SL_CG_CONFIG_PARAMS[] = SL_CG_CONFIG_PARAMS_DESC(sl_CG_Config);
+  paramlist_def_t SL_CG_Config_List = {SL_CONFIG_STRING_CG_CONFIG_LIST, NULL, 0};
+  sprintf(aprefix, "%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0);
+  config_getlist(&SL_CG_Config_List, NULL, 0, aprefix);
+  LOG_D(RRC, "NUM SL-CG_Config elements in cfg file:%d\n", SL_CG_Config_List.numelt);
+  sprintf(aprefix, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0, SL_CONFIG_STRING_CG_CONFIG_LIST, 0);
+  config_get(SL_CG_CONFIG_PARAMS, sizeof(SL_CG_CONFIG_PARAMS) / sizeof(paramdef_t), aprefix);
+  ASN_SEQUENCE_ADD(&sl_CG_ConfigToAddModList->list, sl_CG_Config);
+
+
+  /*
+  Following values are based on spec. 38214 section 8.1.5, N = 1 or 2 actual resources when sl-
+  MaxNumPerReserve is 2, and N = 1 or 2 or 3 actual resources when sl-MaxNumPerReserve is 3.
+  For N = 2, 1 <= t1 <= 31; and for N = 3, 1 <= t1 <= 30, t1 < t2 <= 31, We are taking N = 1; it represents only 1 reserved resource.
+  */
+  int N = 2;
+  uint8_t t1 = 2, t2 = 0;
+
+  uint8_t sl_num_subch = 1; // the number of sub-channels in a resource pool
+  uint8_t l_subch = 1; // the number of contiguously allocated sub-channels for each of the N resources
+  uint8_t n_start_subch1 = *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16;
+  uint8_t n_start_subch2 = 0; // represent starting sub-channel index for the second resource and third resource;
+                              // as we are considering only 1 subchannel, so we have initialized these variables with zeros.
+  uint16_t sl_max_num_reserve = NR_SL_UE_SelectedConfigRP_r16__sl_MaxNumPerReserve_r16_n2;
+  *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16 = compute_FRIV(sl_max_num_reserve, l_subch, n_start_subch1, n_start_subch2, sl_num_subch);
+  *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16 = compute_TRIV(N, t1, t2);
+
+  LOG_D(NR_RRC, "sl_NrOfHARQ_Processes_r16 %lu\n", *sl_CG_Config->sl_NrOfHARQ_Processes_r16);
+  LOG_D(NR_RRC, "sl_HARQ_ProcID_offset_r16 %lu\n", *sl_CG_Config->sl_HARQ_ProcID_offset_r16);
+  LOG_D(NR_RRC, "sl_ConfigIndexCG_r16 %lu\n", sl_CG_Config->sl_ConfigIndexCG_r16);
+  LOG_D(NR_RRC, "sl_Priority_r16 %lu\n", sl_CG_Config->sl_CG_MaxTransNumList_r16->list.array[0]->sl_Priority_r16);
+  LOG_D(NR_RRC, "sl_MaxTransNum_r16 %lu\n", sl_CG_Config->sl_CG_MaxTransNumList_r16->list.array[0]->sl_MaxTransNum_r16);
+  LOG_D(NR_RRC, "sl_FreqResourceCG_Type1_r16 %lu\n", *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_FreqResourceCG_Type1_r16);
+  LOG_D(NR_RRC, "sl_N1PUCCH_AN_r16 %lu\n", *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_N1PUCCH_AN_r16);
+  LOG_D(NR_RRC, "sl_PSFCH_ToPUCCH_CG_Type1_r16 %lu\n", *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_PSFCH_ToPUCCH_CG_Type1_r16);
+  LOG_D(NR_RRC, "sl_ResourcePoolID_r16 %lu\n", *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_ResourcePoolID_r16);
+  LOG_D(NR_RRC, "sl_StartSubchannelCG_Type1_r16 %lu\n", *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_StartSubchannelCG_Type1_r16);
+  LOG_D(NR_RRC, "sl_TimeOffsetCG_Type1_r16 %lu\n", *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeOffsetCG_Type1_r16);
+  LOG_D(NR_RRC, "sl_TimeReferenceSFN_Type1_r16 %lu\n", *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeReferenceSFN_Type1_r16);
+  LOG_D(NR_RRC, "sl_TimeResourceCG_Type1_r16 %lu\n", *sl_CG_Config->rrc_ConfiguredSidelinkGrant_r16->sl_TimeResourceCG_Type1_r16);
+}
+
+void nr_rrc_pre_configure_NR_SetupRelease_SL_ConfigDedicatedNR(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_ConfigDedicatedNR,
+                                                               rnti_t sl_rnti,
+                                                               NR_SL_TxResourceReqList_r16_t *sl_TxRscReqList_r16,
+                                                               const NR_SL_UE_AssistanceInformationNR_r16_t *trafficPatternList) {
+  sl_ConfigDedicatedNR->present = NR_SetupRelease_SL_ConfigDedicatedNR_r16_PR_setup;
+  sl_ConfigDedicatedNR->choice.setup = CALLOC(1, sizeof(NR_SL_ConfigDedicatedNR_r16_t));
+  sl_ConfigDedicatedNR->choice.setup->sl_PHY_MAC_RLC_Config_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16));
+
+  struct NR_SL_PHY_MAC_RLC_Config_r16 *sl_PHY_MAC_RLC_Config = sl_ConfigDedicatedNR->choice.setup->sl_PHY_MAC_RLC_Config_r16;
+  sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = CALLOC(1, sizeof(long));
+  *sl_PHY_MAC_RLC_Config->sl_CSI_Acquisition_r16 = NR_SL_PHY_MAC_RLC_Config_r16__sl_CSI_Acquisition_r16_enabled;
+
+  struct NR_SL_FreqConfig_r16 *sl_FreqInfoToAddMod = CALLOC(1, sizeof(struct NR_SL_FreqConfig_r16));
+  sl_FreqInfoToAddMod->valueN_r16 = -1;
+  sl_FreqInfoToAddMod->sl_Freq_Id_r16 = 1;
+  sl_FreqInfoToAddMod->frequencyShift7p5khzSL_r16 = CALLOC(1, sizeof(long));
+  sl_FreqInfoToAddMod->sl_AbsoluteFrequencyPointA_r16 = CALLOC(1, sizeof(NR_ARFCN_ValueNR_t));
+  sl_FreqInfoToAddMod->sl_AbsoluteFrequencySSB_r16 = CALLOC(1, sizeof(NR_ARFCN_ValueNR_t));
+
+  struct NR_SCS_SpecificCarrier *sl_SCS_SpecificCarrier = CALLOC(1, sizeof(struct NR_SCS_SpecificCarrier));
+  sl_SCS_SpecificCarrier->ext1 = NULL;
+  ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list, sl_SCS_SpecificCarrier);
+
+  sl_FreqInfoToAddMod->sl_BWP_ToReleaseList_r16 = CALLOC(1, sizeof(struct NR_SL_FreqConfig_r16__sl_BWP_ToReleaseList_r16));
+  NR_BWP_Id_t *nr_bwd_id = CALLOC(1, sizeof(NR_BWP_Id_t));
+  *nr_bwd_id = 1;
+  ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_BWP_ToReleaseList_r16->list, nr_bwd_id);
+
+  sl_FreqInfoToAddMod->sl_SyncConfigList_r16 = CALLOC(1, sizeof(NR_SL_SyncConfigList_r16_t));
+  NR_SL_SyncConfig_r16_t *sl_SyncConfig = CALLOC(1, sizeof(NR_SL_SyncConfig_r16_t));
+  ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list, sl_SyncConfig);
+
+  // config info related to rx and tx of SL SYNC SIGNALS (SLSS)
+  prepare_nr_sl_SyncConfig_gNB(sl_FreqInfoToAddMod->sl_SyncConfigList_r16->list.array[0]);
+
+  // Sidelink BWP configuration.
+  // In REL16, 17 SUPPORTS only 1 SIDELINK Bandwidth part
+  NR_SL_BWP_Config_r16_t *sl_BWP_ToAddMod = CALLOC(1, sizeof(NR_SL_BWP_Config_r16_t));
+  int num_tx_pools = 1, num_rx_pools = 1;
+  int sl_syncsource = true;
+  sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_FreqConfig_r16__sl_BWP_ToAddModList_r16));
+  prepare_NR_SL_BWPConfig(sl_BWP_ToAddMod, num_tx_pools, num_rx_pools, sl_syncsource, trafficPatternList);
+  sl_BWP_ToAddMod->sl_BWP_Generic_r16->sl_BWP_r16->subcarrierSpacing = NR_SubcarrierSpacing_kHz30;
+  sl_BWP_ToAddMod->sl_BWP_Id = 1;
+  ASN_SEQUENCE_ADD(&sl_FreqInfoToAddMod->sl_BWP_ToAddModList_r16->list, sl_BWP_ToAddMod);
+
+  char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
+  paramdef_t SL_FDCPARAMS[] = SL_FD_CONFIG_PARAMS_DESC(sl_FreqInfoToAddMod);
+  paramlist_def_t SL_FDCParamList = {SL_CONFIG_STRING_SL_FDC_LIST, NULL, 0};
+  sprintf(aprefix, "%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0);
+  config_getlist(&SL_FDCParamList, NULL, 0, aprefix);
+  LOG_D(RRC, "NUM SL-FDC elem in cfg file:%d\n", SL_FDCParamList.numelt);
+  sprintf(aprefix, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0, SL_CONFIG_STRING_SL_FDC_LIST, 0);
+  config_get(SL_FDCPARAMS, sizeof(SL_FDCPARAMS) / sizeof(paramdef_t), aprefix);
+  sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16__sl_FreqInfoToAddModList_r16));
+  ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_FreqInfoToAddModList_r16->list, sl_FreqInfoToAddMod);
+
+  if (sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16) {
+    free_nr_sl_ScheduledConfig_r16(sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16);
+  }
+  sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16 = CALLOC(1, sizeof(NR_SetupRelease_SL_ScheduledConfig_r16_t));
+
+  NR_SetupRelease_SL_ScheduledConfig_r16_t *sched_config = sl_PHY_MAC_RLC_Config->sl_ScheduledConfig_r16;
+  uint8_t mu = sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list.array[0]->subcarrierSpacing;
+  prepare_nr_sl_sched_config(sched_config, sl_rnti, mu);
+  LOG_D(NR_RRC, "Assigned sl-RNTI-r16 = %u\n", sl_rnti);
+
+  sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16 = CALLOC(1, sizeof(struct NR_SL_PHY_MAC_RLC_Config_r16__sl_RLC_BearerToAddModList_r16));
+  struct NR_SL_RLC_BearerConfig_r16 *sl_RLC_BearerConfig = CALLOC(1, sizeof(struct NR_SL_RLC_BearerConfig_r16));
+  sl_RLC_BearerConfig->sl_RLC_BearerConfigIndex_r16 = 1;
+  sl_RLC_BearerConfig->sl_ServedRadioBearer_r16 = NULL;
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16 = CALLOC(1, sizeof(struct NR_SL_LogicalChannelConfig_r16));
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_ConfiguredGrantType1Allowed_r16 = CALLOC(1, sizeof(long));
+
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16 = CALLOC(1, sizeof(struct NR_SL_LogicalChannelConfig_r16__sl_AllowedCG_List_r16));
+  NR_SL_ConfigIndexCG_r16_t *sl_AllowedCG = CALLOC(1, sizeof(NR_SL_ConfigIndexCG_r16_t));
+  ASN_SEQUENCE_ADD(&sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_AllowedCG_List_r16->list, sl_AllowedCG);
+
+  //RLC channel configurations
+  sl_RLC_BearerConfig->sl_RLC_Config_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16));
+  if(sl_TxRscReqList_r16 != NULL) {
+    NR_SL_TxResourceReq_r16_t *txResourceReq = sl_TxRscReqList_r16->list.array[0];
+    NR_SL_RLC_ModeIndication_r16_t *rlc_modeIndi = txResourceReq->sl_RLC_ModeIndicationList_r16->list.array[0];
+    if (rlc_modeIndi->sl_Mode_r16.present == NR_SL_RLC_ModeIndication_r16__sl_Mode_r16_PR_sl_AM_Mode_r16) {
+      sl_RLC_BearerConfig->sl_RLC_Config_r16->present = NR_SL_RLC_Config_r16_PR_sl_AM_RLC_r16;
+      sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_AM_RLC_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_AM_RLC_r16));
+      struct NR_SL_RLC_Config_r16__sl_AM_RLC_r16 *sl_RLC_ChannelConfig_AM = sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_AM_RLC_r16;
+      sl_RLC_ChannelConfig_AM->sl_SN_FieldLengthAM_r16 = CALLOC(1, sizeof(long));
+      *sl_RLC_ChannelConfig_AM->sl_SN_FieldLengthAM_r16 = NR_SN_FieldLengthAM_size18;
+      sl_RLC_ChannelConfig_AM->sl_T_PollRetransmit_r16 = NR_T_PollRetransmit_ms45;
+      sl_RLC_ChannelConfig_AM->sl_PollPDU_r16 = NR_PollPDU_p64;
+      sl_RLC_ChannelConfig_AM->sl_PollByte_r16 = NR_PollByte_kB500;
+      sl_RLC_ChannelConfig_AM->sl_MaxRetxThreshold_r16 = NR_SL_RLC_Config_r16__sl_AM_RLC_r16__sl_MaxRetxThreshold_r16_t32;
+    } else {
+      sl_RLC_BearerConfig->sl_RLC_Config_r16->present = NR_SL_RLC_Config_r16_PR_sl_UM_RLC_r16;
+      sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_UM_RLC_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_UM_RLC_r16));
+      struct NR_SL_RLC_Config_r16__sl_UM_RLC_r16 *sl_RLC_ChannelConfig_UM = sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_UM_RLC_r16;
+      sl_RLC_ChannelConfig_UM->sl_SN_FieldLengthUM_r16 = CALLOC(1, sizeof(long));
+      *sl_RLC_ChannelConfig_UM->sl_SN_FieldLengthUM_r16 = NR_SN_FieldLengthUM_size12;
+    }
+  } else { // Default setting for sidelink PC5
+    sl_RLC_BearerConfig->sl_RLC_Config_r16->present = NR_SL_RLC_Config_r16_PR_sl_UM_RLC_r16;
+    sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_UM_RLC_r16 = CALLOC(1, sizeof(struct NR_SL_RLC_Config_r16__sl_UM_RLC_r16));
+    struct NR_SL_RLC_Config_r16__sl_UM_RLC_r16 *sl_RLC_ChannelConfig_UM = sl_RLC_BearerConfig->sl_RLC_Config_r16->choice.sl_UM_RLC_r16;
+    sl_RLC_ChannelConfig_UM->sl_SN_FieldLengthUM_r16 = CALLOC(1, sizeof(long));
+    *sl_RLC_ChannelConfig_UM->sl_SN_FieldLengthUM_r16 = NR_SN_FieldLengthUM_size12;
+  }
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_HARQ_FeedbackEnabled_r16 = CALLOC(1, sizeof(long));
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_MaxPUSCH_Duration_r16 = CALLOC(1, sizeof(long));
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_LogicalChannelGroup_r16 = CALLOC(1, sizeof(long));
+
+  sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16 = CALLOC(1, sizeof(struct NR_SL_LogicalChannelConfig_r16__sl_AllowedSCS_List_r16));
+  struct NR_SL_LogicalChannelConfig_r16__sl_AllowedSCS_List_r16 *sl_AllowedSCS_List = sl_RLC_BearerConfig->sl_MAC_LogicalChannelConfig_r16->sl_AllowedSCS_List_r16;
+  NR_SubcarrierSpacing_t *subCarrierSpacing = CALLOC(1, sizeof(NR_SubcarrierSpacing_t));
+  *subCarrierSpacing = sl_FreqInfoToAddMod->sl_SCS_SpecificCarrierList_r16.list.array[0]->subcarrierSpacing;
+  ASN_SEQUENCE_ADD(&sl_AllowedSCS_List->list, subCarrierSpacing);
+
+  paramdef_t SL_DEDICATED_CONF_PARAMS[] = SL_CONFIGDEDICATEDNR_PARAMS_DESC(sl_RLC_BearerConfig);
+  paramlist_def_t SL_DEDICATED_CONF_ParamList = {CONFIG_STRING_SL_ConfigDedicatedNR_LIST, NULL, 0};
+  sprintf(aprefix, "%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0);
+  config_getlist(&SL_DEDICATED_CONF_ParamList, NULL, 0, aprefix);
+  LOG_D(RRC, "NUM SL-FDC elem in cfg file:%d\n", SL_DEDICATED_CONF_ParamList.numelt);
+  sprintf(aprefix, "%s.[%i].%s.[%i]", SL_CONFIG_STRING_SL_PRECONFIGURATION, 0, CONFIG_STRING_SL_ConfigDedicatedNR_LIST, 0);
+  config_get(SL_DEDICATED_CONF_PARAMS, sizeof(SL_DEDICATED_CONF_PARAMS) / sizeof(paramdef_t), aprefix);
+
+  ASN_SEQUENCE_ADD(&sl_PHY_MAC_RLC_Config->sl_RLC_BearerToAddModList_r16->list, sl_RLC_BearerConfig);
+  if (LOG_DEBUGFLAG(DEBUG_ASN1))
+    xer_fprint(stdout, &asn_DEF_NR_SL_PHY_MAC_RLC_Config_r16, (void *)sl_PHY_MAC_RLC_Config);
+}
+
+// TODO: Later, we need following function to configure remote UE
+// sl-L2RelayUE-Config-r17 SetupRelease { SL-L2RelayUE-Config-r17 }
+void nr_rrc_pre_configure_SL_L2RelayUE_Config(NR_SetupRelease_SL_L2RelayUE_Config_r17_t* sl_L2RelayUE_Config) {
+
+  sl_L2RelayUE_Config->present = NR_SetupRelease_SL_L2RelayUE_Config_r17_PR_setup;
+  sl_L2RelayUE_Config->choice.setup = CALLOC(1, sizeof(NR_SL_L2RelayUE_Config_r17_t));
+  sl_L2RelayUE_Config->choice.setup->sl_RemoteUE_ToAddModList_r17 = CALLOC(1, sizeof(struct NR_SL_L2RelayUE_Config_r17__sl_RemoteUE_ToAddModList_r17));
+  struct NR_SL_L2RelayUE_Config_r17__sl_RemoteUE_ToAddModList_r17 *sl_RemoteUE_ToAddModList = sl_L2RelayUE_Config->choice.setup->sl_RemoteUE_ToAddModList_r17;
+
+  struct NR_SL_RemoteUE_ToAddMod_r17 *sl_RemoteUE_ToAddMod = CALLOC(1, sizeof(struct NR_SL_RemoteUE_ToAddMod_r17));
+  sl_RemoteUE_ToAddMod->sl_L2IdentityRemote_r17.buf = CALLOC(1, sizeof(uint8_t));
+  sl_RemoteUE_ToAddMod->sl_L2IdentityRemote_r17.size = 1;
+  sl_RemoteUE_ToAddMod->sl_L2IdentityRemote_r17.bits_unused = 0;
+  sl_RemoteUE_ToAddMod->sl_L2IdentityRemote_r17.buf[0] = 0x1;
+
+  sl_RemoteUE_ToAddMod->sl_SRAP_ConfigRelay_r17 = CALLOC(1, sizeof(struct NR_SL_SRAP_Config_r17));
+  sl_RemoteUE_ToAddMod->sl_SRAP_ConfigRelay_r17->sl_LocalIdentity_r17 = CALLOC(1, sizeof(long));
+  *sl_RemoteUE_ToAddMod->sl_SRAP_ConfigRelay_r17->sl_LocalIdentity_r17 = 0x1;
+  sl_RemoteUE_ToAddMod->sl_SRAP_ConfigRelay_r17->sl_MappingToAddModList_r17 = CALLOC(1, sizeof(struct NR_SL_SRAP_Config_r17__sl_MappingToAddModList_r17));
+
+  ASN_SEQUENCE_ADD(&sl_RemoteUE_ToAddModList->list, sl_RemoteUE_ToAddMod);
+
 }

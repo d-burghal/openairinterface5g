@@ -32,7 +32,8 @@
 typedef enum {
   NR_PDCP_DRB_AM,
   NR_PDCP_DRB_UM,
-  NR_PDCP_SRB
+  NR_PDCP_SRB,
+  NR_PDCP_SL_SRB
 } nr_pdcp_entity_type_t;
 
 typedef struct {
@@ -96,7 +97,7 @@ typedef struct nr_pdcp_entity_t {
                       char *buf, int size);
   void *deliver_sdu_data;
   void (*deliver_pdu)(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
-                      char *buf, int size, int sdu_id);
+                      char *buf, int size, int sdu_id, nr_intf_type_t intf_type);
   void *deliver_pdu_data;
 
   /* configuration variables */
@@ -177,7 +178,7 @@ nr_pdcp_entity_t *new_nr_pdcp_entity(
                         char *buf, int size),
     void *deliver_sdu_data,
     void (*deliver_pdu)(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
-                        char *buf, int size, int sdu_id),
+                        char *buf, int size, int sdu_id, nr_intf_type_t intf_type),
     void *deliver_pdu_data,
     int sn_size,
     int t_reordering,

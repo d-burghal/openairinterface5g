@@ -77,9 +77,16 @@ MESSAGE_DEF(NAS_CONN_RELEASE_IND,       MESSAGE_PRIORITY_MED,       NasConnRelea
 MESSAGE_DEF(NAS_UPLINK_DATA_CNF,        MESSAGE_PRIORITY_MED,       NasUlDataCnf,               nas_ul_data_cnf)
 MESSAGE_DEF(NAS_DOWNLINK_DATA_IND,      MESSAGE_PRIORITY_MED,       NasDlDataInd,               nas_dl_data_ind)
 
+// UE: Sidelink UEInfo -> RRC messages
+MESSAGE_DEF(NRRRC_SIDELINK_UE_INFO,     MESSAGE_PRIORITY_MED,       NRRrcSlUEInformation,       nr_rrc_sl_ue_information)
+
+// UE: Triggers RRC_RECONFIGURATION on relay UE for remote UE
+MESSAGE_DEF(NR_RRC_RECONFIGURATION_IND, MESSAGE_PRIORITY_MED,       NRRrcReconfiguration_ind,   nr_rrc_reconfiguration_indication)
+
 // eNB: realtime -> RRC messages
 MESSAGE_DEF(RRC_SUBFRAME_PROCESS,       MESSAGE_PRIORITY_MED,       RrcSubframeProcess,         rrc_subframe_process)
 MESSAGE_DEF(NRRRC_SLOT_PROCESS,         MESSAGE_PRIORITY_MED,       NRRrcSlotProcess,           nr_rrc_slot_process)
 
 // eNB: RLC -> RRC messages
 MESSAGE_DEF(RLC_SDU_INDICATION,         MESSAGE_PRIORITY_MED,       RlcSduIndication,           rlc_sdu_indication)
+MESSAGE_DEF(RLC_TRAFFIC_PTN_CHG_IND,    MESSAGE_PRIORITY_MED,       RlcTrafficPtnChgIndication, rlc_traffic_ptn_chg_indication)

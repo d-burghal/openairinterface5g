@@ -31,6 +31,7 @@ typedef void nr_pdcp_ue_manager_t;
 typedef struct nr_pdcp_ue_t {
   ue_id_t rntiMaybeUEid;
   nr_pdcp_entity_t *srb[3];
+  nr_pdcp_entity_t *sl_srb[4];
   nr_pdcp_entity_t *drb[MAX_DRBS_PER_UE];
 } nr_pdcp_ue_t;
 
@@ -56,7 +57,7 @@ int nr_pdcp_manager_get_ue_count(nr_pdcp_ue_manager_t *_m);
 /***********************************************************************/
 
 void nr_pdcp_ue_add_srb_pdcp_entity(nr_pdcp_ue_t *ue, int srb_id,
-                                    nr_pdcp_entity_t *entity);
+                                    nr_pdcp_entity_t *entity, nr_intf_type_t intf_type);
 void nr_pdcp_ue_add_drb_pdcp_entity(nr_pdcp_ue_t *ue, int drb_id,
                                     nr_pdcp_entity_t *entity);
 

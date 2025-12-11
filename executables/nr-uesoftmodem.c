@@ -122,6 +122,7 @@ int                 vcdflag = 0;
 
 double          rx_gain_off = 0.0;
 char             *usrp_args = NULL;
+char          *usrp_args_sl = NULL;
 char             *tx_subdev = NULL;
 char             *rx_subdev = NULL;
 char       *rrc_config_path = NULL;
@@ -360,7 +361,11 @@ void init_openair0() {
     nr_rf_card_config_gain(&openair0_cfg[card], rx_gain_off);
     openair0_cfg[card].configFilename = get_softmodem_params()->rf_config_file;
 
-    if (usrp_args) openair0_cfg[card].sdr_addrs = usrp_args;
+    if (card % 2 == 0) {
+      if (usrp_args) openair0_cfg[card].sdr_addrs = usrp_args;
+    } else {
+      if (usrp_args_sl) openair0_cfg[card].sdr_addrs = usrp_args_sl;
+    }
     if (tx_subdev) openair0_cfg[card].tx_subdev = tx_subdev;
     if (rx_subdev) openair0_cfg[card].rx_subdev = rx_subdev;
   }
@@ -379,7 +384,8 @@ static void init_pdcp(int ue_id, bool srap_enabled) {
   if (get_softmodem_params()->nsa && rlc_module_init(0) != 0) {
     LOG_I(RLC, "Problem at RLC initiation \n");
   }
-  nr_pdcp_layer_init();
+  bool gNB_flag = false;
+  nr_pdcp_layer_init(gNB_flag);
   nr_pdcp_module_init(pdcp_initmask, ue_id);
   pdcp_set_rlc_data_req_func((send_rlc_data_req_func_t) rlc_data_req);
   pdcp_set_pdcp_data_ind_func((pdcp_data_ind_func_t) pdcp_data_ind);

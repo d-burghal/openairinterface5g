@@ -24,10 +24,17 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h> 
+#include <stdint.h>
+#include "NR_DL-CCCH-Message.h"
 
 #define NR_RRC_HEADER_SIZE_MAX 64
 #define NR_RRC_BUFFER_SIZE_MAX 1024
+
+// NR Constants from 38.211
+#define DELTA_F_MAX   480000.0    // Hz
+#define N_F           4096
+#define DELTA_F_REF   15000.0     // Hz
+#define N_F_REF       2048
 
 typedef struct {
   char                                                Payload[NR_RRC_BUFFER_SIZE_MAX];
@@ -72,5 +79,25 @@ typedef struct SRB_INFO_TABLE_ENTRY_NR_s {
 } NR_SRB_INFO_TABLE_ENTRY;
 
 void rrc_init_nr_srb_param(NR_LCHAN_DESC *chan);
+
+void free_nr_sl_ScheduledConfig_r16(NR_SetupRelease_SL_ScheduledConfig_r16_t *nr_sl_Scheduled_Config);
+
+void free_nr_sl_BWP_Config(NR_SL_BWP_Config_r16_t *sl_BWP_Config);
+
+void free_nr_sl_SetupRelease_SL_ConfigDedicatedNR_r16(NR_SetupRelease_SL_ConfigDedicatedNR_r16_t *sl_conf);
+
+void free_nr_sl_resource_pool(NR_SL_ResourcePool_r16_t *sl_ResourcePool_r16);
+
+double compute_k(void);
+
+uint32_t compute_TRIV(uint8_t N, uint8_t t1, uint8_t t2);
+
+uint32_t compute_FRIV(uint8_t sl_max_num_per_reserve,
+                      uint8_t L_sub_chan,
+                      uint8_t n_start_subch1,
+                      uint8_t n_start_subch2,
+                      uint8_t N_sl_subch);
+
+int inverse_TRIV(uint8_t N, uint32_t triv, uint8_t *t1, uint8_t *t2);
 
 #endif

@@ -43,6 +43,7 @@
 #define NR_NB_REG_PER_CCE 6
 #define NR_NB_SC_PER_RB 12
 #define MAX_SL_UE_CONNECTIONS 8
+#define MAX_MCS 28
 
 typedef enum {
   nr_FR1 = 0,
@@ -75,7 +76,7 @@ typedef enum frequency_range_e {
 
 typedef enum {
   UU,
-  PC5,
+  PC5
 } nr_intf_type_t;
 
 extern const nr_bandentry_t nr_bandtable[];
@@ -96,7 +97,7 @@ frame_type_t get_frame_type(uint16_t nr_bandP, uint8_t scs_index);
 uint16_t get_band(uint64_t downlink_frequency, int32_t delta_duplex);
 int NRRIV2BW(int locationAndBandwidth,int N_RB);
 int NRRIV2PRBOFFSET(int locationAndBandwidth,int N_RB);
-void convNRFRIV(int FRIV, int N_subch, long sl_MaxNumPerReserve, uint16_t *Lsc, uint16_t *startsc, uint16_t *startsc2); 
+void convNRFRIV(int FRIV, int N_subch, long sl_MaxNumPerReserve, uint16_t *Lsc, uint16_t *startsc, uint16_t *startsc2);
 int PRBalloc_to_locationandbandwidth0(int NPRB,int RBstart,int BWPsize);
 int PRBalloc_to_locationandbandwidth(int NPRB,int RBstart);
 int get_subband_size(int NPRB,int size);

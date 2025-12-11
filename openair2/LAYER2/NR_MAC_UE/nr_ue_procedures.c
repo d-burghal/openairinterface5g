@@ -47,6 +47,7 @@
 #include "NR_MAC_COMMON/nr_mac_extern.h"
 #include "common/utils/nr/nr_common.h"
 #include "openair2/NR_UE_PHY_INTERFACE/NR_Packet_Drop.h"
+#include "openair2/LAYER2/nr_srap/nr_srap_oai_api.h"
 
 /* PHY */
 #include "executables/softmodem-common.h"
@@ -57,6 +58,7 @@
 #include "oai_asn1.h"
 #include "common/utils/LOG/log.h"
 #include "common/utils/LOG/vcd_signal_dumper.h"
+#include "openair2/LAYER2/nr_srap/nr_srap_oai_api.h"
 
 //#define DEBUG_MIB
 //#define ENABLE_MAC_PAYLOAD_DEBUG 1
@@ -158,6 +160,12 @@ static uint8_t nr_extract_dci_info(NR_UE_MAC_INST_t *mac,
                                    dci_pdu_rel15_t *dci_pdu_rel15,
                                    int slot);
 
+void nr_mac_init_sl_config_grant(NR_UE_MAC_INST_t *mac) {
+  for (int i = 0; i < MAX_CONFIGURED_GRANTS; i++) {
+    mac->sl_cg_per_bwp.sl_cg[i] = CALLOC(1, sizeof(sl_config_grant_t));
+  }
+}
+
 void nr_ue_init_mac(module_id_t module_idP, ueinfo_t* ueinfo)
 {
   LOG_I(NR_MAC, "[UE%d] Applying default macMainConfig\n", module_idP);
@@ -176,6 +184,8 @@ void nr_ue_init_mac(module_id_t module_idP, ueinfo_t* ueinfo)
   mac->sl_candidate_resources = (List_t*)malloc16_clear(sizeof(List_t*));
   init_list(mac->sl_candidate_resources, sizeof(sl_resource_info_t), 1);
   mac->reselection_timer = 0;
+  if ((get_softmodem_params()->sl_mode == 1) && (get_softmodem_params()->relay_type == U2N))
+    nr_mac_init_sl_config_grant(mac);
 
   if (ueinfo != NULL)  {
     mac->src_id = ueinfo->srcid;

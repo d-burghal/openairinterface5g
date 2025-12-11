@@ -40,6 +40,7 @@ struct NR_RLC_Config;
 struct NR_LogicalChannelConfig;
 
 void nr_rlc_add_srb(int rnti, int srb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig);
+void nr_rlc_add_srb_sl(int rnti, int srb_id, const NR_SL_RLC_BearerConfig_r16_t *rlc_BearerConfig);
 void nr_rlc_add_drb(int rnti, int drb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig);
 void nr_rlc_add_drb_sl(int srcid, int drb_id, const NR_SL_RLC_BearerConfig_r16_t *rlc_BearerConfig);
 
