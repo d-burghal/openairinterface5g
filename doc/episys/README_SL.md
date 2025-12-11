@@ -93,7 +93,7 @@ This implementation extends the **OpenAirInterface (OAI)** codebase with support
 &emsp; The current implementation has been tested with the following configuration:
 
 &emsp;&emsp;✅ Working Setup:<br>
-&emsp;&emsp;&emsp;&emsp; ◉ Two UE devices communicating over SL mode 1/2 using Ettus B210 SDRs basic SL transmission and reception are confirmed functional in this setup<br>
+&emsp;&emsp;&emsp;&emsp; ◉ Two UE devices communicating over SL mode 2 using Ettus B210 SDRs basic SL transmission and reception are confirmed functional in this setup<br>
 &emsp;&emsp;&emsp;&emsp; ◉ Three node Relay scenario (Remote UE, Relay UE and gNB) is working on RFSIM and B210s setup; At present, the implementation supports MCS indices up to 9 (MCS 0–9) only.<br>
 &emsp;&emsp;❌ Unsupported or Non-Functional Setup:<br>
 &emsp;&emsp;&emsp;&emsp; ◉ Ettus N310 devices: Current implementation does not work. Debugging in work.<br>
@@ -107,7 +107,7 @@ $ git clone https://gitlab.eurecom.fr/oai/openairinterface5g.git
 $ cd ~/openairinterface5g
 $ git fetch --tags
 $ git clean -fdX
-$ git checkout sl-release-1.0
+$ git checkout sl-5g-nr
 $ source oaienv
 $ cd cmake_targets
 $ ./build_oai -C -I --install-optional-packages   # Only necessary on fresh installs
