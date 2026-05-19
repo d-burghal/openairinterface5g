@@ -15,6 +15,8 @@
 #define NR_PUSCH_x 2 // UCI placeholder bit TS 38.212 V15.4.0 subclause 5.3.3.1
 #define NR_PUSCH_y 3 // UCI placeholder bit
 
+#define FILTER_MARGIN 32
+
 typedef enum {
   BIT_TYPE_ULSCH = 0, // Default: UL-SCH data
   BIT_TYPE_ACK = 1, // HARQ-ACK bit
@@ -389,6 +391,15 @@ void nr_generate_psfch0(const PHY_VARS_NR_UE *ue,
                         const int16_t amp,
                         const int nr_slot_tx,
                         const sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu);
+
+int nr_csi_rs_sinr_estimation(const PHY_VARS_NR_UE *ue,
+                              const fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu,
+                              const uint8_t N_ports,
+                              uint8_t mem_offset,
+                              const c16_t csi_rs_estimated_channel_freq[][N_ports][ue->frame_parms.ofdm_symbol_size + FILTER_MARGIN],
+                              const uint32_t interference_plus_noise_power,
+                              const int16_t log2_re,
+                              int32_t *precoded_sinr_dB);
 
 /**@}*/
 #endif
