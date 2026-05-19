@@ -348,6 +348,13 @@ void nr_pbch_unscrambling(int16_t *demod_pbch_e,
                           uint32_t pbch_a_prime,
                           uint32_t *pbch_a_interleaved);
 void nr_pbch_quantize(int16_t *pbch_llr8, int16_t *pbch_llr, uint16_t len);
+
+void nr_pdcch_unscrambling(c16_t *e_rx,
+                           uint16_t scrambling_RNTI,
+                           uint32_t length,
+                           uint16_t pdcch_DMRS_scrambling_id,
+                           int16_t *z2);
+
 /**@}*/
 #endif
 
