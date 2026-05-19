@@ -546,6 +546,8 @@ typedef struct nr_phy_data_tx_s {
   // Sidelink Rx action decided by MAC
   sl_nr_tx_config_type_enum_t sl_tx_action;
   sl_nr_tx_config_psbch_pdu_t psbch_vars;
+  sl_nr_tx_config_pscch_pssch_pdu_t nr_sl_pssch_pscch_pdu;
+  uint32_t pscch_Nid;  
 } nr_phy_data_tx_t;
 
 typedef struct nr_phy_data_s {
@@ -554,6 +556,13 @@ typedef struct nr_phy_data_s {
 
   // Sidelink Rx action decided by MAC
   sl_nr_rx_config_type_enum_t sl_rx_action;
+  sl_nr_rx_config_pscch_pdu_t nr_sl_pscch_pdu;
+  sl_nr_rx_config_pssch_sci_pdu_t nr_sl_pssch_sci_pdu;
+  sl_nr_rx_config_pssch_pdu_t nr_sl_pssch_pdu;
+  sl_nr_tti_csi_rs_pdu_t nr_sl_csi_rs_pdu;
+  sl_nr_tx_rx_config_psfch_pdu_t *psfch_pdu_list;
+  uint8_t num_psfch_pdus;
+
   NR_UE_CSI_RS csirs_vars;
   NR_UE_CSI_IM csiim_vars;
 } nr_phy_data_t;
