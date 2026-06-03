@@ -676,16 +676,16 @@ void rrc_ue_process_sidelink_Preconfiguration(NR_UE_RRC_INST_t *rrc_inst,
 
   // SL RadioBearers
   for (int i=0; i<sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.count; i++) {
-    add_drb_sl(id, (NR_SL_RadioBearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i], security_up_parameters);
+    add_drb_sl(rrc_inst->ue_id, (NR_SL_RadioBearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i], security_up_parameters);
   }
   // configure RLC
   for (int i=0; i<sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.count; i++) {
-    nr_rlc_add_drb_sl(id, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
+    nr_rlc_add_drb_sl(rrc_inst->ue_id, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
   }
 
   int pdu_id = 1;
   const bool is_default = true;
-  create_ue_ip_if(ip, NULL, id, pdu_id, is_default);
+  create_ue_ip_if(ip, NULL, rrc_inst->ue_id, pdu_id, is_default);
 
   //TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.
   //Currently hardcoding the values to these
