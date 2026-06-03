@@ -878,6 +878,9 @@ static void add_drb_am_sl(int src_id, int drb_id, const NR_SL_RLC_BearerConfig_r
 
   nr_rlc_manager_lock(nr_rlc_ue_manager);
   ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, src_id);
+  int local_id = 4 - 1; // TODO should not be hardcoded, but I don't find LCID?! LCID 0 for SRB 0 not mapped
+  ue->lcid2rb[local_id].type = NR_LCID_DRB;
+  ue->lcid2rb[local_id].choice.drb_id = drb_id;
   if (ue->drb[drb_id-1] != NULL) {
     LOG_W(RLC, "%s:%d:%s: DRB %d already exists for SL UE with src_id %04x, do nothing\n", __FILE__, __LINE__, __FUNCTION__, drb_id, src_id);
   } else {
@@ -981,6 +984,9 @@ static void add_drb_um_sl(int src_id, int drb_id, const NR_SL_RLC_BearerConfig_r
 
   nr_rlc_manager_lock(nr_rlc_ue_manager);
   ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, src_id);
+  int local_id = 4 - 1; // TODO should not be hardcoded, but I don't find LCID?! LCID 0 for SRB 0 not mapped
+  ue->lcid2rb[local_id].type = NR_LCID_DRB;
+  ue->lcid2rb[local_id].choice.drb_id = drb_id;
   if (ue->drb[drb_id-1] != NULL) {
     LOG_W(RLC, "DEBUG add_drb_um %s:%d:%s: warning DRB %d already exist for SL ue %d, do nothing\n", __FILE__, __LINE__, __FUNCTION__, drb_id, src_id);
   } else {
