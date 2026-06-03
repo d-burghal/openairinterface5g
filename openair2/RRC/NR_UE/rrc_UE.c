@@ -3561,10 +3561,8 @@ void start_sidelink(int instance)
 
   if (get_softmodem_params()->sl_mode == 2) {
 
-    ueinfo_t ueinfo;
-    
     //Process the Sidelink Preconfiguration
-    rrc_ue_process_sidelink_Preconfiguration(rrc, get_softmodem_params()->sync_ref, &ueinfo, &security_up_parameters);
+    rrc_ue_process_sidelink_Preconfiguration(rrc, get_softmodem_params()->sync_ref, &security_up_parameters);
 
   }
 }

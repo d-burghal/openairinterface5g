@@ -62,12 +62,11 @@ void nr_rrc_handle_SetupRelease_RLF_TimersAndConstants(NR_UE_RRC_INST_t *rrc,
                                                        struct NR_SetupRelease_RLF_TimersAndConstants *rlf_TimersAndConstants);
 
 int configure_NR_SL_Preconfig(NR_UE_RRC_INST_t *rrc,int sync_source);
-//void nr_UE_configure_Sidelink(uint8_t id, uint8_t is_sync_source, ueinfo_t *ueinfo);
 
 void init_sidelink(NR_UE_RRC_INST_t *rrc);
 void start_sidelink(int instance);
 
-void rrc_ue_process_sidelink_Preconfiguration(NR_UE_RRC_INST_t *rrc_inst, int sync_ref, ueinfo_t *ueinfo, nr_pdcp_entity_security_keys_and_algos_t *security_up_parameters);
+void rrc_ue_process_sidelink_Preconfiguration(NR_UE_RRC_INST_t *rrc_inst, int sync_ref, nr_pdcp_entity_security_keys_and_algos_t *security_up_parameters);
 
 void nr_rrc_ue_decode_NR_SBCCH_SL_BCH_Message(NR_UE_RRC_INST_t *rrc,
                                               uint8_t* pduP,

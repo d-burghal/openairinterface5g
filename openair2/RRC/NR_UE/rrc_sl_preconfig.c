@@ -656,7 +656,6 @@ void nr_rrc_ue_decode_NR_SBCCH_SL_BCH_Message(NR_UE_RRC_INST_t *rrc,
 
 void rrc_ue_process_sidelink_Preconfiguration(NR_UE_RRC_INST_t *rrc_inst,
                                               sl_sync_source_enum_t sync_source,
-                                              ueinfo_t *ueinfo,
                                               nr_pdcp_entity_security_keys_and_algos_t *security_up_parameters)
 {
 
@@ -668,30 +667,24 @@ void rrc_ue_process_sidelink_Preconfiguration(NR_UE_RRC_INST_t *rrc_inst,
 
   AssertFatal(sync_source != SL_SYNC_SOURCE_GNBENB, "Sync source GNB not supported\n");
 
-  LOG_D(NR_RRC, "SL L2 SRCid %x, SL ipv4 addr X.X.%d.%d\n", ueinfo->srcid, ueinfo->thirdOctet, ueinfo->fourthOctet);
-  #if 0
-  nas_config(1 + ueinfo->srcid, ueinfo->thirdOctet, ueinfo->fourthOctet, "oai_sl_tun");
-  #else
+  int id = (sync_source % 254) + 1;
   char ip[20];
-  snprintf(ip,
-           sizeof(ip),
-           "10.0.%d.%d",
-           ueinfo->thirdOctet, ueinfo->fourthOctet);
+  snprintf(ip, sizeof(ip), "10.0.0.%d", id);
            
   char ifname[IFNAMSIZ];
-  tun_generate_ifname(ifname, "oai_sl_tun", ueinfo->srcid);
+  tun_generate_ifname(ifname, "oai_sl_tun", id);
+  tuntap_alloc(IFF_TUN, ifname);
   tun_config(ifname, ip, NULL);
-  setup_ue_ipv4_route(ifname, ueinfo->srcid, ip);
-  #endif
+  LOG_W(NR_RRC, "SL L2 SRCid %x, SL ipv4 addr %s\n", id, ip);
   nr_rrc_mac_config_req_sl_preconfig(rrc_inst->ue_id, sl_preconfig, sync_source);
 
   // SL RadioBearers
   for (int i=0; i<sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.count; i++) {
-    add_drb_sl(ueinfo->srcid, (NR_SL_RadioBearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i], security_up_parameters);
+    add_drb_sl(id, (NR_SL_RadioBearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RadioBearerPreConfigList_r16->list.array[i], security_up_parameters);
   }
   // configure RLC
   for (int i=0; i<sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.count; i++) {
-    nr_rlc_add_drb_sl(ueinfo->srcid, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
+    nr_rlc_add_drb_sl(id, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
   }
 
   //TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.
