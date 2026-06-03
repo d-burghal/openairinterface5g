@@ -14,6 +14,7 @@
 #include "tuntap_if.h"
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
+#include "SDAP/nr_sdap/nr_sdap.h"
 
 #define GNSS_SUPPORT 0
 
@@ -670,12 +671,7 @@ void rrc_ue_process_sidelink_Preconfiguration(NR_UE_RRC_INST_t *rrc_inst,
   int id = (sync_source % 254) + 1;
   char ip[20];
   snprintf(ip, sizeof(ip), "10.0.0.%d", id);
-           
-  char ifname[IFNAMSIZ];
-  tun_generate_ifname(ifname, "oai_sl_tun", id);
-  tuntap_alloc(IFF_TUN, ifname);
-  tun_config(ifname, ip, NULL);
-  LOG_W(NR_RRC, "SL L2 SRCid %x, SL ipv4 addr %s\n", id, ip);
+
   nr_rrc_mac_config_req_sl_preconfig(rrc_inst->ue_id, sl_preconfig, sync_source);
 
   // SL RadioBearers
@@ -686,6 +682,10 @@ void rrc_ue_process_sidelink_Preconfiguration(NR_UE_RRC_INST_t *rrc_inst,
   for (int i=0; i<sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.count; i++) {
     nr_rlc_add_drb_sl(id, 1, (NR_SL_RLC_BearerConfig_r16_t *)sl_preconfig->sidelinkPreconfigNR_r16.sl_RLC_BearerPreConfigList_r16->list.array[i]);
   }
+
+  int pdu_id = 1;
+  const bool is_default = true;
+  create_ue_ip_if(ip, NULL, id, pdu_id, is_default);
 
   //TBD.. These should be chosen by RRC according to 3GPP 38.331 RRC specification.
   //Currently hardcoding the values to these
