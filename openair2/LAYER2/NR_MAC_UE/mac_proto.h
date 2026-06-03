@@ -427,12 +427,6 @@ void nr_ue_sl_csi_period_offset(SL_CSI_Report_t *sl_csi_report,
                                 int *period,
                                 int *offset);
 
-uint8_t nr_ue_sl_psbch_scheduler(nr_sidelink_indication_t *sl_ind,
-                                 sl_nr_ue_mac_params_t *sl_mac_params,
-                                 sl_nr_rx_config_request_t *rx_config,
-                                 sl_nr_tx_config_request_t *tx_config,
-                                 uint8_t *config_type);
-
 bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
                               nr_sidelink_indication_t *sl_ind,
                               const NR_SL_BWP_ConfigCommon_r16_t *sl_bwp,
