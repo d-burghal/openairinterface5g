@@ -527,30 +527,20 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
   return (0);
 }
 
-/** @details Write PDSCH IQ-data from OAI txdataF_BF buffer to xran buffers. If
- * I/Q compression (bitwidth < 16 bits) is configured, compresses the data
- * before writing. */
-int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
+// Send CP UL packets
+int xran_send_cp_ul_slot(ru_info_t *ru, int frame, int slot)
 {
-  void *ptr = NULL;
-  int32_t *pos = NULL;
-  int idx = 0;
-
   const struct xran_fh_init *fh_init = get_xran_fh_init();
-  const struct xran_fh_config *fh_cfg = get_xran_fh_config(0);
-  uint8_t mu_number = fh_cfg->mu_number[0];
-  int fftsize = 1 << fh_cfg->perMu[mu_number].nDLFftSize;
-  int slots_per_frame = 10 << mu_number;
-  int tti = slots_per_frame * frame + slot;
-  int nb_tx_per_ru = ru->nb_tx / fh_init->xran_ports;
   int nb_rx_per_ru = ru->nb_rx / fh_init->xran_ports;
 
-  // Handle CP UL packet here instead of at xran_fh_rx_read_slot() as oran_fh_if4p5_south_in() lags behind
-  // oran_fh_if4p5_south_out() (which is invoked at the right time slot) by 4 slots.
-  // Need to use --continuous-tx so that this routine will be triggered in RX slot.
   for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
     for (uint8_t ant_id = 0; ant_id < ru->nb_rx; ant_id++) {
-      const struct xran_frame_config *frame_conf = &get_xran_fh_config(ant_id / nb_rx_per_ru)->frame_conf;
+      uint32_t port_id = ant_id / nb_rx_per_ru;
+      const struct xran_fh_config *fh_cfg = get_xran_fh_config(port_id);
+      uint8_t mu_number = fh_cfg->mu_number[0];
+      int slots_per_frame = 10 << mu_number;
+      int tti = slots_per_frame * frame + slot;
+      const struct xran_frame_config *frame_conf = &fh_cfg->frame_conf;
       // skip processing this slot is TX (no RX in this slot)
       if (frame_conf->nFrameDuplexType != XRAN_FDD && !is_tdd_ul_guard_slot(frame_conf, slot)) {
         continue;
@@ -561,7 +551,7 @@ int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
         if (frame_conf->nFrameDuplexType != XRAN_FDD && !is_tdd_ul_symbol(frame_conf, slot, sym_idx)) {
           continue;
         }
-        oran_buf_list_t *bufs = get_xran_buffers(ant_id / nb_rx_per_ru);
+        oran_buf_list_t *bufs = get_xran_buffers(port_id);
         uint8_t *pPrbMapData = bufs->dstcp[ant_id % nb_rx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
         struct xran_prb_map *pPrbMap = (struct xran_prb_map *)pPrbMapData;
 
@@ -583,6 +573,25 @@ int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
       }
     }
   }
+  return (0);
+}
+
+/** @details Write PDSCH IQ-data from OAI txdataF_BF buffer to xran buffers. If
+ * I/Q compression (bitwidth < 16 bits) is configured, compresses the data
+ * before writing. */
+int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
+{
+  void *ptr = NULL;
+  int32_t *pos = NULL;
+  int idx = 0;
+
+  const struct xran_fh_init *fh_init = get_xran_fh_init();
+  const struct xran_fh_config *fh_cfg = get_xran_fh_config(0);
+  uint8_t mu_number = fh_cfg->mu_number[0];
+  int fftsize = 1 << fh_cfg->perMu[mu_number].nDLFftSize;
+  int slots_per_frame = 10 << mu_number;
+  int tti = slots_per_frame * frame + slot;
+  int nb_tx_per_ru = ru->nb_tx / fh_init->xran_ports;
 
   for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
     for (uint8_t ant_id = 0; ant_id < ru->nb_tx; ant_id++) {
