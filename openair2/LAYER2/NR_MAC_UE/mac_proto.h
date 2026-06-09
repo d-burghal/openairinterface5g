@@ -120,7 +120,6 @@ int nr_get_csi_measurements(NR_UE_MAC_INST_t *mac,
                             nfapi_nr_ue_csi_payload_t *csi_payload,
                             NR_PUCCH_Resource_t **csi_pucch,
                             bool csi_on_pusch);
-
 nfapi_nr_ue_csi_payload_t nr_get_csi_payload(NR_UE_MAC_INST_t *mac,
                                  int csi_report_id,
                                  CSI_mapping_t mapping_type,
