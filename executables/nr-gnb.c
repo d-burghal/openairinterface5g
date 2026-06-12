@@ -53,7 +53,7 @@ static void tx_func(processingData_L1tx_t *info)
   int slot_tx = info->slot;
   int frame_rx = info->frame_rx;
   int slot_rx = info->slot_rx;
-  LOG_D(NR_PHY, "%d.%d running tx_func\n", frame_tx, slot_tx);
+  LOG_D(NR_PHY, "[%d.%d] running tx_func and rx [%d.%d]\n", frame_tx, slot_tx, frame_rx, slot_rx);
   PHY_VARS_gNB *gNB = info->gNB;
   NR_IF_Module_t *ifi = gNB->if_inst;
   nfapi_nr_config_request_scf_t *cfg = &gNB->gNB_config;
@@ -148,6 +148,7 @@ static void rx_func(processingData_L1_t *info)
   PHY_VARS_gNB *gNB = info->gNB;
   int frame_rx = info->frame_rx;
   int slot_rx = info->slot_rx;
+  LOG_D(HW, "[%d.%d] rx_func\n", frame_rx, slot_rx);
   nfapi_nr_config_request_scf_t *cfg = &gNB->gNB_config;
 
   T(T_GNB_PHY_UL_TICK, T_INT(gNB->Mod_id), T_INT(frame_rx), T_INT(slot_rx));

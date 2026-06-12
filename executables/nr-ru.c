@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <sched.h>
+#include <semaphore.h>
 #include <linux/sched.h>
 #include <sys/sysinfo.h>
 #include <math.h>
@@ -752,7 +753,7 @@ void ru_tx_func(void *param)
   if (ru->fh_north_asynch_in == NULL && ru->feptx_ofdm)
     ru->feptx_ofdm(ru, frame_tx, slot_tx);
 
-  if (ru->fh_north_asynch_in == NULL && ru->fh_south_out)
+  if (ru->fh_north_asynch_in == NULL)
     ru->fh_south_out(ru, frame_tx, slot_tx, info->timestamp_tx);
   if (ru->fh_north_out)
     ru->fh_north_out(ru);
@@ -800,6 +801,86 @@ static bool wait_free_rx_tti(notifiedFIFO_t *L1_rx_out, bool rx_tti_busy[RU_RX_S
   return true;
 }
 
+void call_south_out_72(RU_t *ru, int frame, int slot, uint64_t timestamp_tx)
+{
+  ru->ifdevice.fh_tx_slot(ru, frame, slot);
+}
+
+/**
+ * Common per-slot RX handler shared between ru_thread (Split 8 / No Split)
+ * and oran_slot_thread (Split 7.2). Computes TX timing, runs feprx if set,
+ * and pushes processingData_L1tx_t to L1_tx_out.
+ */
+void fh_slot_rx_func(RU_t *ru, int frame, int slot, openair0_timestamp_t timestamp_rx)
+{
+  RU_proc_t *proc = &ru->proc;
+  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+  PHY_VARS_gNB *gNB = RC.gNB[0];
+
+  proc->frame_rx     = frame;
+  proc->tti_rx       = slot;
+  proc->timestamp_rx = timestamp_rx;
+
+  proc->timestamp_tx = proc->timestamp_rx;
+  for (int i = proc->tti_rx; i < proc->tti_rx + ru->sl_ahead; i++)
+    proc->timestamp_tx += get_samples_per_slot(i % fp->slots_per_frame, fp);
+  proc->tti_tx   = (proc->tti_rx + ru->sl_ahead) % fp->slots_per_frame;
+  proc->frame_tx = proc->tti_rx > proc->tti_tx ? (proc->frame_rx + 1) & 1023 : proc->frame_rx;
+
+  if (ru->idx != 0)
+    proc->frame_tx = (proc->frame_tx + proc->frame_offset) & 1023;
+
+  static bool rx_tti_busy[RU_RX_SLOT_DEPTH];
+  int slot_type = nr_slot_select(&ru->config, proc->frame_rx, proc->tti_rx);
+  if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
+    if (!wait_free_rx_tti(&gNB->L1_rx_out, rx_tti_busy, proc->frame_rx, proc->tti_rx))
+      return;
+    if (ru->feprx) {
+      ru->feprx(ru, proc->tti_rx);
+      LOG_D(NR_PHY, "Setting %d.%d (%d) to busy\n", proc->frame_rx, proc->tti_rx, proc->tti_rx % RU_RX_SLOT_DEPTH);
+      LOG_D(PHY, "RU proc: frame_rx = %d, tti_rx = %d\n", proc->frame_rx, proc->tti_rx);
+      gNBscopeCopy(gNB,
+                   gNBRxdataF,
+                   ru->common.rxdataF[0],
+                   sizeof(c16_t),
+                   1,
+                   gNB->frame_parms.samples_per_slot_wCP,
+                   proc->tti_rx * gNB->frame_parms.samples_per_slot_wCP);
+    }
+  }
+
+  notifiedFIFO_elt_t *resTx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_out, NULL);
+  resTx->key = proc->tti_tx;
+  processingData_L1tx_t *syncMsgTx = NotifiedFifoData(resTx);
+  *syncMsgTx = (processingData_L1tx_t){.gNB           = gNB,
+                                       .frame         = proc->frame_tx,
+                                       .slot          = proc->tti_tx,
+                                       .frame_rx      = proc->frame_rx,
+                                       .slot_rx       = proc->tti_rx,
+                                       .timestamp_tx  = proc->timestamp_tx};
+  pushNotifiedFIFO(&gNB->L1_tx_out, resTx);
+}
+
+/**
+ * PRACH RU processing for RF-based splits (Split 8 / No Split).
+ * Called every slot from ru_thread; dequeues any scheduled PRACH occasions,
+ * runs the RU-side FFT, and hands results to L1.
+ * For Split 7.2 this is NOT called — the xRAN PRACH callback is the data
+ * source and oran_on_prach_slot forwards the ready items to L1.
+ */
+void fh_prach_slot_func(RU_t *ru, int frame, int slot)
+{
+  PHY_VARS_gNB *gNB = RC.gNB[0];
+  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+  fsn_t now = {.f = frame, .s = slot, .mu = fp->numerology_index};
+  prach_item_t p;
+  while (get_next_nr_prach(&gNB->prach_ru_queue, &now, &p)) {
+    rx_nr_prach_ru(&p, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset, gNB->enable_analog_das);
+    bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
+    DevAssert(success);
+  }
+}
+
 void *ru_thread(void *param)
 {
   static int ru_thread_status;
@@ -813,7 +894,6 @@ void *ru_thread(void *param)
   char               threadname[40];
   int initial_wait = 0;
 
-  bool rx_tti_busy[RU_RX_SLOT_DEPTH] = {false};
   // set default return value
   ru_thread_status = 0;
   // set default return value
@@ -825,31 +905,17 @@ void *ru_thread(void *param)
   nr_dump_frame_parms(fp);
   nr_phy_init_RU(ru);
   fill_rf_config(ru, ru->rf_config_file);
-  fill_split7_2_config(&ru->openair0_cfg.split7, &ru->config, fp);
 
-  // Start IF device if any
+  /* ---- Split 8 (IF4p5) / IF5: load transport and allocate receive buffers ---- */
   if (ru->nr_start_if) {
     LOG_I(PHY, "starting transport\n");
     ret = openair0_transport_load(&ru->ifdevice, &ru->openair0_cfg, &ru->eth_params);
     AssertFatal(ret == 0, "RU %u: openair0_transport_init() ret %d: cannot initialize transport protocol\n", ru->idx, ret);
-
-    if (ru->ifdevice.get_internal_parameter != NULL) {
-      /* it seems the device can "overwrite" (request?) to set the callbacks
-       * for fh_south_in()/fh_south_out() differently */
-      void *t = ru->ifdevice.get_internal_parameter("fh_if4p5_south_in");
-      if (t != NULL)
-        ru->fh_south_in = t;
-      t = ru->ifdevice.get_internal_parameter("fh_if4p5_south_out");
-      if (t != NULL)
-        ru->fh_south_out = t;
-    } else {
-      malloc_IF4p5_buffer(ru);
-    }
+    malloc_IF4p5_buffer(ru);
 
     int cpu = sched_getcpu();
     if (ru->ru_thread_core > -1 && cpu != ru->ru_thread_core) {
-      /* we start the ru_thread using threadCreate(), which already sets CPU
-       * affinity; let's force it here again as per feature request #732 */
+      /* threadCreate() already sets affinity; force it again per feature request #732 */
       cpu_set_t cpuset;
       CPU_ZERO(&cpuset);
       CPU_SET(ru->ru_thread_core, &cpuset);
@@ -861,12 +927,14 @@ void *ru_thread(void *param)
     LOG_I(PHY, "Starting IF interface for RU %d, nb_rx %d\n", ru->idx, ru->nb_rx);
     AssertFatal(ru->nr_start_if(ru) == 0, "Could not start the IF device\n");
 
-  } else if (ru->if_south == LOCAL_RF) { // configure RF parameters only
-    ret = openair0_device_load(&ru->rfdevice,&ru->openair0_cfg);
-    AssertFatal(ret==0,"Cannot connect to local radio\n");
+  /* ---- No Split (gNodeB_3GPP): local RF device ---- */
+  } else if (ru->if_south == LOCAL_RF) {
+    ret = openair0_device_load(&ru->rfdevice, &ru->openair0_cfg);
+    AssertFatal(ret == 0, "Cannot connect to local radio\n");
   }
 
-  if (setup_RU_buffers(ru)!=0) {
+  /* ---- All splits: allocate RU buffers and wait for system sync ---- */
+  if (setup_RU_buffers(ru) != 0) {
     LOG_E(PHY, "Exiting, cannot initialize RU Buffers\n");
     exit(-1);
   }
@@ -878,7 +946,7 @@ void *ru_thread(void *param)
   pthread_mutex_unlock(&RC.ru_mutex);
   wait_sync("ru_thread");
 
-  // Start RF device if any
+  /* ---- Split 8 / No Split: start RF and run the blocking slot loop ---- */
   if (ru->start_rf) {
     if (ru->start_rf(ru) != 0)
       LOG_E(HW, "Could not start the RF device\n");
@@ -888,18 +956,19 @@ void *ru_thread(void *param)
     LOG_I(PHY, "RU %d no rf device\n", ru->idx);
 
   LOG_I(PHY, "RU %d RF started cpu_meas_enabled %d\n", ru->idx, cpu_meas_enabled);
-  // start trx write thread
+
   if (usrp_tx_thread == 1) {
     if (ru->start_write_thread) {
-      if (ru->start_write_thread(ru) != 0) {
+      if (ru->start_write_thread(ru) != 0)
         LOG_E(HW, "Could not start tx write thread\n");
-      } else {
+      else
         LOG_I(PHY, "tx write thread ready\n");
-      }
     }
   }
 
-  // This is a forever while loop, it loops over subframes which are scheduled by incoming samples from HW devices
+  /* fh_south_in blocks until one slot's worth of IQ arrives from the
+   * fronthaul (IF4p5 Ethernet) or RF device; fh_slot_rx_func then runs
+   * feprx and pushes the slot to L1; fh_prach_slot_func handles PRACH. */
   struct timespec slot_start;
   clock_gettime(CLOCK_MONOTONIC, &slot_start);
 
@@ -912,12 +981,9 @@ void *ru_thread(void *param)
       slot++;
     }
 
-    // pretend we have 1 iq sample per slot
-    // and so slots_per_frame * 100 iq samples per second (1 frame being 10ms)
     time_manager_iq_samples(1, fp->slots_per_frame * 100);
 
-    // synchronization on input FH interface, acquire signals/data and block
-    LOG_D(PHY,"[RU_thread] read data: frame_rx = %d, tti_rx = %d\n", frame, slot);
+    LOG_D(PHY, "[RU_thread] read data: frame_rx = %d, tti_rx = %d\n", frame, slot);
 
     AssertFatal(ru->fh_south_in, "No fronthaul interface at south port");
     ru->fh_south_in(ru, &frame, &slot);
@@ -930,76 +996,20 @@ void *ru_thread(void *param)
       }
       continue;
     }
-    if (proc->frame_rx>=300)  {
+    if (proc->frame_rx>=300) {
       initial_wait = 0;
     }
     if (initial_wait == 0 && ru->rx_fhaul.trials > 1000) {
         reset_meas(&ru->rx_fhaul);
         reset_meas(&ru->tx_fhaul);
     }
-    proc->timestamp_tx = proc->timestamp_rx;
-    for (int i = proc->tti_rx; i < proc->tti_rx + ru->sl_ahead; i++)
-      proc->timestamp_tx += get_samples_per_slot(i % fp->slots_per_frame, fp);
-    proc->tti_tx = (proc->tti_rx + ru->sl_ahead) % fp->slots_per_frame;
-    proc->frame_tx = proc->tti_rx > proc->tti_tx ? (proc->frame_rx + 1) & 1023 : proc->frame_rx;
+
     LOG_D(PHY,
-          "AFTER fh_south_in - SFN/SL:%d%d RU->proc[RX:%d.%d TX:%d.%d] RC.gNB[0]:[RX:%d%d TX(SFN):%d]\n",
-          frame,
-          slot,
-          proc->frame_rx,
-          proc->tti_rx,
-          proc->frame_tx,
-          proc->tti_tx,
-          gNB->proc.frame_rx,
-          gNB->proc.slot_rx,
-          gNB->proc.frame_tx);
+          "AFTER fh_south_in - SFN/SL:%d%d RU->proc[RX:%d.%d] RC.gNB[0]:[RX:%d%d]\n",
+          frame, slot, proc->frame_rx, proc->tti_rx, gNB->proc.frame_rx, gNB->proc.slot_rx);
 
-    if (ru->idx != 0)
-      proc->frame_tx = (proc->frame_tx + proc->frame_offset) & 1023;
-
-    // do RX front-end processing (frequency-shift, dft) if needed
-    int slot_type = nr_slot_select(&ru->config, proc->frame_rx, proc->tti_rx);
-    if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
-      if (!wait_free_rx_tti(&gNB->L1_rx_out, rx_tti_busy, proc->frame_rx, proc->tti_rx))
-        break; // nothing to wait for: we have to stop
-      if (ru->feprx) {
-        ru->feprx(ru,proc->tti_rx);
-        LOG_D(NR_PHY, "Setting %d.%d (%d) to busy\n", proc->frame_rx, proc->tti_rx, proc->tti_rx % RU_RX_SLOT_DEPTH);
-        //LOG_M("rxdata.m","rxs",ru->common.rxdata[0],1228800,1,1);
-        LOG_D(PHY,"RU proc: frame_rx = %d, tti_rx = %d\n", proc->frame_rx, proc->tti_rx);
-        gNBscopeCopy(gNB,
-                     gNBRxdataF,
-                     ru->common.rxdataF[0],
-                     sizeof(c16_t),
-                     1,
-                     gNB->frame_parms.samples_per_slot_wCP,
-                     proc->tti_rx * gNB->frame_parms.samples_per_slot_wCP);
-
-        // Do PRACH RU processing
-        fsn_t now = {.f = proc->frame_rx, .s = proc->tti_rx, .mu = fp->numerology_index};
-        prach_item_t p;
-        while (get_next_nr_prach(&gNB->prach_ru_queue, &now, &p)) {
-          // need to extract RACH data for later processing by rx_nr_prach()
-          rx_nr_prach_ru(&p, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset, gNB->enable_analog_das);
-          bool success = spsc_q_put(&gNB->prach_l1rx_queue, &p, sizeof(p));
-          // assume prach_l1rx_queue never full: prach_ru_queue filled at
-          // constant pace, but prach_l1rx_queue emptied as fast as possible,
-          // see rx_func()
-          DevAssert(success);
-        } // end if (prach_id >= 0)
-      } // end if (ru->feprx)
-    } // end if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
-
-    notifiedFIFO_elt_t *resTx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_out, NULL);
-    resTx->key = proc->tti_tx;
-    processingData_L1tx_t *syncMsgTx = NotifiedFifoData(resTx);
-    *syncMsgTx = (processingData_L1tx_t){.gNB = gNB,
-                                         .frame = proc->frame_tx,
-                                         .slot = proc->tti_tx,
-                                         .frame_rx = proc->frame_rx,
-                                         .slot_rx = proc->tti_rx,
-                                         .timestamp_tx = proc->timestamp_tx};
-    pushNotifiedFIFO(&gNB->L1_tx_out, resTx);
+    ru->on_rx_slot(ru, proc->frame_rx, proc->tti_rx, proc->timestamp_rx);
+    ru->get_prach_iq_slot(ru, proc->frame_rx, proc->tti_rx);
   }
 
   ru_thread_status = 0;
@@ -1044,9 +1054,105 @@ void init_RU_proc(RU_t *ru)
   LOG_I(PHY, "Initialized RU proc %d (%s,%s),\n", ru->idx, NB_functions[ru->function], NB_timing[ru->if_timing]);
 }
 
+/* ---------------------------------------------------------------------------
+ * Split 7.2 slot thread
+ *
+ * oran_slot_thread runs in two phases:
+ *
+ * Phase 1 — init (replaces ru_thread_fhi72):
+ *   Does the one-time xRAN setup, signals RC.ru_mask so the main thread can
+ *   proceed, then blocks in wait_sync() until the whole system is ready
+ *   (sync_var is set after wait_RUs() + init_eNB_afterRU() complete).
+ *   wait_sync() MUST be called from a thread, not from start_RU_proc()
+ *   itself, because the main thread sets sync_var only after start_NR_RU()
+ *   returns — so calling wait_sync() inline would deadlock.
+ *
+ * Phase 2 — slot loop:
+ *   The xRAN TTI callback writes the current frame/slot/ts into
+ *   g_oran_slot_pending and calls sem_post(g_oran_slot_sem).  This thread
+ *   wakes, reads those values, and calls fh_slot_rx_func (ru->on_rx_slot) to
+ *   drive the L1 processing chain.  Blocking in wait_free_rx_tti() here is
+ *   safe because we are not an xRAN DPDK worker thread.
+ * ---------------------------------------------------------------------------*/
+
+static sem_t g_oran_slot_sem;
+static struct {
+  int frame;
+  int slot;
+  openair0_timestamp_t ts;
+} g_oran_slot_pending;
+
+/* Called from oai_physide_dl_tti_call_back (xRAN worker) — must not block. */
+static void oran_slot_indicate_impl(RU_t *ru, int frame, int slot, openair0_timestamp_t ts)
+{
+  g_oran_slot_pending.frame = frame;
+  g_oran_slot_pending.slot  = slot;
+  g_oran_slot_pending.ts    = ts;
+  sem_post(&g_oran_slot_sem);
+}
+
+/* Combined init + slot-processing thread for Split 7.2. */
+static void *oran_slot_thread(void *param)
+{
+  RU_t *ru = (RU_t *)param;
+  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+  PHY_VARS_gNB *gNB = RC.gNB[0];
+
+  /* ---- Phase 1: init ---- */
+  LOG_I(PHY, "RU %d Split 7.2: oran_slot_thread init (%s,%s) cpu %d\n",
+        ru->idx, NB_functions[ru->function], NB_timing[ru->if_timing], sched_getcpu());
+  ru->config = gNB->gNB_config;
+  nr_init_frame_parms(&ru->config, fp);
+  nr_dump_frame_parms(fp);
+  nr_phy_init_RU(ru);
+  fill_rf_config(ru, ru->rf_config_file);
+  fill_split7_2_config(&ru->openair0_cfg.split7, &ru->config, fp);
+
+  int ret = openair0_transport_load(&ru->ifdevice, &ru->openair0_cfg, &ru->eth_params);
+  AssertFatal(ret == 0, "RU %u: openair0_transport_load() ret %d\n", ru->idx, ret);
+
+  /* Init semaphore and hook oran_slot_indicate before starting xRAN so that
+   * the TTI callback already sees a valid function pointer on its first fire. */
+  sem_init(&g_oran_slot_sem, 0, 0);
+  ru->oran_slot_indicate = oran_slot_indicate_impl;
+
+  AssertFatal(ru->nr_start_if(ru) == 0, "RU %u: could not start IF device\n", ru->idx);
+  AssertFatal(setup_RU_buffers(ru) == 0, "RU %u: cannot init RU buffers\n", ru->idx);
+
+  LOG_I(PHY, "RU %d Split 7.2: signalling main thread ready\n", ru->idx);
+  pthread_mutex_lock(&RC.ru_mutex);
+  RC.ru_mask &= ~(1 << ru->idx);
+  pthread_cond_signal(&RC.ru_cond);
+  pthread_mutex_unlock(&RC.ru_mutex);
+
+  /* Block until the whole system (MAC, L1 threads, …) is initialised. */
+  wait_sync("oran_slot_thread");
+
+  LOG_I(PHY, "RU %d Split 7.2: oran_slot_thread entering slot loop\n", ru->idx);
+  while (!oai_exit) {
+    sem_wait(&g_oran_slot_sem);
+    if (oai_exit)
+      break;
+    ru->on_rx_slot(ru,
+                   g_oran_slot_pending.frame,
+                   g_oran_slot_pending.slot,
+                   g_oran_slot_pending.ts);
+  }
+
+  LOG_I(PHY, "RU %d Split 7.2: oran_slot_thread exiting\n", ru->idx);
+  return NULL;
+}
+
 void start_RU_proc(RU_t *ru)
 {
-  threadCreate(&ru->proc.pthread_FH, ru_thread, (void *)ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
+  if (ru->if_south == REMOTE_IF7p2)
+    /* oran_slot_thread handles both init and the ongoing slot loop; it must
+     * run in its own thread so that wait_sync() does not block the caller. */
+    threadCreate(&ru->proc.pthread_FH, oran_slot_thread, (void *)ru,
+                 "oran_slot_thread", -1, OAI_PRIORITY_RT);
+  else
+    threadCreate(&ru->proc.pthread_FH, ru_thread, (void *)ru,
+                 "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
 }
 
 
@@ -1054,23 +1160,23 @@ void kill_NR_RU_proc(int inst) {
   RU_t *ru = RC.ru[inst];
   RU_proc_t *proc = &ru->proc;
 
-  if (ru->if_south != REMOTE_IF4p5) {
+  if (ru->if_south != REMOTE_IF4p5 && ru->if_south != REMOTE_IF7p2) {
     abortTpool(ru->threadPool);
     abortNotifiedFIFO(ru->respfeprx);
     abortNotifiedFIFO(ru->respfeptx);
   }
 
-  /* Note: it seems pthread_FH and and FEP thread below both use
-   * mutex_fep/cond_fep. Thus, we unlocked above for pthread_FH above and do
-   * the same for FEP thread below again (using broadcast() to ensure both
-   * threads get the signal). This one will also destroy the mutex and cond. */
-  pthread_mutex_lock(proc->mutex_fep);
-  proc->instance_cnt_fep[0] = 0;
-  pthread_cond_broadcast(proc->cond_fep);
-  pthread_mutex_unlock(proc->mutex_fep);
+  if (ru->if_south == REMOTE_IF7p2) {
+    /* Wake oran_slot_thread so it can observe oai_exit and return. */
+    sem_post(&g_oran_slot_sem);
+  } else {
+    pthread_mutex_lock(proc->mutex_fep);
+    proc->instance_cnt_fep[0] = 0;
+    pthread_cond_broadcast(proc->cond_fep);
+    pthread_mutex_unlock(proc->mutex_fep);
+  }
   pthread_join(proc->pthread_FH, NULL);
 
-  // everything should be stopped now, we can safely stop the RF device
   if (ru->stop_rf == NULL) {
     LOG_W(PHY, "No stop_rf() for RU %d defined, cannot stop RF!\n", ru->idx);
     return;
@@ -1080,7 +1186,7 @@ void kill_NR_RU_proc(int inst) {
     LOG_W(PHY, "stop_rf() returned %d, RU %d RF device did not stop properly!\n", rc, ru->idx);
     return;
   }
-  LOG_I(PHY, "RU %d RF device stopped\n",ru->idx);
+  LOG_I(PHY, "RU %d RF device stopped\n", ru->idx);
 }
 
 void set_function_spec_param(RU_t *ru)
@@ -1131,6 +1237,8 @@ void set_function_spec_param(RU_t *ru)
         ru->nr_start_if          = NULL;                    // no if interface
         ru->rfdevice.host_type   = RAU_HOST;
         ru->fh_south_in            = rx_rf;                 // local synchronous RF RX
+        ru->on_rx_slot             = fh_slot_rx_func;     // called when rxdataF already got IQ data
+        ru->get_prach_iq_slot      = fh_prach_slot_func;
         ru->fh_south_out           = tx_rf;                 // local synchronous RF TX
         ru->start_rf               = start_rf;              // need to start the local RF interface
         ru->stop_rf                = stop_rf;
@@ -1145,6 +1253,8 @@ void set_function_spec_param(RU_t *ru)
       ru->feptx_prec             = NULL;          // need to do transmit Precoding + IDFTs
       ru->feptx_ofdm             = nr_feptx_tp; // need to do transmit Precoding + IDFTs
       ru->fh_south_in            = fh_if5_south_in;     // synchronous IF5 reception
+      ru->on_rx_slot             = fh_slot_rx_func;     // called when rxdataF already got IQ data
+      ru->get_prach_iq_slot      = fh_prach_slot_func;
       ru->fh_south_out           = (ru->txfh_in_fep>0) ? NULL : fh_if5_south_out;    // synchronous IF5 transmission
       ru->fh_south_asynch_in     = NULL;                // no asynchronous UL
       ru->start_rf               = ru->eth_params.transp_preference == ETH_UDP_IF5_ECPRI_MODE ? start_streaming : NULL;
@@ -1162,6 +1272,8 @@ void set_function_spec_param(RU_t *ru)
       ru->feptx_prec             = nr_feptx_prec;       // Precoding operation
       ru->feptx_ofdm             = NULL;                // no OFDM mod
       ru->fh_south_in            = fh_if4p5_south_in;   // synchronous IF4p5 reception
+      ru->on_rx_slot             = fh_slot_rx_func;     // called when rxdataF already got IQ data
+      ru->get_prach_iq_slot      = fh_prach_slot_func;
       ru->fh_south_out           = fh_if4p5_south_out;  // synchronous IF4p5 transmission
       ru->fh_south_asynch_in     = (ru->if_timing == synch_to_other) ? fh_if4p5_south_in : NULL;                // asynchronous UL if synch_to_other
       ru->fh_north_out           = NULL;
@@ -1170,6 +1282,30 @@ void set_function_spec_param(RU_t *ru)
       ru->stop_rf                = NULL;
       ru->start_write_thread     = NULL;
       ru->nr_start_if            = nr_start_if;         // need to start if interface for IF4p5
+      ru->ifdevice.host_type     = RAU_HOST;
+      ru->ifdevice.eth_params    = &ru->eth_params;
+      break;
+
+    case REMOTE_IF7p2:
+      /* Split 7.2 (FHI 7.2 / xRAN).  xRAN delivers frequency-domain IQ via
+       * callbacks; no blocking receive loop is needed in ru_thread.
+       * fh_south_out is set at transport load time by oran_driver_init because
+       * oran_tx_slot is a static symbol inside the transport plugin. */
+      ru->do_prach               = 0;
+      ru->feprx                  = NULL;           /* xRAN delivers freq-domain IQ */
+      ru->feptx_prec             = nr_feptx_prec;  /* precoding in gNB/O-DU */
+      ru->feptx_ofdm             = NULL;            /* O-RU handles OFDM modulation */
+      ru->fh_south_in            = NULL;            /* callback-driven; no blocking RX loop */
+      ru->on_rx_slot             = fh_slot_rx_func;     // called when rxdataF already got IQ data
+      ru->get_prach_iq_slot      = NULL;            // handled within oai_xran_fh_rx_prach_callback
+      ru->fh_south_out           = call_south_out_72; // initialized to oran_tx_slot in transport_init()
+      ru->fh_south_asynch_in     = NULL;
+      ru->fh_north_out           = NULL;
+      ru->fh_north_asynch_in     = NULL;
+      ru->start_rf               = NULL;
+      ru->stop_rf                = NULL;
+      ru->start_write_thread     = NULL;
+      ru->nr_start_if            = nr_start_if;
       ru->ifdevice.host_type     = RAU_HOST;
       ru->ifdevice.eth_params    = &ru->eth_params;
       break;
@@ -1234,7 +1370,7 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
     }
     set_function_spec_param(ru);
     init_RU_proc(ru);
-    if (ru->if_south != REMOTE_IF4p5) {
+    if (ru->if_south != REMOTE_IF4p5 && ru->if_south != REMOTE_IF7p2) {
       int threadCnt = ru->num_tpcores;
       if (threadCnt < 2)
         LOG_E(PHY, "Number of threads for gNB should be more than 1. Allocated only %d\n", threadCnt);
@@ -1440,6 +1576,12 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
         ru->if_south = REMOTE_IF4p5;
         ru->function = NGFI_RAU_IF4p5;
         ru->eth_params.transp_preference = ETH_RAW_IF4p5_MODE;
+        LOG_D(PHY, "Setting function for RU %d to NGFI_RAU_IF4p5 (raw)\n", j);
+      } else if (strcmp(str, "raw_if7p2") == 0) {
+        ru->if_south = REMOTE_IF7p2;
+        ru->function = NGFI_RAU_IF4p5;
+        ru->eth_params.transp_preference = ETH_RAW_IF7p2_MODE;
+        LOG_D(PHY, "Setting function for RU %d to NGFI_RAU_IF4p5 (raw/fhi72)\n", j);
       }
     } /* strcmp(local_rf, "yes") != 0 */
 

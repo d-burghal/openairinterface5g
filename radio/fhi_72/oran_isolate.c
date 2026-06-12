@@ -12,6 +12,7 @@
 #include "xran_sync_api.h"
 
 #include "common/utils/LOG/log.h"
+#include "common/utils/system.h"
 #include "openair1/PHY/defs_gNB.h"
 #include "oaioran.h"
 #include "oran-config.h"
@@ -36,7 +37,6 @@ typedef struct {
   uint32_t num_ports;
 } oran_eth_state_t;
 
-notifiedFIFO_t oran_sync_fifo;
 notifiedFIFO_t oran_sync_fifo_prach;
 
 int trx_oran_start(openair0_device_t *device)
@@ -241,98 +241,18 @@ int trx_oran_ctlrecv(openair0_device_t *device, void *msg, ssize_t msg_len)
   return 0;
 }
 
-void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
+static void oran_tx_slot(void *param, int frame, int slot)
 {
-  ru_info_t ru_info = {
-      .nb_rx = ru->nb_rx,
-      .nb_tx = ru->nb_tx,
-      .rxdataF = ru->common.rxdataF,
-      .beam_id = ru->common.beam_id,
-  };
-
-  /* Process PUSCH packets */
-  RU_proc_t *proc = &ru->proc; // to check if (frame,slot) combination corresponds to the expected PUSCH one
-  int f, sl;
-  LOG_D(HW, "Read rxdataF %p,%p\n", ru_info.rxdataF[0], ru_info.rxdataF[1]);
-  start_meas(&ru->rx_fhaul);
-  int ret = xran_fh_rx_read_slot(&ru_info, &f, &sl);
-  stop_meas(&ru->rx_fhaul);
-  LOG_D(HW, "Read %d.%d rxdataF %p,%p\n", f, sl, ru_info.rxdataF[0], ru_info.rxdataF[1]);
-  if (ret != 0) {
-    printf("ORAN: %d.%d ORAN_fh_if4p5_south_in ERROR in RX function \n", f, sl);
-  }
-
-  int slots_per_frame = 10 << (ru->openair0_cfg.nr_scs_for_raster);
-  proc->tti_rx = sl;
-  proc->frame_rx = f;
-  proc->tti_tx = (sl + ru->sl_ahead) % slots_per_frame;
-  proc->frame_tx = (sl > (slots_per_frame - 1 - ru->sl_ahead)) ? (f + 1) & 1023 : f;
-
-  if (proc->first_rx == 0) {
-    print_fhi_counters(&ru_info, proc->frame_rx, proc->tti_rx);
-    if (proc->tti_rx != *slot) {
-      LOG_E(HW,
-            "Received Time doesn't correspond to the time we think it is (slot mismatch, received %d.%d, expected %d.%d)\n",
-            proc->frame_rx,
-            proc->tti_rx,
-            *frame,
-            *slot);
-      *slot = proc->tti_rx;
-    }
-
-    if (proc->frame_rx != *frame) {
-      LOG_E(HW,
-            "Received Time doesn't correspond to the time we think it is (frame mismatch, %d.%d , expected %d.%d)\n",
-            proc->frame_rx,
-            proc->tti_rx,
-            *frame,
-            *slot);
-      *frame = proc->frame_rx;
-    }
-  } else {
-    proc->first_rx = 0;
-    LOG_I(HW, "before adjusting, OAI: frame=%d slot=%d, XRAN: frame=%d slot=%d\n", *frame, *slot, proc->frame_rx, proc->tti_rx);
-    *frame = proc->frame_rx;
-    *slot = proc->tti_rx;
-    LOG_I(HW, "After adjusting, OAI: frame=%d slot=%d, XRAN: frame=%d slot=%d\n", *frame, *slot, proc->frame_rx, proc->tti_rx);
-  }
-}
-
-void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
-{
-  int ret;
+  RU_t *ru = (RU_t *)param;
+  print_fhi_counters(ru, frame, slot);
   start_meas(&ru->tx_fhaul);
-  ru_info_t ru_info = {
-      .nb_rx = ru->nb_rx,
-      .nb_tx = ru->nb_tx,
-      .txdataF_BF = ru->common.txdataF_BF,
-      .beam_id = ru->common.beam_id,
-  };
-
-  // printf("south_out:\tframe=%d\tslot=%d\ttimestamp=%ld\n",frame,slot,timestamp);
-
-  ret = xran_send_cp_ul_slot(&ru_info, frame, slot);
-  if (ret != 0) {
+  int ret = xran_send_cp_ul_slot(ru, frame, slot);
+  if (ret != 0)
     LOG_W(HW, "[%d.%d] Failed to send CP UL slot.\n", frame, slot);
-  }
-
-  ret = xran_fh_tx_send_slot(&ru_info, frame, slot, timestamp);
-  if (ret != 0) {
-    printf("ORAN: ORAN_fh_if4p5_south_out ERROR in TX function \n");
-  }
+  ret = xran_fh_tx_send_slot(ru, frame, slot);
+  if (ret != 0)
+    LOG_E(HW, "oran_tx_slot: xran_fh_tx_send_slot error at %d.%d\n", frame, slot);
   stop_meas(&ru->tx_fhaul);
-}
-
-void *get_internal_parameter(char *name)
-{
-  printf("ORAN: %s\n", __FUNCTION__);
-
-  if (!strcmp(name, "fh_if4p5_south_in"))
-    return (void *)oran_fh_if4p5_south_in;
-  if (!strcmp(name, "fh_if4p5_south_out"))
-    return (void *)oran_fh_if4p5_south_out;
-
-  return NULL;
 }
 
 __attribute__((__visibility__("default"))) int transport_init(openair0_device_t *device,
@@ -411,9 +331,6 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device_t 
   LOG_I(HW, "Initializing O-RAN 7.2 FH interface through xran library (compiled against headers of %s)\n", VERSIONX);
   eth->oran_priv = oai_oran_initialize(&fh_init, fh_config);
   AssertFatal(eth->oran_priv != NULL, "can not initialize fronthaul");
-  // create message queues for ORAN sync
-
-  initNotifiedFIFO(&oran_sync_fifo);
   initNotifiedFIFO(&oran_sync_fifo_prach);
 
   eth->e.flags = ETH_RAW_IF4p5_MODE;
@@ -431,11 +348,12 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device_t 
   device->trx_stop_func = trx_oran_stop;
   device->trx_set_freq_func = trx_oran_set_freq;
   device->trx_set_gains_func = trx_oran_set_gains;
-  device->trx_write_func = trx_oran_write_raw;
-  device->trx_read_func = trx_oran_read_raw;
+  device->fh_tx_slot = oran_tx_slot;
+  device->trx_write_func = NULL;
+  device->trx_read_func = NULL;
   device->trx_ctlsend_func = trx_oran_ctlsend;
   device->trx_ctlrecv_func = trx_oran_ctlrecv;
-  device->get_internal_parameter = get_internal_parameter;
+  device->get_internal_parameter = NULL;
   device->priv = eth;
   device->openair0_cfg = &openair0_cfg[0];
 

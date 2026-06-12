@@ -620,6 +620,8 @@ struct openair0_device {
   /* \brief timing statistics for TX fronthaul (ethernet)
    */
   re_order_t reOrder;
+
+  void (*fh_tx_slot)(void *param, int frame, int slot);
 };
 
 typedef struct {

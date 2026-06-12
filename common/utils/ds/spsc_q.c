@@ -44,6 +44,8 @@ bool spsc_q_put(spsc_q_t *rb, const void *src, size_t elsiz)
 
 bool spsc_q_get_if(spsc_q_t *rb, pred p, void *user, void *dest, size_t elsiz)
 {
+  if (rb->buf == NULL)
+    return false;
   assert(elsiz == rb->elsiz);
   size_t w = atomic_load_explicit(&rb->write_idx, memory_order_acquire);
   size_t r = atomic_load_explicit(&rb->read_idx, memory_order_relaxed);

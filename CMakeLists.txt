@@ -1801,7 +1801,7 @@ add_executable(nr-softmodem
   ${PHY_INTERFACE_DIR}/queue_t.c
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
   )
-
+target_compile_options(nr-softmodem PRIVATE -fno-omit-frame-pointer -g)
 target_link_libraries(nr-softmodem PRIVATE
   -Wl,--start-group
   UTIL SCTP_CLIENT SCHED_LIB SCHED_NR_LIB PHY_NR PHY PHY_NR_COMMON NR_PHY_RU GTPV1U SECURITY
