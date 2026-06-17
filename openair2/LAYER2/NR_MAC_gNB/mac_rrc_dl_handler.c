@@ -661,7 +661,6 @@ static void update_cellgroup_for_reestablishment(NR_UE_info_t *UE, NR_CellGroupC
         --i;
         continue;
       }
-      LOG_I(NR_MAC, "UE %04x: Re-establishing RLC for LCID %d\n", UE->rnti, lcid);
       asn1cCallocOne(addmod->list.array[i]->reestablishRLC, NR_RLC_BearerConfig__reestablishRLC_true);
     }
   }
