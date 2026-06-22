@@ -99,13 +99,10 @@ static void tx_func(processingData_L1tx_t *info)
     phy_procedures_gNB_TX(info->gNB, &sched_response.DL_req, &sched_response.TX_req, &sched_response.UL_dci_req, frame_tx,slot_tx);
 
     PHY_VARS_gNB *gNB = info->gNB;
-    processingData_RU_t syncMsgRU;
-    syncMsgRU.frame_tx = frame_tx;
-    syncMsgRU.slot_tx = slot_tx;
-    syncMsgRU.ru = gNB->RU_list[0];
-    syncMsgRU.timestamp_tx = info->timestamp_tx;
-    LOG_D(PHY, "gNB: %d.%d : calling RU TX function\n", syncMsgRU.frame_tx, syncMsgRU.slot_tx);
-    ru_tx_func((void *)&syncMsgRU);
+    LOG_D(PHY, "gNB: %d.%d : calling fhi dl_slot_send\n", frame_tx, slot_tx);
+    AssertFatal(gNB->fhi && gNB->fhi->dl_slot_send,
+                "gNB->fhi->dl_slot_send not set (split not initialised?)\n");
+    gNB->fhi->dl_slot_send(gNB->fhi, gNB, frame_tx, slot_tx, info->timestamp_tx);
     stop_meas(&info->gNB->phy_proc_tx);
   }
 }

@@ -367,6 +367,27 @@ void *get_internal_parameter(char *name)
   return NULL;
 }
 
+/* ------------------------------------------------------------------ */
+/* FHI slot callbacks — wired into openair0_device_t by transport_init */
+/* Called by nr_fhi_72.c through device function pointers so that      */
+/* nr_fhi_72.c needs no xRAN SDK headers.                              */
+/* ------------------------------------------------------------------ */
+
+static int trx_fhi_rx_slot_impl(openair0_device_t *dev, void *ru_info, int *frame, int *slot)
+{
+  return xran_fh_rx_read_slot((ru_info_t *)ru_info, frame, slot);
+}
+
+static int trx_fhi_rx_prach_impl(openair0_device_t *dev, void *gNB, void *ru_info, int *frame, int *slot)
+{
+  return xran_fh_rx_prach_read_slot((PHY_VARS_gNB *)gNB, (ru_info_t *)ru_info, frame, slot);
+}
+
+static int trx_fhi_tx_slot_impl(openair0_device_t *dev, void *ru_info, int frame, int slot, uint64_t ts)
+{
+  return xran_fh_tx_send_slot((ru_info_t *)ru_info, frame, slot, ts);
+}
+
 __attribute__((__visibility__("default"))) int transport_init(openair0_device_t *device,
                                                               openair0_config_t *openair0_cfg,
                                                               eth_params_t *eth_params)
@@ -472,6 +493,11 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device_t 
   device->get_internal_parameter = get_internal_parameter;
   device->priv = eth;
   device->openair0_cfg = &openair0_cfg[0];
+
+  /* FHI slot callbacks used by nr_fhi_72.c (no xRAN headers needed there) */
+  device->trx_fhi_rx_slot  = trx_fhi_rx_slot_impl;
+  device->trx_fhi_rx_prach = trx_fhi_rx_prach_impl;
+  device->trx_fhi_tx_slot  = trx_fhi_tx_slot_impl;
 
   return 0;
 }

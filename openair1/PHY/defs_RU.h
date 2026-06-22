@@ -51,7 +51,8 @@ typedef enum {
   NGFI_RRU_IF5,    // NGFI_RRU (NGFI remote radio-unit,IF5)
   NGFI_RRU_IF4p5,  // NGFI_RRU (NGFI remote radio-unit,IF4p5)
   MBP_RRU_IF5,      // Mobipass RRU
-  gNodeB_3GPP
+  gNodeB_3GPP,
+  NGFI_RAU_IF7p2   // O-RAN split 7.2 (xRAN/DPDK), NR only
 } node_function_t;
 
 typedef enum {

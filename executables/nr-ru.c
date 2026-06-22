@@ -47,8 +47,52 @@ static int DEFRUTPCORES[] = {-1,-1,-1,-1};
 #include "nfapi_interface.h"
 #include <nfapi/oai_integration/vendor_ext.h>
 #include "executables/nr-softmodem-common.h"
+#include "radio/ETHERNET/if_defs.h"
+#include "radio/fhi_72/nr_fhi_72.h"
 
 static void NRRCconfig_RU(configmodule_interface_t *cfg);
+
+/* ------------------------------------------------------------------ */
+/* Phase 2: thin nr_fhi_t wrappers for LOCAL_RF and IF5               */
+/*                                                                     */
+/* These stubs delegate dl_slot_send to the existing ru_tx_func so    */
+/* that tx_func() in nr-gnb.c can call gNB->fhi->dl_slot_send() for   */
+/* all splits without a special-case on the split type.               */
+/* ul_slot_ready is wired up properly in Phase 3.                     */
+/* ------------------------------------------------------------------ */
+
+typedef struct {
+  RU_t *ru;
+} nr_fhi_legacy_priv_t;
+
+static void fhi_legacy_dl_slot_send(nr_fhi_t *fhi, PHY_VARS_gNB *gNB,
+                                     int frame_tx, int slot_tx,
+                                     openair0_timestamp_t ts_tx)
+{
+  nr_fhi_legacy_priv_t *priv = fhi->priv;
+  processingData_RU_t msg = {
+      .ru = priv->ru,
+      .frame_tx = frame_tx,
+      .slot_tx = slot_tx,
+      .timestamp_tx = ts_tx,
+  };
+  ru_tx_func(&msg);
+}
+
+/* Called from ru_thread after device/transport load */
+static void nr_fhi_install_legacy_wrappers(RU_t *ru, PHY_VARS_gNB *gNB)
+{
+  nr_fhi_legacy_priv_t *p = malloc(sizeof(*p));
+  AssertFatal(p, "OOM for nr_fhi_legacy_priv_t\n");
+  p->ru = ru;
+
+  openair0_device_t *dev = (ru->if_south == LOCAL_RF) ? &ru->rfdevice : &ru->ifdevice;
+  dev->fhi.dl_slot_send = fhi_legacy_dl_slot_send;
+  dev->fhi.ul_slot_ready = NULL; /* wired in Phase 3 */
+  dev->fhi.priv = p;
+
+  gNB->fhi = &dev->fhi;
+}
 
 /*************************************************************/
 /* Southbound Fronthaul functions, RCC/RAU                   */
@@ -663,6 +707,12 @@ void *ru_thread(void *param)
     AssertFatal(ret==0,"Cannot connect to local radio\n");
   }
 
+  /* Phase 2: install thin nr_fhi_t wrappers so that tx_func() in
+   * nr-gnb.c can call gNB->fhi->dl_slot_send() for LOCAL_RF and IF5.
+   * For IF7p2, gNB->fhi was already set in init_NR_RU(); ru_thread
+   * is never created for that split. */
+  nr_fhi_install_legacy_wrappers(ru, gNB);
+
   if (setup_RU_buffers(ru)!=0) {
     LOG_E(PHY, "Exiting, cannot initialize RU Buffers\n");
     exit(-1);
@@ -936,6 +986,27 @@ void set_function_spec_param(RU_t *ru)
       ru->ifdevice.eth_params = &ru->eth_params;
       break;
 
+    case REMOTE_IF7p2:
+      /* All slot-level dispatch goes through nr_fhi_t; no ru_thread function
+       * pointers are needed.  Transport loading and nr_fhi_t population are
+       * done by nr_fhi_72_init() called from init_NR_RU(). */
+      ru->do_prach = 0;
+      ru->feprx = NULL;
+      ru->feptx_prec = NULL;
+      ru->feptx_ofdm = NULL;
+      ru->fh_south_in = NULL;
+      ru->fh_south_out = NULL;
+      ru->fh_south_asynch_in = NULL;
+      ru->fh_north_out = NULL;
+      ru->fh_north_asynch_in = NULL;
+      ru->nr_start_if = NULL;
+      ru->start_rf = NULL;
+      ru->stop_rf = NULL;
+      ru->start_write_thread = NULL;
+      ru->ifdevice.host_type = RAU_HOST;
+      ru->ifdevice.eth_params = &ru->eth_params;
+      break;
+
     default:
       LOG_E(PHY, "RU with invalid or unknown southbound interface type %d\n", ru->if_south);
       break;
@@ -995,6 +1066,26 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
       }
     }
     set_function_spec_param(ru);
+
+    if (ru->if_south == REMOTE_IF7p2) {
+      /* Phase 2: load xRAN transport, allocate nr_fhi_72 buffers, and wire
+       * gNB->fhi.  The slot notification loop is started later by
+       * start_NR_RU() → gNB->fhi->start().  No ru_thread is created. */
+      PHY_VARS_gNB *gNB72 = (RC.nb_nr_L1_inst > 0) ? RC.gNB[0] : NULL;
+      AssertFatal(gNB72 != NULL, "init_NR_RU: IF7p2 requires at least one gNB instance\n");
+      int ret = nr_fhi_72_init(gNB72, ru);
+      AssertFatal(ret == 0, "nr_fhi_72_init failed for RU %d\n", ru->idx);
+      gNB72->fhi = &ru->ifdevice.fhi;
+
+      /* Signal readiness directly (no ru_thread to do it) */
+      pthread_mutex_lock(&RC.ru_mutex);
+      RC.ru_mask &= ~(1 << ru->idx);
+      pthread_cond_signal(&RC.ru_cond);
+      pthread_mutex_unlock(&RC.ru_mutex);
+      LOG_I(PHY, "RU %d (IF7p2): nr_fhi_72 initialised, fhi ready\n", ru->idx);
+      continue; /* skip RU_proc and thread-pool setup below */
+    }
+
     init_RU_proc(ru);
     if (ru->if_south != REMOTE_IF4p5) {
       int threadCnt = ru->num_tpcores;
@@ -1020,10 +1111,16 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
   LOG_D(HW,"[nr-softmodem.c] RU threads created\n");
 }
 
-void start_NR_RU()
+void start_NR_RU(void)
 {
   RU_t *ru = RC.ru[0];
-  start_RU_proc(ru);
+  if (ru->if_south == REMOTE_IF7p2) {
+    PHY_VARS_gNB *gNB = RC.gNB[0];
+    AssertFatal(gNB->fhi && gNB->fhi->start, "start_NR_RU: fhi not initialised for IF7p2\n");
+    gNB->fhi->start(gNB->fhi, gNB);
+  } else {
+    start_RU_proc(ru);
+  }
 }
 
 void stop_RU(int nb_ru) {
@@ -1165,6 +1262,10 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
         ru->if_south = REMOTE_IF4p5;
         ru->function = NGFI_RAU_IF4p5;
         ru->eth_params.transp_preference = ETH_RAW_IF4p5_MODE;
+      } else if (strcmp(str, "raw_if7p2") == 0) {
+        ru->if_south = REMOTE_IF7p2;
+        ru->function = NGFI_RAU_IF7p2;
+        ru->eth_params.transp_preference = ETH_RAW_IF7p2_MODE;
       }
     } /* strcmp(local_rf, "yes") != 0 */
 
