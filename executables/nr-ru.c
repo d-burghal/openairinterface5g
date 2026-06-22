@@ -61,15 +61,85 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg);
 /* was previously ru_tx_func().                                        */
 /* ------------------------------------------------------------------ */
 
+/* Private buffer struct for LOCAL_RF and IF5 nr_fhi_t wrappers.
+ * The struct owns all NR signal buffers; ru->common.* holds non-owning
+ * aliases into these arrays so legacy code (nr_ru_procedures.c etc.)
+ * can still access buffers via RU_t without knowing about this struct. */
 typedef struct {
   RU_t *ru;
-} nr_fhi_rf_priv_t;
+  int nb_rx;
+  int nb_tx;
+  int32_t **rxdataF;        /* [nb_rx][RU_RX_SLOT_DEPTH * sym * ofdm_sz] */
+  int32_t **txdataF_BF;     /* [nb_tx][samples_per_slot_wCP] */
+  int32_t **rxdata;         /* [nb_rx][samples_per_frame] */
+  int32_t **txdata;         /* [nb_tx][sf_extension + samples_per_frame] */
+  int32_t **rxdata_7_5kHz;  /* [nb_rx][2 * samples_per_subframe * 2] */
+  int32_t **txdataF;        /* [nb_tx][samples_per_slot_wCP] */
+  uint16_t **beam_id;       /* [sym_per_frame][nb_tx] */
+} nr_fhi_ru_priv_t;
 
-typedef struct {
-  RU_t *ru;
-} nr_fhi_if5_priv_t;
+/* Allocate all NR signal buffers into p; called for LOCAL_RF and IF5. */
+static void nr_fhi_alloc_ru_buffers(nr_fhi_ru_priv_t *p, RU_t *ru, NR_DL_FRAME_PARMS *fp)
+{
+  int nb_tx = ru->nb_tx, nb_rx = ru->nb_rx;
+  int num_sym = fp->symbols_per_slot * fp->slots_per_frame;
+  int rxF_size = RU_RX_SLOT_DEPTH * fp->symbols_per_slot * fp->ofdm_symbol_size;
 
-/* ul_slot_ready — shared by LOCAL_RF and IF5 */
+  p->nb_rx = nb_rx;
+  p->nb_tx = nb_tx;
+
+  p->txdata = malloc16(nb_tx * sizeof(int32_t *));
+  AssertFatal(p->txdata, "OOM txdata\n");
+  for (int i = 0; i < nb_tx; i++) {
+    p->txdata[i] = malloc16_clear((ru->sf_extension + fp->samples_per_frame) * sizeof(int32_t));
+    AssertFatal(p->txdata[i], "OOM txdata[%d]\n", i);
+    p->txdata[i] = &p->txdata[i][ru->sf_extension];
+  }
+
+  p->rxdata = malloc16(nb_rx * sizeof(int32_t *));
+  AssertFatal(p->rxdata, "OOM rxdata\n");
+  for (int i = 0; i < nb_rx; i++) {
+    p->rxdata[i] = malloc16_clear(fp->samples_per_frame * sizeof(int32_t));
+    AssertFatal(p->rxdata[i], "OOM rxdata[%d]\n", i);
+  }
+
+  p->rxdataF = malloc16(nb_rx * sizeof(int32_t *));
+  AssertFatal(p->rxdataF, "OOM rxdataF\n");
+  for (int i = 0; i < nb_rx; i++) {
+    p->rxdataF[i] = malloc16_clear(rxF_size * sizeof(int32_t));
+    AssertFatal(p->rxdataF[i], "OOM rxdataF[%d]\n", i);
+  }
+
+  p->txdataF_BF = malloc16(nb_tx * sizeof(int32_t *));
+  AssertFatal(p->txdataF_BF, "OOM txdataF_BF\n");
+  for (int i = 0; i < nb_tx; i++) {
+    p->txdataF_BF[i] = malloc16_clear(fp->samples_per_slot_wCP * sizeof(int32_t));
+    AssertFatal(p->txdataF_BF[i], "OOM txdataF_BF[%d]\n", i);
+  }
+
+  p->rxdata_7_5kHz = malloc16(nb_rx * sizeof(int32_t *));
+  AssertFatal(p->rxdata_7_5kHz, "OOM rxdata_7_5kHz\n");
+  for (int i = 0; i < nb_rx; i++) {
+    p->rxdata_7_5kHz[i] = malloc16_clear(2 * fp->samples_per_subframe * 2 * sizeof(int32_t));
+    AssertFatal(p->rxdata_7_5kHz[i], "OOM rxdata_7_5kHz[%d]\n", i);
+  }
+
+  p->txdataF = malloc16(nb_tx * sizeof(int32_t *));
+  AssertFatal(p->txdataF, "OOM txdataF\n");
+  for (int i = 0; i < nb_tx; i++) {
+    p->txdataF[i] = malloc16_clear(fp->samples_per_slot_wCP * sizeof(int32_t));
+    AssertFatal(p->txdataF[i], "OOM txdataF[%d]\n", i);
+  }
+
+  p->beam_id = malloc16_clear(num_sym * sizeof(*p->beam_id));
+  AssertFatal(p->beam_id, "OOM beam_id\n");
+  for (int i = 0; i < num_sym; i++) {
+    p->beam_id[i] = malloc16_clear(nb_tx * sizeof(**p->beam_id));
+    AssertFatal(p->beam_id[i], "OOM beam_id[%d]\n", i);
+  }
+}
+
+/* ul_slot_ready — shared by LOCAL_RF, IF5 and IF4p5 */
 static void fhi_ru_ul_slot_ready(nr_fhi_t *fhi, PHY_VARS_gNB *gNB,
                                   int frame_rx, int slot_rx,
                                   int frame_tx, int slot_tx,
@@ -90,12 +160,12 @@ static void fhi_ru_ul_slot_ready(nr_fhi_t *fhi, PHY_VARS_gNB *gNB,
   pushNotifiedFIFO(&gNB->L1_tx_out, elt);
 }
 
-/* dl_slot_send for LOCAL_RF — replicates the body of ru_tx_func */
-static void fhi_rf_dl_slot_send(nr_fhi_t *fhi, PHY_VARS_gNB *gNB,
+/* dl_slot_send — shared by LOCAL_RF, IF5 and IF4p5 */
+static void fhi_ru_dl_slot_send(nr_fhi_t *fhi, PHY_VARS_gNB *gNB,
                                  int frame_tx, int slot_tx,
                                  openair0_timestamp_t ts_tx)
 {
-  nr_fhi_rf_priv_t *priv = fhi->priv;
+  nr_fhi_ru_priv_t *priv = fhi->priv;
   RU_t *ru = priv->ru;
 
   if (ru->feptx_prec)
@@ -111,47 +181,39 @@ static void fhi_rf_dl_slot_send(nr_fhi_t *fhi, PHY_VARS_gNB *gNB,
     ru->fh_north_out(ru);
 }
 
-/* dl_slot_send for IF5 — same chain; kept separate for clarity */
-static void fhi_if5_dl_slot_send(nr_fhi_t *fhi, PHY_VARS_gNB *gNB,
-                                  int frame_tx, int slot_tx,
-                                  openair0_timestamp_t ts_tx)
-{
-  nr_fhi_if5_priv_t *priv = fhi->priv;
-  RU_t *ru = priv->ru;
-
-  if (ru->feptx_prec)
-    ru->feptx_prec(ru, frame_tx, slot_tx);
-
-  if (ru->fh_north_asynch_in == NULL && ru->feptx_ofdm)
-    ru->feptx_ofdm(ru, frame_tx, slot_tx);
-
-  if (ru->fh_north_asynch_in == NULL && ru->fh_south_out)
-    ru->fh_south_out(ru, frame_tx, slot_tx, ts_tx);
-
-  if (ru->fh_north_out)
-    ru->fh_north_out(ru);
-}
-
-/* Called from ru_thread after device/transport load */
+/* Called from ru_thread after device/transport load.
+ *
+ * For LOCAL_RF and IF5: allocates all NR signal buffers in nr_fhi_ru_priv_t
+ * and sets ru->common.* as non-owning aliases into those arrays so legacy
+ * code (nr_ru_procedures.c, rx_rf, tx_rf, …) continues to work unmodified.
+ * nr_phy_init_RU() skips buffer allocation for these two splits.
+ *
+ * For IF4p5: buffers were allocated by nr_phy_init_RU() into ru->common;
+ * priv only carries the ru back-pointer. */
 static void nr_fhi_install_legacy_wrappers(RU_t *ru, PHY_VARS_gNB *gNB)
 {
   openair0_device_t *dev = (ru->if_south == LOCAL_RF) ? &ru->rfdevice : &ru->ifdevice;
 
-  if (ru->if_south == LOCAL_RF) {
-    nr_fhi_rf_priv_t *p = malloc(sizeof(*p));
-    AssertFatal(p, "OOM nr_fhi_rf_priv_t\n");
-    p->ru = ru;
-    dev->fhi.dl_slot_send = fhi_rf_dl_slot_send;
-    dev->fhi.priv = p;
-  } else {
-    nr_fhi_if5_priv_t *p = malloc(sizeof(*p));
-    AssertFatal(p, "OOM nr_fhi_if5_priv_t\n");
-    p->ru = ru;
-    dev->fhi.dl_slot_send = fhi_if5_dl_slot_send;
-    dev->fhi.priv = p;
-  }
-  dev->fhi.ul_slot_ready = fhi_ru_ul_slot_ready;
+  nr_fhi_ru_priv_t *p = calloc(1, sizeof(*p));
+  AssertFatal(p, "OOM nr_fhi_ru_priv_t\n");
+  p->ru = ru;
 
+  if (ru->if_south == LOCAL_RF || ru->if_south == REMOTE_IF5) {
+    nr_fhi_alloc_ru_buffers(p, ru, ru->nr_frame_parms);
+    /* Alias ru->common to priv's allocations so legacy paths still work. */
+    ru->common.rxdataF    = p->rxdataF;
+    ru->common.txdataF_BF = p->txdataF_BF;
+    ru->common.rxdata     = p->rxdata;
+    ru->common.txdata     = p->txdata;
+    ru->common.rxdata_7_5kHz = p->rxdata_7_5kHz;
+    ru->common.txdataF    = p->txdataF;
+    ru->common.beam_id    = p->beam_id;
+  }
+  /* IF4p5: ru->common.* already populated by nr_phy_init_RU(); nothing to do. */
+
+  dev->fhi.ul_slot_ready = fhi_ru_ul_slot_ready;
+  dev->fhi.dl_slot_send  = fhi_ru_dl_slot_send;
+  dev->fhi.priv = p;
   gNB->fhi = &dev->fhi;
 }
 
