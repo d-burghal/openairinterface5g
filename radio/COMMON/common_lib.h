@@ -349,6 +349,54 @@ typedef struct {
   } queue[WRITE_QUEUE_SZ];
 } re_order_t;
 
+/* Forward declaration — full definition in openair1/PHY/defs_gNB.h */
+struct PHY_VARS_gNB_s;
+
+/**
+ * nr_fhi_t — split-agnostic fronthaul interface for NR.
+ *
+ * Each split (LOCAL_RF, IF5, split 7.2) provides its own concrete
+ * implementation of the four function pointers.  LTE never touches
+ * this struct; openair0_device_t::fhi is zero-initialised for LTE
+ * device/transport loads.
+ */
+typedef struct nr_fhi_s {
+  /**
+   * ul_slot_ready — one UL slot of IQ data is available.
+   * Pushes a message onto gNB->L1_tx_out and returns.
+   * Called from ru_thread (LOCAL_RF/IF5) or from the xRAN RX
+   * deadline callback / slot notification thread (split 7.2).
+   */
+  void (*ul_slot_ready)(struct nr_fhi_s *fhi,
+                        struct PHY_VARS_gNB_s *gNB,
+                        int frame_rx, int slot_rx,
+                        int frame_tx, int slot_tx,
+                        openair0_timestamp_t ts_tx);
+
+  /**
+   * dl_slot_send — L1 has finished encoding; transmit the slot.
+   * gNB->common_vars.txdataF is populated on entry.
+   * Called from tx_func() inside L1_tx_thread.
+   */
+  void (*dl_slot_send)(struct nr_fhi_s *fhi,
+                       struct PHY_VARS_gNB_s *gNB,
+                       int frame_tx, int slot_tx,
+                       openair0_timestamp_t ts_tx);
+
+  /**
+   * start — called once after all gNBs and devices are ready.
+   * LOCAL_RF / IF5: spawns ru_thread.
+   * Split 7.2: starts the slot notification loop; returns immediately.
+   */
+  int (*start)(struct nr_fhi_s *fhi, struct PHY_VARS_gNB_s *gNB);
+
+  /** stop — clean shutdown */
+  void (*stop)(struct nr_fhi_s *fhi);
+
+  /** Split-specific private state (buffers, device handles, …) */
+  void *priv;
+} nr_fhi_t;
+
 /*!\brief structure holds the parameters to configure RF devices */
 struct openair0_device {
   /*!tx write thread*/
@@ -620,6 +668,25 @@ struct openair0_device {
   /* \brief timing statistics for TX fronthaul (ethernet)
    */
   re_order_t reOrder;
+
+  /**
+   * NR fronthaul interface populated by openair0_device_load /
+   * openair0_transport_load.  Zero-initialised; LTE paths never
+   * write to it.
+   */
+  nr_fhi_t fhi;
+
+  /**
+   * Split-7.2 slot callbacks, set by the xRAN transport_init().
+   * NULL on all other transport types.
+   *
+   * ru_info and gNB are void * so that common_lib.h stays free of
+   * PHY / xRAN headers; callers in nr_fhi_72.c cast to ru_info_t *
+   * and PHY_VARS_gNB * respectively.
+   */
+  int (*trx_fhi_rx_slot)(openair0_device_t *device, void *ru_info, int *frame, int *slot);
+  int (*trx_fhi_rx_prach)(openair0_device_t *device, void *gNB, void *ru_info, int *frame, int *slot);
+  int (*trx_fhi_tx_slot)(openair0_device_t *device, void *ru_info, int frame, int slot, uint64_t ts);
 };
 
 typedef struct {

@@ -346,6 +346,8 @@ typedef struct PHY_VARS_gNB_s {
   gNB_L1_proc_t proc;
   int num_RU;
   RU_t *RU_list[MAX_NUM_RU_PER_gNB];
+  /** NR fronthaul interface — set by init_NR_RU after device/transport load */
+  struct nr_fhi_s *fhi;
   /// Ethernet parameters for fronthaul interface
   eth_params_t eth_params;
   int rx_total_gain_dB;
