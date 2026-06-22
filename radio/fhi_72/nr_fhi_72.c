@@ -5,18 +5,10 @@
 /**
  * nr_fhi_72.c — split-7.2 (O-RAN xRAN/DPDK) implementation of nr_fhi_t.
  *
- * This module provides ul_slot_ready / dl_slot_send / start / stop for
- * O-RAN split 7.2.  It has no RU_t dependency: all buffers live in the
- * private nr_fhi_72_priv_t struct and the slot loop runs in a dedicated
- * thread rather than in ru_thread.
- *
- * Phase-2 migration note: nr_fhi_72_init() still calls
- * openair0_transport_load() and stores a back-pointer in ru->ifdevice so
- * that the existing startup/shutdown plumbing in nr-softmodem.c and
- * nr-ru.c continues to work during the transition.  The RU_t.common
- * buffers are populated with pointers into this module's own allocations
- * so that init_eNB_afterRU() can map them into gNB->common_vars without
- * changes; those indirections are removed in Phase 4.
+ * Provides ul_slot_ready / dl_slot_send / start / stop for O-RAN split 7.2.
+ * All buffers live in nr_fhi_72_priv_t; the slot loop runs in a dedicated
+ * thread.  RU_t is used only to carry frame_parms, openair0_cfg, and
+ * eth_params during initialisation — RU_t.common is never populated.
  */
 
 #define _GNU_SOURCE
@@ -26,12 +18,12 @@
 #include <stdatomic.h>
 
 #include "radio/COMMON/common_lib.h"
-#include "radio/COMMON/ru_info.h"
 #include "common/utils/LOG/log.h"
 #include "common/utils/assertions.h"
 #include "common/utils/system.h"
 #include "openair1/PHY/defs_gNB.h"
 #include "openair1/PHY/defs_RU.h"
+#include "radio/COMMON/ru_info.h"
 #include "openair1/PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "openair1/SCHED_NR/sched_nr.h"
 #include "common/utils/threadPool/notified_fifo.h"
@@ -238,15 +230,6 @@ int nr_fhi_72_init(PHY_VARS_gNB *gNB, RU_t *ru)
   AssertFatal(priv->beam_id, "nr_fhi_72: OOM beam_id\n");
   for (int i = 0; i < num_sym; i++)
     priv->beam_id[i] = malloc16_clear(nb_tx * sizeof(**priv->beam_id));
-
-  /*
-   * Phase-2 bridge: point ru->common.rxdataF / txdataF_BF to our buffers
-   * so that init_eNB_afterRU() can wire gNB->common_vars without changes.
-   * These indirections are removed when Phase 4 moves buffer ownership.
-   */
-  ru->common.rxdataF = priv->rxdataF;
-  ru->common.txdataF_BF = priv->txdataF_BF;
-  ru->common.beam_id = priv->beam_id;
 
   /* Load the xRAN transport plugin */
   int ret = openair0_transport_load(&ru->ifdevice, &ru->openair0_cfg, &ru->eth_params);

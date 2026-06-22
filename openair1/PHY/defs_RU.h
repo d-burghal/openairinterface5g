@@ -52,7 +52,6 @@ typedef enum {
   NGFI_RRU_IF4p5,  // NGFI_RRU (NGFI remote radio-unit,IF4p5)
   MBP_RRU_IF5,      // Mobipass RRU
   gNodeB_3GPP,
-  NGFI_RAU_IF7p2   // O-RAN split 7.2 (xRAN/DPDK), NR only
 } node_function_t;
 
 typedef enum {
@@ -606,6 +605,13 @@ typedef struct RU_t_s {
   int num_tpcores;
   void* scopeData;
 } RU_t;
+
+/** Return the NR split type for an RU from whichever device is active. */
+static inline nr_split_type_t ru_nr_split(const RU_t *ru) {
+  if (ru->rfdevice.nr_split != NR_SPLIT_NONE)
+    return ru->rfdevice.nr_split;
+  return ru->ifdevice.nr_split;
+}
 
 
 typedef enum {

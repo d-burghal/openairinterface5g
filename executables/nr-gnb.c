@@ -357,13 +357,6 @@ void init_eNB_afterRU(void)
     int aa = 0;
     for (int ru_id = 0; ru_id < gNB->num_RU; ru_id++) {
       RU_t *ru = gNB->RU_list[ru_id];
-      if (ru->if_south == REMOTE_IF7p2) {
-        /* Phase 4: IF7p2 buffers are mapped into gNB->common_vars by
-         * nr_fhi_72_start(); nothing to do here. */
-        LOG_I(PHY, "RU %d (IF7p2): rxdataF mapped by nr_fhi_72_start\n", ru->idx);
-        aa += ru->nb_rx;
-        continue;
-      }
       AssertFatal(ru->common.rxdataF != NULL, "RU %d : common.rxdataF is NULL\n", ru->idx);
       for (int i = 0; i < ru->nb_rx; aa++, i++) {
         LOG_I(PHY, "Attaching RU %d antenna %d to gNB antenna %d\n", ru->idx, i, aa);

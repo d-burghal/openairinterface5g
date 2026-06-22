@@ -353,6 +353,19 @@ typedef struct {
 struct PHY_VARS_gNB_s;
 
 /**
+ * NR fronthaul split type.  Set by NRRCconfig_RU() on the active device
+ * (rfdevice for LOCAL_RF, ifdevice for all ethernet splits).  LTE paths
+ * never set this; it remains NR_SPLIT_NONE (0) for LTE devices.
+ */
+typedef enum {
+  NR_SPLIT_NONE     = 0, /* not yet configured */
+  NR_SPLIT_LOCAL_RF = 1, /* integrated RF (rfdevice) */
+  NR_SPLIT_IF5      = 2, /* ethernet time-domain IF5 */
+  NR_SPLIT_IF4P5    = 3, /* ethernet freq-domain IF4p5 */
+  NR_SPLIT_IF7P2    = 4, /* O-RAN xRAN split 7.2 */
+} nr_split_type_t;
+
+/**
  * nr_fhi_t — split-agnostic fronthaul interface for NR.
  *
  * Each split (LOCAL_RF, IF5, split 7.2) provides its own concrete
@@ -675,6 +688,9 @@ struct openair0_device {
    * write to it.
    */
   nr_fhi_t fhi;
+
+  /** NR split type for this device; NR_SPLIT_NONE on LTE. */
+  nr_split_type_t nr_split;
 
   /**
    * Split-7.2 slot callbacks, set by the xRAN transport_init().
