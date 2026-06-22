@@ -53,43 +53,104 @@ static int DEFRUTPCORES[] = {-1,-1,-1,-1};
 static void NRRCconfig_RU(configmodule_interface_t *cfg);
 
 /* ------------------------------------------------------------------ */
-/* Phase 2: thin nr_fhi_t wrappers for LOCAL_RF and IF5               */
+/* Phase 3: nr_fhi_t wrappers for LOCAL_RF (nr_fhi_rf_priv_t)        */
+/*          and IF5 (nr_fhi_if5_priv_t)                               */
 /*                                                                     */
-/* These stubs delegate dl_slot_send to the existing ru_tx_func so    */
-/* that tx_func() in nr-gnb.c can call gNB->fhi->dl_slot_send() for   */
-/* all splits without a special-case on the split type.               */
-/* ul_slot_ready is wired up properly in Phase 3.                     */
+/* ul_slot_ready replaces the direct pushNotifiedFIFO in ru_thread.   */
+/* dl_slot_send contains the TX front-end processing chain from what  */
+/* was previously ru_tx_func().                                        */
 /* ------------------------------------------------------------------ */
 
 typedef struct {
   RU_t *ru;
-} nr_fhi_legacy_priv_t;
+} nr_fhi_rf_priv_t;
 
-static void fhi_legacy_dl_slot_send(nr_fhi_t *fhi, PHY_VARS_gNB *gNB,
-                                     int frame_tx, int slot_tx,
-                                     openair0_timestamp_t ts_tx)
+typedef struct {
+  RU_t *ru;
+} nr_fhi_if5_priv_t;
+
+/* ul_slot_ready — shared by LOCAL_RF and IF5 */
+static void fhi_ru_ul_slot_ready(nr_fhi_t *fhi, PHY_VARS_gNB *gNB,
+                                  int frame_rx, int slot_rx,
+                                  int frame_tx, int slot_tx,
+                                  openair0_timestamp_t ts_tx)
 {
-  nr_fhi_legacy_priv_t *priv = fhi->priv;
-  processingData_RU_t msg = {
-      .ru = priv->ru,
-      .frame_tx = frame_tx,
-      .slot_tx = slot_tx,
+  notifiedFIFO_elt_t *elt = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0,
+                                                  &gNB->L1_tx_out, NULL);
+  elt->key = slot_tx;
+  processingData_L1tx_t *msg = NotifiedFifoData(elt);
+  *msg = (processingData_L1tx_t){
+      .gNB = gNB,
+      .frame = frame_tx,
+      .slot = slot_tx,
+      .frame_rx = frame_rx,
+      .slot_rx = slot_rx,
       .timestamp_tx = ts_tx,
   };
-  ru_tx_func(&msg);
+  pushNotifiedFIFO(&gNB->L1_tx_out, elt);
+}
+
+/* dl_slot_send for LOCAL_RF — replicates the body of ru_tx_func */
+static void fhi_rf_dl_slot_send(nr_fhi_t *fhi, PHY_VARS_gNB *gNB,
+                                 int frame_tx, int slot_tx,
+                                 openair0_timestamp_t ts_tx)
+{
+  nr_fhi_rf_priv_t *priv = fhi->priv;
+  RU_t *ru = priv->ru;
+
+  if (ru->feptx_prec)
+    ru->feptx_prec(ru, frame_tx, slot_tx);
+
+  if (ru->fh_north_asynch_in == NULL && ru->feptx_ofdm)
+    ru->feptx_ofdm(ru, frame_tx, slot_tx);
+
+  if (ru->fh_north_asynch_in == NULL && ru->fh_south_out)
+    ru->fh_south_out(ru, frame_tx, slot_tx, ts_tx);
+
+  if (ru->fh_north_out)
+    ru->fh_north_out(ru);
+}
+
+/* dl_slot_send for IF5 — same chain; kept separate for clarity */
+static void fhi_if5_dl_slot_send(nr_fhi_t *fhi, PHY_VARS_gNB *gNB,
+                                  int frame_tx, int slot_tx,
+                                  openair0_timestamp_t ts_tx)
+{
+  nr_fhi_if5_priv_t *priv = fhi->priv;
+  RU_t *ru = priv->ru;
+
+  if (ru->feptx_prec)
+    ru->feptx_prec(ru, frame_tx, slot_tx);
+
+  if (ru->fh_north_asynch_in == NULL && ru->feptx_ofdm)
+    ru->feptx_ofdm(ru, frame_tx, slot_tx);
+
+  if (ru->fh_north_asynch_in == NULL && ru->fh_south_out)
+    ru->fh_south_out(ru, frame_tx, slot_tx, ts_tx);
+
+  if (ru->fh_north_out)
+    ru->fh_north_out(ru);
 }
 
 /* Called from ru_thread after device/transport load */
 static void nr_fhi_install_legacy_wrappers(RU_t *ru, PHY_VARS_gNB *gNB)
 {
-  nr_fhi_legacy_priv_t *p = malloc(sizeof(*p));
-  AssertFatal(p, "OOM for nr_fhi_legacy_priv_t\n");
-  p->ru = ru;
-
   openair0_device_t *dev = (ru->if_south == LOCAL_RF) ? &ru->rfdevice : &ru->ifdevice;
-  dev->fhi.dl_slot_send = fhi_legacy_dl_slot_send;
-  dev->fhi.ul_slot_ready = NULL; /* wired in Phase 3 */
-  dev->fhi.priv = p;
+
+  if (ru->if_south == LOCAL_RF) {
+    nr_fhi_rf_priv_t *p = malloc(sizeof(*p));
+    AssertFatal(p, "OOM nr_fhi_rf_priv_t\n");
+    p->ru = ru;
+    dev->fhi.dl_slot_send = fhi_rf_dl_slot_send;
+    dev->fhi.priv = p;
+  } else {
+    nr_fhi_if5_priv_t *p = malloc(sizeof(*p));
+    AssertFatal(p, "OOM nr_fhi_if5_priv_t\n");
+    p->ru = ru;
+    dev->fhi.dl_slot_send = fhi_if5_dl_slot_send;
+    dev->fhi.priv = p;
+  }
+  dev->fhi.ul_slot_ready = fhi_ru_ul_slot_ready;
 
   gNB->fhi = &dev->fhi;
 }
@@ -837,16 +898,13 @@ void *ru_thread(void *param)
       } // end if (ru->feprx)
     } // end if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
 
-    notifiedFIFO_elt_t *resTx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_out, NULL);
-    resTx->key = proc->tti_tx;
-    processingData_L1tx_t *syncMsgTx = NotifiedFifoData(resTx);
-    *syncMsgTx = (processingData_L1tx_t){.gNB = gNB,
-                                         .frame = proc->frame_tx,
-                                         .slot = proc->tti_tx,
-                                         .frame_rx = proc->frame_rx,
-                                         .slot_rx = proc->tti_rx,
-                                         .timestamp_tx = proc->timestamp_tx};
-    pushNotifiedFIFO(&gNB->L1_tx_out, resTx);
+    /* Phase 3: route through nr_fhi_t so all splits share the same
+     * notification path.  gNB->fhi->ul_slot_ready was set by
+     * nr_fhi_install_legacy_wrappers() earlier in this thread. */
+    gNB->fhi->ul_slot_ready(gNB->fhi, gNB,
+                             proc->frame_rx, proc->tti_rx,
+                             proc->frame_tx, proc->tti_tx,
+                             proc->timestamp_tx);
   }
 
   ru_thread_status = 0;
