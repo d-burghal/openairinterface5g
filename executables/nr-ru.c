@@ -50,6 +50,25 @@ static int DEFRUTPCORES[] = {-1,-1,-1,-1};
 
 static void NRRCconfig_RU(configmodule_interface_t *cfg);
 
+
+// Common ul_slot_ready: push TX slot descriptor to the L1 TX thread queue
+static void nr_fhi_ul_slot_ready(struct PHY_VARS_gNB_s *gNB,
+                                 int frame_tx, int slot_tx,
+                                 int frame_rx, int slot_rx,
+                                 uint64_t timestamp_tx)
+{
+  notifiedFIFO_elt_t *resTx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_out, NULL);
+  resTx->key = slot_tx;
+  processingData_L1tx_t *syncMsgTx = NotifiedFifoData(resTx);
+  *syncMsgTx = (processingData_L1tx_t){.gNB = gNB,
+                                       .frame = frame_tx,
+                                       .slot = slot_tx,
+                                       .frame_rx = frame_rx,
+                                       .slot_rx = slot_rx,
+                                       .timestamp_tx = timestamp_tx};
+  pushNotifiedFIFO(&gNB->L1_tx_out, resTx);
+}
+
 /*************************************************************/
 /* Southbound Fronthaul functions, RCC/RAU                   */
 
@@ -536,25 +555,30 @@ int setup_RU_buffers(RU_t *ru)
   return(0);
 }
 
-void ru_tx_func(void *param)
+// LOCAL_RF: IFFT+CP then write time-domain samples to RF device
+static void nr_fhi_rf_dl_slot_send(struct PHY_VARS_gNB_s *gNB, int frame, int slot, uint64_t timestamp)
 {
-  processingData_RU_t *info = (processingData_RU_t *) param;
-  RU_t *ru = info->ru;
-  int frame_tx = info->frame_tx;
-  int slot_tx = info->slot_tx;
+  RU_t *ru = gNB->RU_list[0];
+  nr_feptx_tp(ru, frame, slot); // Transmit Precoding + IDFTs
+  tx_rf(ru, frame, slot, timestamp);
+}
 
-  // do TX front-end processing if needed (precoding and/or IDFTs)
-  if (ru->feptx_prec)
-    ru->feptx_prec(ru,frame_tx,slot_tx);
+// IF5: IFFT+CP then write time-domain samples to IF5 Ethernet device
+static void nr_fhi_if5_dl_slot_send(struct PHY_VARS_gNB_s *gNB, int frame, int slot, uint64_t timestamp)
+{
+  RU_t *ru = gNB->RU_list[0];
+  nr_feptx_tp(ru, frame, slot); // Transmit Precoding + IDFTs
+  fh_if5_south_out(ru, frame, slot, timestamp);
+}
 
-  // do OFDM with/without TX front-end processing  if needed
-  if (ru->fh_north_asynch_in == NULL && ru->feptx_ofdm)
-    ru->feptx_ofdm(ru, frame_tx, slot_tx);
-
-  if (ru->fh_north_asynch_in == NULL && ru->fh_south_out)
-    ru->fh_south_out(ru, frame_tx, slot_tx, info->timestamp_tx);
-  if (ru->fh_north_out)
-    ru->fh_north_out(ru);
+// IF4p5: digital precoding on freq-domain txdataF (IFFT done at RRU).
+// For ORAN/IF4p5, fh_south_out is set (via get_internal_parameter) to send
+// the precoded frequency-domain samples over the fronthaul.
+static void nr_fhi_if4p5_dl_slot_send(struct PHY_VARS_gNB_s *gNB, int frame, int slot, uint64_t timestamp)
+{
+  RU_t *ru = gNB->RU_list[0];
+  nr_feptx_prec(ru, frame, slot);
+  ru->fh_south_out(ru, frame, slot, timestamp);
 }
 
 /* @brief wait for the next RX TTI to be free
@@ -787,16 +811,8 @@ void *ru_thread(void *param)
       } // end if (ru->feprx)
     } // end if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
 
-    notifiedFIFO_elt_t *resTx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_out, NULL);
-    resTx->key = proc->tti_tx;
-    processingData_L1tx_t *syncMsgTx = NotifiedFifoData(resTx);
-    *syncMsgTx = (processingData_L1tx_t){.gNB = gNB,
-                                         .frame = proc->frame_tx,
-                                         .slot = proc->tti_tx,
-                                         .frame_rx = proc->frame_rx,
-                                         .slot_rx = proc->tti_rx,
-                                         .timestamp_tx = proc->timestamp_tx};
-    pushNotifiedFIFO(&gNB->L1_tx_out, resTx);
+    nr_fhi_t *fhi = (ru->if_south == LOCAL_RF) ? ru->rfdevice.fhi : ru->ifdevice.fhi;
+    fhi->ul_slot_ready(gNB, proc->frame_tx, proc->tti_tx, proc->frame_rx, proc->tti_rx, proc->timestamp_tx);
   }
 
   ru_thread_status = 0;
@@ -888,14 +904,12 @@ void set_function_spec_param(RU_t *ru)
       AssertFatal(ru->function == gNodeB_3GPP, "ru->function %d not supported for LOCAL_RF\n", ru->function);
       ru->do_prach = 0; // no prach processing in RU
       ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
-      ru->feptx_ofdm = nr_feptx_tp; // this is fep with idft and precoding
       ru->feptx_prec = NULL;
       ru->fh_north_in = NULL; // no incoming fronthaul from north
       ru->fh_north_out = NULL; // no outgoing fronthaul to north
       ru->nr_start_if = NULL; // no if interface
       ru->rfdevice.host_type = RAU_HOST;
       ru->fh_south_in = rx_rf; // local synchronous RF RX
-      ru->fh_south_out = tx_rf; // local synchronous RF TX
       ru->start_rf = start_rf; // need to start the local RF interface
       ru->stop_rf = stop_rf;
       ru->start_write_thread = start_write_thread; // starting RF TX in different thread
@@ -906,9 +920,7 @@ void set_function_spec_param(RU_t *ru)
       ru->txfh_in_fep = 0;
       ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
       ru->feptx_prec = NULL; // need to do transmit Precoding + IDFTs
-      ru->feptx_ofdm = nr_feptx_tp; // need to do transmit Precoding + IDFTs
       ru->fh_south_in = fh_if5_south_in; // synchronous IF5 reception
-      ru->fh_south_out = (ru->txfh_in_fep > 0) ? NULL : fh_if5_south_out; // synchronous IF5 transmission
       ru->fh_south_asynch_in = NULL; // no asynchronous UL
       ru->start_rf = ru->eth_params.transp_preference == ETH_UDP_IF5_ECPRI_MODE ? start_streaming : NULL;
       ru->stop_rf = NULL;
@@ -995,6 +1007,33 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
       }
     }
     set_function_spec_param(ru);
+
+    // Wire up the per-device fhi so nr-gnb.c can call dl_slot_send/ul_slot_ready
+    // without knowing the split type.  fhi lives on rfdevice (LOCAL_RF) or
+    // ifdevice (IF5/IF4p5); gNB->RU_list[0] is used by the callbacks to reach ru.
+    if (RC.nb_nr_L1_inst > 0 && ru->num_gNB > 0 && ru->gNB_list[0] != NULL) {
+      nr_fhi_t *fhi = calloc(1, sizeof(*fhi));
+      fhi->ul_slot_ready = nr_fhi_ul_slot_ready;
+      switch (ru->if_south) {
+        case LOCAL_RF:
+          fhi->dl_slot_send = nr_fhi_rf_dl_slot_send;
+          ru->rfdevice.fhi = fhi;
+          break;
+        case REMOTE_IF5:
+          fhi->dl_slot_send = nr_fhi_if5_dl_slot_send;
+          ru->ifdevice.fhi = fhi;
+          break;
+        case REMOTE_IF4p5:
+          fhi->dl_slot_send = nr_fhi_if4p5_dl_slot_send;
+          ru->ifdevice.fhi = fhi;
+          break;
+        default:
+          LOG_E(PHY, "No nr_fhi_t dl_slot_send for if_south %d\n", ru->if_south);
+          free(fhi);
+          break;
+      }
+    }
+
     init_RU_proc(ru);
     if (ru->if_south != REMOTE_IF4p5) {
       int threadCnt = ru->num_tpcores;
