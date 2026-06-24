@@ -916,7 +916,6 @@ void set_function_spec_param(RU_t *ru)
       ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
       ru->feptx_prec = NULL; // need to do transmit Precoding + IDFTs
       ru->fh_south_in = fh_if5_south_in; // synchronous IF5 reception
-      ru->fh_south_asynch_in = NULL; // no asynchronous UL
       ru->start_rf = start_streaming;
       ru->stop_rf = NULL;
       ru->start_write_thread = NULL;
@@ -931,7 +930,6 @@ void set_function_spec_param(RU_t *ru)
       ru->feptx_ofdm = NULL; // no OFDM mod
       ru->fh_south_in = NULL;
       ru->fh_south_out = NULL;
-      ru->fh_south_asynch_in = NULL;
       ru->fh_north_asynch_in = NULL;
       ru->start_rf = NULL; // no local RF
       ru->stop_rf = NULL;
