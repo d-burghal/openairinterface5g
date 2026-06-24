@@ -922,7 +922,7 @@ void set_function_spec_param(RU_t *ru)
       ru->feptx_prec = NULL; // need to do transmit Precoding + IDFTs
       ru->fh_south_in = fh_if5_south_in; // synchronous IF5 reception
       ru->fh_south_asynch_in = NULL; // no asynchronous UL
-      ru->start_rf = ru->eth_params.transp_preference == ETH_UDP_IF5_ECPRI_MODE ? start_streaming : NULL;
+      ru->start_rf = start_streaming;
       ru->stop_rf = NULL;
       ru->start_write_thread = NULL;
       ru->nr_start_if = nr_start_if; // need to start if interface for IF5
@@ -1188,18 +1188,10 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
       ru->eth_params.my_portd = *param[RU_LOCAL_PORTD_IDX].uptr;
       ru->eth_params.remote_portd = *param[RU_REMOTE_PORTD_IDX].uptr;
 
-      if (strcmp(str, "udp") == 0) {
-        ru->if_south = REMOTE_IF5;
-        ru->function = NGFI_RAU_IF5;
-        ru->eth_params.transp_preference = ETH_UDP_MODE;
-      } else if (strcmp(str, "udp_ecpri_if5") == 0) {
+      if (strcmp(str, "udp_ecpri_if5") == 0) {
         ru->if_south = REMOTE_IF5;
         ru->function = NGFI_RAU_IF5;
         ru->eth_params.transp_preference = ETH_UDP_IF5_ECPRI_MODE;
-      } else if (strcmp(str, "raw") == 0) {
-        ru->if_south = REMOTE_IF5;
-        ru->function = NGFI_RAU_IF5;
-        ru->eth_params.transp_preference = ETH_RAW_MODE;
       } else if (strcmp(str, "raw_if4p5") == 0) {
         ru->if_south = REMOTE_IF4p5;
         ru->function = NGFI_RAU_IF4p5;
