@@ -905,7 +905,6 @@ void set_function_spec_param(RU_t *ru)
       ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
       ru->feptx_prec = NULL;
       ru->nr_start_if = NULL; // no if interface
-      ru->rfdevice.host_type = RAU_HOST;
       ru->fh_south_in = rx_rf; // local synchronous RF RX
       ru->start_rf = start_rf; // need to start the local RF interface
       ru->stop_rf = stop_rf;
@@ -920,8 +919,6 @@ void set_function_spec_param(RU_t *ru)
       ru->stop_rf = NULL;
       ru->start_write_thread = NULL;
       ru->nr_start_if = nr_start_if; // need to start if interface for IF5
-      ru->ifdevice.host_type = RAU_HOST;
-      ru->ifdevice.eth_params = &ru->eth_params;
       break;
 
     case REMOTE_IF4p5:
@@ -934,8 +931,6 @@ void set_function_spec_param(RU_t *ru)
       ru->stop_rf = NULL;
       ru->start_write_thread = NULL;
       ru->nr_start_if = nr_start_if; // need to start if interface for IF4p5
-      ru->ifdevice.host_type = RAU_HOST;
-      ru->ifdevice.eth_params = &ru->eth_params;
       break;
 
     default:
