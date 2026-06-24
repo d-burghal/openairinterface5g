@@ -930,7 +930,6 @@ void set_function_spec_param(RU_t *ru)
       ru->feptx_ofdm = NULL; // no OFDM mod
       ru->fh_south_in = NULL;
       ru->fh_south_out = NULL;
-      ru->fh_north_asynch_in = NULL;
       ru->start_rf = NULL; // no local RF
       ru->stop_rf = NULL;
       ru->start_write_thread = NULL;
