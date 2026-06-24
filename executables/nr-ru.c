@@ -915,7 +915,6 @@ void set_function_spec_param(RU_t *ru)
       break;
 
     case REMOTE_IF5: // the remote unit is IF5 RRU
-      ru->txfh_in_fep = 0;
       ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
       ru->feptx_prec = NULL; // need to do transmit Precoding + IDFTs
       ru->fh_south_in = fh_if5_south_in; // synchronous IF5 reception
