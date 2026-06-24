@@ -15,6 +15,7 @@
 #include "openair1/PHY/defs_gNB.h"
 #include "oaioran.h"
 #include "oran-config.h"
+#include "openair1/SCHED_NR/sched_nr.h" // needed for nr_feptx_prec(); maybe better move declaration and definition here in 7.2 since that's the only split which uses this function
 
 // include the following file for VERSIONX, version of xran lib, to print it during
 // startup. Only relevant for printing, if it ever makes problem, remove this
@@ -242,14 +243,22 @@ void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
   stop_meas(&ru->tx_fhaul);
 }
 
+// IF4p5: digital precoding on freq-domain txdataF (IFFT done at RRU).
+// For ORAN/IF4p5, fh_south_out is set (via get_internal_parameter) to send
+// the precoded frequency-domain samples over the fronthaul.
+static void nr_fhi_if4p5_dl_slot_send(struct PHY_VARS_gNB_s *gNB, int frame, int slot, uint64_t timestamp)
+{
+  RU_t *ru = gNB->RU_list[0];
+  nr_feptx_prec(ru, frame, slot);
+  oran_fh_if4p5_south_out(ru, frame, slot, timestamp);
+}
+
 void *get_internal_parameter(char *name)
 {
   printf("ORAN: %s\n", __FUNCTION__);
 
   if (!strcmp(name, "fh_if4p5_south_in"))
     return (void *)oran_fh_if4p5_south_in;
-  if (!strcmp(name, "fh_if4p5_south_out"))
-    return (void *)oran_fh_if4p5_south_out;
 
   return NULL;
 }
@@ -340,6 +349,7 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device_t 
   eth->nCC = fh_config->nCC;
   eth->num_ports = fh_init.xran_ports;
 
+  device->fhi->dl_slot_send = nr_fhi_if4p5_dl_slot_send;
   device->host_type = RAU_HOST;
   device->eth_params = eth_params;
   device->transp_type = ETHERNET_TP;

@@ -70,30 +70,6 @@ static void nr_fhi_ul_slot_ready(struct PHY_VARS_gNB_s *gNB,
 }
 
 /*************************************************************/
-/* Southbound Fronthaul functions, RCC/RAU                   */
-
-// southbound IF5 fronthaul for 16-bit OAI format
-void fh_if5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
-{
-  int offset = get_samples_slot_timestamp(ru->nr_frame_parms, slot);
-  void *buffs[ru->nb_tx];
-  for (int aid = 0; aid < ru->nb_tx; aid++)
-    buffs[aid] = (void*)&ru->common.txdata[aid][offset];
-  struct timespec txmeas;
-  clock_gettime(CLOCK_MONOTONIC, &txmeas);
-  LOG_D(NR_PHY,
-        "IF5 TX %d.%d, TS %lu, buffs[0] %p, buffs[1] %p ener0 %f dB, tx start %d\n",
-        frame,
-        slot,
-        timestamp,
-        buffs[0],
-        buffs[1],
-        10 * log10((double)signal_energy(buffs[0], get_samples_per_slot(slot, ru->nr_frame_parms))),
-        (int)txmeas.tv_nsec);
-  ru->ifdevice.trx_write_func2(&ru->ifdevice, timestamp, buffs, 0, get_samples_per_slot(slot, ru->nr_frame_parms), 0, ru->nb_tx);
-}
-
-/*************************************************************/
 /* Input Fronthaul from south RCC/RAU                        */
 
 // Synchronous if5 from south
@@ -563,24 +539,6 @@ static void nr_fhi_rf_dl_slot_send(struct PHY_VARS_gNB_s *gNB, int frame, int sl
   tx_rf(ru, frame, slot, timestamp);
 }
 
-// IF5: IFFT+CP then write time-domain samples to IF5 Ethernet device
-static void nr_fhi_if5_dl_slot_send(struct PHY_VARS_gNB_s *gNB, int frame, int slot, uint64_t timestamp)
-{
-  RU_t *ru = gNB->RU_list[0];
-  nr_feptx_tp(ru, frame, slot); // Transmit Precoding + IDFTs
-  fh_if5_south_out(ru, frame, slot, timestamp);
-}
-
-// IF4p5: digital precoding on freq-domain txdataF (IFFT done at RRU).
-// For ORAN/IF4p5, fh_south_out is set (via get_internal_parameter) to send
-// the precoded frequency-domain samples over the fronthaul.
-static void nr_fhi_if4p5_dl_slot_send(struct PHY_VARS_gNB_s *gNB, int frame, int slot, uint64_t timestamp)
-{
-  RU_t *ru = gNB->RU_list[0];
-  nr_feptx_prec(ru, frame, slot);
-  ru->fh_south_out(ru, frame, slot, timestamp);
-}
-
 /* @brief wait for the next RX TTI to be free
  *
  * Certain radios, e.g., RFsim, can run faster than real-time. This might
@@ -662,9 +620,6 @@ void *ru_thread(void *param)
       void *t = ru->ifdevice.get_internal_parameter("fh_if4p5_south_in");
       if (t != NULL)
         ru->fh_south_in = t;
-      t = ru->ifdevice.get_internal_parameter("fh_if4p5_south_out");
-      if (t != NULL)
-        ru->fh_south_out = t;
     }
 
     int cpu = sched_getcpu();
@@ -923,10 +878,8 @@ void set_function_spec_param(RU_t *ru)
 
     case REMOTE_IF4p5:
       ru->feprx = NULL; // DFTs
-      ru->feptx_prec = nr_feptx_prec; // Precoding operation
       ru->feptx_ofdm = NULL; // no OFDM mod
       ru->fh_south_in = NULL;
-      ru->fh_south_out = NULL;
       ru->start_rf = NULL; // no local RF
       ru->stop_rf = NULL;
       ru->start_write_thread = NULL;
@@ -1005,11 +958,9 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
           ru->rfdevice.fhi = fhi;
           break;
         case REMOTE_IF5:
-          fhi->dl_slot_send = nr_fhi_if5_dl_slot_send;
           ru->ifdevice.fhi = fhi;
           break;
         case REMOTE_IF4p5:
-          fhi->dl_slot_send = nr_fhi_if4p5_dl_slot_send;
           ru->ifdevice.fhi = fhi;
           break;
         default:

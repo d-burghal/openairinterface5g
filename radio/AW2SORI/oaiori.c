@@ -27,6 +27,8 @@
 #include "ori.h"
 
 #include "radio/COMMON/common_lib.h"
+#include "openair1/PHY/defs_gNB.h"
+#include "openair1/SCHED_NR/sched_nr.h"
 
 typedef struct eutra_bandentry_s {
   int16_t band;
@@ -884,9 +886,38 @@ int aw2s_oriinit(openair0_device_t *device)
   return 0;
 }
 
+static void fh_if5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
+{
+  int offset = get_samples_slot_timestamp(ru->nr_frame_parms, slot);
+  void *buffs[ru->nb_tx];
+  for (int aid = 0; aid < ru->nb_tx; aid++)
+    buffs[aid] = (void*)&ru->common.txdata[aid][offset];
+  struct timespec txmeas;
+  clock_gettime(CLOCK_MONOTONIC, &txmeas);
+  LOG_D(NR_PHY,
+        "IF5 TX %d.%d, TS %lu, buffs[0] %p, buffs[1] %p ener0 %f dB, tx start %d\n",
+        frame,
+        slot,
+        timestamp,
+        buffs[0],
+        buffs[1],
+        10 * log10((double)signal_energy(buffs[0], get_samples_per_slot(slot, ru->nr_frame_parms))),
+        (int)txmeas.tv_nsec);
+  ru->ifdevice.trx_write_func2(&ru->ifdevice, timestamp, buffs, 0, get_samples_per_slot(slot, ru->nr_frame_parms), 0, ru->nb_tx);
+}
+
+// IF5: IFFT+CP then write time-domain samples to IF5 Ethernet device
+static void nr_fhi_if5_dl_slot_send(struct PHY_VARS_gNB_s *gNB, int frame, int slot, uint64_t timestamp)
+{
+  RU_t *ru = gNB->RU_list[0];
+  nr_feptx_tp(ru, frame, slot); // Transmit Precoding + IDFTs
+  fh_if5_south_out(ru, frame, slot, timestamp);
+}
+
 int transport_init(openair0_device_t *device, openair0_config_t *openair0_cfg, eth_params_t *eth_params)
 {
-  printf("Initializing AW2S (%p,%p,%p)\n",aw2s_oriinit,aw2s_oricleanup,aw2s_startstreaming); 
+  printf("Initializing AW2S (%p,%p,%p)\n",aw2s_oriinit,aw2s_oricleanup,aw2s_startstreaming);
+  device->fhi->dl_slot_send = nr_fhi_if5_dl_slot_send;
   device->host_type = RAU_HOST;
   device->eth_params = eth_params;
   device->thirdparty_init           = aw2s_oriinit;
