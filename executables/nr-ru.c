@@ -904,7 +904,6 @@ void set_function_spec_param(RU_t *ru)
       AssertFatal(ru->function == gNodeB_3GPP, "ru->function %d not supported for LOCAL_RF\n", ru->function);
       ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
       ru->feptx_prec = NULL;
-      ru->fh_north_in = NULL; // no incoming fronthaul from north
       ru->fh_north_out = NULL; // no outgoing fronthaul to north
       ru->nr_start_if = NULL; // no if interface
       ru->rfdevice.host_type = RAU_HOST;
