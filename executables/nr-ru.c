@@ -69,71 +69,9 @@ static void nr_fhi_ul_slot_ready(struct PHY_VARS_gNB_s *gNB,
   pushNotifiedFIFO(&gNB->L1_tx_out, resTx);
 }
 
-/*************************************************************/
-/* Input Fronthaul from south RCC/RAU                        */
-
-// Synchronous if5 from south
-
-void fh_if5_south_in(RU_t *ru, int *frame, int *tti)
+static void rx_rf(struct PHY_VARS_gNB_s *gNB, int *frame, int *slot)
 {
-  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
-  RU_proc_t *proc = &ru->proc;
-  start_meas(&ru->rx_fhaul);
-
-  ru->ifdevice.trx_read_func2(&ru->ifdevice, &proc->timestamp_rx, NULL, get_samples_per_slot(*tti, fp));
-  if (proc->first_rx == 1)
-    ru->ts_offset = proc->timestamp_rx;
-  proc->frame_rx = ((proc->timestamp_rx - ru->ts_offset) / (fp->samples_per_subframe * 10)) & 1023;
-  proc->tti_rx = get_slot_from_timestamp(proc->timestamp_rx - ru->ts_offset, fp);
-
-  if (proc->first_rx == 0) {
-    if (proc->tti_rx != *tti) {
-      LOG_E(PHY,"Received Timestamp doesn't correspond to the time we think it is (proc->tti_rx %d, subframe %d)\n",proc->tti_rx,*tti);
-      if (!oai_exit)
-        exit_fun("Exiting");
-      return;
-    }
-
-    if (proc->frame_rx != *frame) {
-      LOG_E(PHY,"Received Timestamp doesn't correspond to the time we think it is (proc->frame_rx %d frame %d proc->tti_rx %d tti %d)\n",proc->frame_rx,*frame,proc->tti_rx,*tti);
-      if (!oai_exit)
-        exit_fun("Exiting");
-      return;
-    }
-  } else {
-    proc->first_rx = 0;
-    *frame = proc->frame_rx;
-    *tti = proc->tti_rx;
-  }
-
-  stop_meas(&ru->rx_fhaul);
-  struct timespec rxmeas;
-  clock_gettime(CLOCK_MONOTONIC, &rxmeas);
-  double fhtime = ru->rx_fhaul.p_time/(cpu_freq_GHz*1000.0);
-  if (fhtime > 800)
-    LOG_W(PHY,
-          "IF5 %d.%d => RX %d.%d first_rx %d: time %f, rxstart %ld\n",
-          *frame,
-          *tti,
-          proc->frame_rx,
-          proc->tti_rx,
-          proc->first_rx,
-          ru->rx_fhaul.p_time / (cpu_freq_GHz * 1000.0),
-          rxmeas.tv_nsec);
-  else
-    LOG_D(PHY,
-          "IF5 %d.%d => RX %d.%d first_rx %d: time %f, rxstart %ld\n",
-          *frame,
-          *tti,
-          proc->frame_rx,
-          proc->tti_rx,
-          proc->first_rx,
-          ru->rx_fhaul.p_time / (cpu_freq_GHz * 1000.0),
-          rxmeas.tv_nsec);
-}
-
-static void rx_rf(RU_t *ru, int *frame, int *slot)
-{
+  RU_t *ru = gNB->RU_list[0];
   RU_proc_t *proc = &ru->proc;
   NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
   openair0_config_t *cfg   = &ru->openair0_cfg;
@@ -614,14 +552,6 @@ void *ru_thread(void *param)
     ret = openair0_transport_load(&ru->ifdevice, &ru->openair0_cfg, &ru->eth_params);
     AssertFatal(ret == 0, "RU %u: openair0_transport_init() ret %d: cannot initialize transport protocol\n", ru->idx, ret);
 
-    if (ru->ifdevice.get_internal_parameter) {
-      /* it seems the device can "overwrite" (request?) to set the callbacks
-       * for fh_south_in()/fh_south_out() differently */
-      void *t = ru->ifdevice.get_internal_parameter("fh_if4p5_south_in");
-      if (t != NULL)
-        ru->fh_south_in = t;
-    }
-
     int cpu = sched_getcpu();
     if (ru->ru_thread_core > -1 && cpu != ru->ru_thread_core) {
       /* we start the ru_thread using threadCreate(), which already sets CPU
@@ -695,8 +625,9 @@ void *ru_thread(void *param)
     // synchronization on input FH interface, acquire signals/data and block
     LOG_D(PHY,"[RU_thread] read data: frame_rx = %d, tti_rx = %d\n", frame, slot);
 
-    AssertFatal(ru->fh_south_in, "No fronthaul interface at south port");
-    ru->fh_south_in(ru, &frame, &slot);
+    nr_fhi_t *fhi = (ru->if_south == LOCAL_RF) ? ru->rfdevice.fhi : ru->ifdevice.fhi;
+    AssertFatal(fhi->ul_slot_receive, "No UL fronthaul interface");
+    fhi->ul_slot_receive(gNB, &frame, &slot);
 
     if (initial_wait == 1 && proc->frame_rx < 300) {
       if (proc->frame_rx > 0 && ((proc->frame_rx % 100) == 0) && proc->tti_rx == 0) {
@@ -719,7 +650,7 @@ void *ru_thread(void *param)
     proc->tti_tx = (proc->tti_rx + ru->sl_ahead) % fp->slots_per_frame;
     proc->frame_tx = proc->tti_rx > proc->tti_tx ? (proc->frame_rx + 1) & 1023 : proc->frame_rx;
     LOG_D(PHY,
-          "AFTER fh_south_in - SFN/SL:%d%d RU->proc[RX:%d.%d TX:%d.%d] RC.gNB[0]:[RX:%d%d TX(SFN):%d]\n",
+          "AFTER ul_slot_receive - SFN/SL:%d%d RU->proc[RX:%d.%d TX:%d.%d] RC.gNB[0]:[RX:%d%d TX(SFN):%d]\n",
           frame,
           slot,
           proc->frame_rx,
@@ -766,7 +697,6 @@ void *ru_thread(void *param)
       } // end if (ru->feprx)
     } // end if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
 
-    nr_fhi_t *fhi = (ru->if_south == LOCAL_RF) ? ru->rfdevice.fhi : ru->ifdevice.fhi;
     fhi->ul_slot_ready(gNB, proc->frame_tx, proc->tti_tx, proc->frame_rx, proc->tti_rx, proc->timestamp_tx);
   }
 
@@ -860,7 +790,6 @@ void set_function_spec_param(RU_t *ru)
       ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
       ru->feptx_prec = NULL;
       ru->nr_start_if = NULL; // no if interface
-      ru->fh_south_in = rx_rf; // local synchronous RF RX
       ru->start_rf = start_rf; // need to start the local RF interface
       ru->stop_rf = stop_rf;
       ru->start_write_thread = start_write_thread; // starting RF TX in different thread
@@ -869,7 +798,6 @@ void set_function_spec_param(RU_t *ru)
     case REMOTE_IF5: // the remote unit is IF5 RRU
       ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
       ru->feptx_prec = NULL; // need to do transmit Precoding + IDFTs
-      ru->fh_south_in = fh_if5_south_in; // synchronous IF5 reception
       ru->start_rf = start_streaming;
       ru->stop_rf = NULL;
       ru->start_write_thread = NULL;
@@ -879,7 +807,6 @@ void set_function_spec_param(RU_t *ru)
     case REMOTE_IF4p5:
       ru->feprx = NULL; // DFTs
       ru->feptx_ofdm = NULL; // no OFDM mod
-      ru->fh_south_in = NULL;
       ru->start_rf = NULL; // no local RF
       ru->stop_rf = NULL;
       ru->start_write_thread = NULL;
@@ -954,6 +881,7 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
       fhi->ul_slot_ready = nr_fhi_ul_slot_ready;
       switch (ru->if_south) {
         case LOCAL_RF:
+          fhi->ul_slot_receive = rx_rf;
           fhi->dl_slot_send = nr_fhi_rf_dl_slot_send;
           ru->rfdevice.fhi = fhi;
           break;

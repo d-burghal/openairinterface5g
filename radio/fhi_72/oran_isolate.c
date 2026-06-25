@@ -152,8 +152,9 @@ int trx_oran_get_stats(openair0_device_t *device)
   return (0);
 }
 
-void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
+void oran_fh_if4p5_south_in(struct PHY_VARS_gNB_s *gNB, int *frame, int *slot)
 {
+  RU_t *ru = gNB->RU_list[0];
   int ret = 0; // return code for PUSCH/PRACH processing
 
   ru_info_t ru_info = {
@@ -349,6 +350,7 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device_t 
   eth->nCC = fh_config->nCC;
   eth->num_ports = fh_init.xran_ports;
 
+  device->fhi->ul_slot_receive = oran_fh_if4p5_south_in;
   device->fhi->dl_slot_send = nr_fhi_if4p5_dl_slot_send;
   device->host_type = RAU_HOST;
   device->eth_params = eth_params;
