@@ -781,44 +781,6 @@ void kill_NR_RU_proc(int inst) {
   LOG_I(PHY, "RU %d RF device stopped\n",ru->idx);
 }
 
-void set_function_spec_param(RU_t *ru)
-{
-  switch (ru->if_south) {
-    case LOCAL_RF:   // this is an RU with integrated RF (RRU, gNB)
-      reset_meas(&ru->rx_fhaul);
-      AssertFatal(ru->function == gNodeB_3GPP, "ru->function %d not supported for LOCAL_RF\n", ru->function);
-      ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
-      ru->feptx_prec = NULL;
-      ru->nr_start_if = NULL; // no if interface
-      ru->start_rf = start_rf; // need to start the local RF interface
-      ru->stop_rf = stop_rf;
-      ru->start_write_thread = start_write_thread; // starting RF TX in different thread
-      break;
-
-    case REMOTE_IF5: // the remote unit is IF5 RRU
-      ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
-      ru->feptx_prec = NULL; // need to do transmit Precoding + IDFTs
-      ru->start_rf = start_streaming;
-      ru->stop_rf = NULL;
-      ru->start_write_thread = NULL;
-      ru->nr_start_if = nr_start_if; // need to start if interface for IF5
-      break;
-
-    case REMOTE_IF4p5:
-      ru->feprx = NULL; // DFTs
-      ru->feptx_ofdm = NULL; // no OFDM mod
-      ru->start_rf = NULL; // no local RF
-      ru->stop_rf = NULL;
-      ru->start_write_thread = NULL;
-      ru->nr_start_if = nr_start_if; // need to start if interface for IF4p5
-      break;
-
-    default:
-      LOG_E(PHY, "RU with invalid or unknown southbound interface type %d\n", ru->if_south);
-      break;
-  } // switch on interface type
-}
-
 void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
 {
   // create status mask
@@ -871,28 +833,35 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
         }
       }
     }
-    set_function_spec_param(ru);
 
-    // Wire up the per-device fhi so nr-gnb.c can call dl_slot_send/ul_slot_ready
-    // without knowing the split type.  fhi lives on rfdevice (LOCAL_RF) or
-    // ifdevice (IF5/IF4p5); gNB->RU_list[0] is used by the callbacks to reach ru.
     if (RC.nb_nr_L1_inst > 0 && ru->num_gNB > 0 && ru->gNB_list[0] != NULL) {
       nr_fhi_t *fhi = calloc(1, sizeof(*fhi));
       fhi->ul_slot_ready = nr_fhi_ul_slot_ready;
       switch (ru->if_south) {
         case LOCAL_RF:
+          reset_meas(&ru->rx_fhaul);
+          AssertFatal(ru->function == gNodeB_3GPP, "ru->function %d not supported for LOCAL_RF\n", ru->function);
+          ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
+          ru->start_rf = start_rf; // need to start the local RF interface
+          ru->stop_rf = stop_rf;
+          ru->start_write_thread = start_write_thread; // starting RF TX in different thread
           fhi->ul_slot_receive = rx_rf;
           fhi->dl_slot_send = nr_fhi_rf_dl_slot_send;
           ru->rfdevice.fhi = fhi;
           break;
         case REMOTE_IF5:
+          ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
+          ru->start_rf = start_streaming;
+          ru->start_write_thread = NULL;
+          ru->nr_start_if = nr_start_if; // need to start if interface for IF5
           ru->ifdevice.fhi = fhi;
           break;
         case REMOTE_IF4p5:
+          ru->nr_start_if = nr_start_if; // need to start if interface for IF4p5
           ru->ifdevice.fhi = fhi;
           break;
         default:
-          LOG_E(PHY, "No nr_fhi_t dl_slot_send for if_south %d\n", ru->if_south);
+          LOG_E(PHY, "RU with invalid or unknown southbound interface type %d\n", ru->if_south);
           free(fhi);
           break;
       }
