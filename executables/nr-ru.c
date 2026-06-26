@@ -529,15 +529,12 @@ void *ru_thread(void *param)
   int                ret;
   int                slot     = fp->slots_per_frame-1;
   int                frame    = 1023;
-  char               threadname[40];
   int initial_wait = 0;
 
   bool rx_tti_busy[RU_RX_SLOT_DEPTH] = {false};
   // set default return value
   ru_thread_status = 0;
-  // set default return value
-  sprintf(threadname,"ru_thread %u",ru->idx);
-  LOG_I(PHY,"Starting RU %d (%s,%s) on cpu %d\n",ru->idx,NB_functions[ru->function],NB_timing[ru->if_timing],sched_getcpu());
+  LOG_I(PHY,"Starting RU %d (%s) on cpu %d\n",ru->idx,NB_functions[ru->function],sched_getcpu());
   ru->config = gNB->gNB_config;
 
   nr_init_frame_parms(&ru->config, fp);
@@ -546,8 +543,7 @@ void *ru_thread(void *param)
   fill_rf_config(ru, ru->rf_config_file);
   fill_split7_2_config(&ru->openair0_cfg.split7, &ru->config, fp);
 
-  // Start IF device if any
-  if (ru->nr_start_if) {
+  if (ru->if_south == REMOTE_IF5 || ru->if_south == REMOTE_IF4p5) {
     LOG_I(PHY, "starting transport\n");
     ret = openair0_transport_load(&ru->ifdevice, &ru->openair0_cfg, &ru->eth_params);
     AssertFatal(ret == 0, "RU %u: openair0_transport_init() ret %d: cannot initialize transport protocol\n", ru->idx, ret);
@@ -564,8 +560,13 @@ void *ru_thread(void *param)
       LOG_I(PHY, "RU %d: manually set CPU affinity to CPU %d\n", ru->idx, ru->ru_thread_core);
     }
 
+    if (ru->if_south == REMOTE_IF5) {
+      for (int i = 0; i < ru->nb_rx; i++)
+        ru->openair0_cfg.rxbase[i] = ru->common.rxdata[i];
+    }
     LOG_I(PHY, "Starting IF interface for RU %d, nb_rx %d\n", ru->idx, ru->nb_rx);
-    AssertFatal(ru->nr_start_if(ru) == 0, "Could not start the IF device\n");
+    ret = ru->ifdevice.trx_start_func(&ru->ifdevice);
+    AssertFatal(ret == 0, "Could not start the IF device\n");
 
   } else if (ru->if_south == LOCAL_RF) { // configure RF parameters only
     ret = openair0_device_load(&ru->rfdevice,&ru->openair0_cfg);
@@ -577,6 +578,20 @@ void *ru_thread(void *param)
     exit(-1);
   }
 
+  if (ru->if_south == REMOTE_IF5) {
+    ret = ru->ifdevice.thirdparty_startstreaming(&ru->ifdevice);
+    AssertFatal(ret == 0, "Cannot start third-party streaming.\n");
+  } else if (ru->if_south == LOCAL_RF) {
+    ret = ru->rfdevice.trx_start_func(&ru->rfdevice);
+    AssertFatal(ret == 0, "Cannot start RF device.\n");
+    LOG_I(PHY, "RU %d RF started cpu_meas_enabled %d\n", ru->idx, cpu_meas_enabled);
+    // start Tx write thread
+    if (usrp_tx_thread == 1) {
+      ret = ru->rfdevice.trx_write_init(&ru->rfdevice);
+      AssertFatal(ret == 0, "Cannot start Tx thread.\n");
+    }
+  }
+
   LOG_I(PHY, "Signaling main thread that RU %d is ready, sl_ahead %d\n",ru->idx,ru->sl_ahead);
   pthread_mutex_lock(&RC.ru_mutex);
   RC.ru_mask &= ~(1<<ru->idx);
@@ -584,26 +599,6 @@ void *ru_thread(void *param)
   pthread_mutex_unlock(&RC.ru_mutex);
   wait_sync("ru_thread");
 
-  // Start RF device if any
-  if (ru->start_rf) {
-    if (ru->start_rf(ru) != 0)
-      LOG_E(HW, "Could not start the RF device\n");
-    else
-      LOG_I(PHY, "RU %d rf device ready\n", ru->idx);
-  } else
-    LOG_I(PHY, "RU %d no rf device\n", ru->idx);
-
-  LOG_I(PHY, "RU %d RF started cpu_meas_enabled %d\n", ru->idx, cpu_meas_enabled);
-  // start trx write thread
-  if (usrp_tx_thread == 1) {
-    if (ru->start_write_thread) {
-      if (ru->start_write_thread(ru) != 0) {
-        LOG_E(HW, "Could not start tx write thread\n");
-      } else {
-        LOG_I(PHY, "tx write thread ready\n");
-      }
-    }
-  }
 
   // This is a forever while loop, it loops over subframes which are scheduled by incoming samples from HW devices
   struct timespec slot_start;
@@ -669,8 +664,8 @@ void *ru_thread(void *param)
     if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
       if (!wait_free_rx_tti(&gNB->L1_rx_out, rx_tti_busy, proc->frame_rx, proc->tti_rx))
         break; // nothing to wait for: we have to stop
-      if (ru->feprx) {
-        ru->feprx(ru,proc->tti_rx);
+      if (ru->if_south == LOCAL_RF || ru->if_south == REMOTE_IF5) {
+        nr_fep_tp(ru,proc->tti_rx);
         LOG_D(NR_PHY, "Setting %d.%d (%d) to busy\n", proc->frame_rx, proc->tti_rx, proc->tti_rx % RU_RX_SLOT_DEPTH);
         //LOG_M("rxdata.m","rxs",ru->common.rxdata[0],1228800,1,1);
         LOG_D(PHY,"RU proc: frame_rx = %d, tti_rx = %d\n", proc->frame_rx, proc->tti_rx);
@@ -694,7 +689,7 @@ void *ru_thread(void *param)
           // see rx_func()
           DevAssert(success);
         } // end if (prach_id >= 0)
-      } // end if (ru->feprx)
+      } // end if (ru->if_south == LOCAL_RF || ru->if_south == REMOTE_IF5)
     } // end if (slot_type == NR_UPLINK_SLOT || slot_type == NR_MIXED_SLOT) {
 
     fhi->ul_slot_ready(gNB, proc->frame_tx, proc->tti_tx, proc->frame_rx, proc->tti_rx, proc->timestamp_tx);
@@ -702,38 +697,6 @@ void *ru_thread(void *param)
 
   ru_thread_status = 0;
   return &ru_thread_status;
-}
-
-int start_streaming(RU_t *ru) {
-  LOG_I(PHY,"Starting streaming on third-party RRU\n");
-  return ru->ifdevice.thirdparty_startstreaming(&ru->ifdevice);
-}
-
-int nr_start_if(struct RU_t_s *ru)
-{
-  if (ru->if_south <= REMOTE_IF5)
-    for (int i = 0; i < ru->nb_rx; i++)
-      ru->openair0_cfg.rxbase[i] = ru->common.rxdata[i];
-  ru->openair0_cfg.rxsize = ru->nr_frame_parms->samples_per_subframe*10;
-  return ru->ifdevice.trx_start_func(&ru->ifdevice);
-}
-
-int start_rf(RU_t *ru)
-{
-  return(ru->rfdevice.trx_start_func(&ru->rfdevice));
-}
-
-int stop_rf(RU_t *ru)
-{
-  if (ru->rfdevice.trx_get_stats_func) {
-    ru->rfdevice.trx_get_stats_func(&ru->rfdevice);
-  }
-  ru->rfdevice.trx_end_func(&ru->rfdevice);
-  return 0;
-}
-
-int start_write_thread(RU_t *ru) {
-  return ru->rfdevice.trx_write_init(&ru->rfdevice);
 }
 
 void kill_NR_RU_proc(int inst) {
@@ -756,17 +719,36 @@ void kill_NR_RU_proc(int inst) {
   pthread_mutex_unlock(proc->mutex_fep);
   pthread_join(proc->pthread_FH, NULL);
 
-  // everything should be stopped now, we can safely stop the RF device
-  if (ru->stop_rf == NULL) {
-    LOG_W(PHY, "No stop_rf() for RU %d defined, cannot stop RF!\n", ru->idx);
-    return;
+  /* stop trx devices, multiple carrier currently not supported by RU */
+  if (ru->rfdevice.trx_get_stats_func) {
+    LOG_I(PHY, "Getting RU %d RF stats\n", ru->idx);
+    ru->rfdevice.trx_get_stats_func(&ru->rfdevice);
   }
-  int rc = ru->stop_rf(ru);
-  if (rc != 0) {
-    LOG_W(PHY, "stop_rf() returned %d, RU %d RF device did not stop properly!\n", rc, ru->idx);
-    return;
+
+  if (ru->rfdevice.trx_stop_func) {
+    LOG_I(PHY, "Stopping RU %d RF device\n", ru->idx);
+    ru->rfdevice.trx_stop_func(&ru->rfdevice);
   }
-  LOG_I(PHY, "RU %d RF device stopped\n",ru->idx);
+
+  if (ru->rfdevice.trx_end_func) {
+    LOG_I(PHY, "Ending RU %d RF device\n", ru->idx);
+    ru->rfdevice.trx_end_func(&ru->rfdevice);
+  }
+
+  if (ru->ifdevice.trx_get_stats_func) {
+    LOG_I(PHY, "Getting RU %d IF stats\n", ru->idx);
+    ru->ifdevice.trx_get_stats_func(&ru->rfdevice);
+  }
+
+  if (ru->ifdevice.trx_stop_func) {
+    LOG_I(PHY, "Stopping RU %d IF device\n", ru->idx);
+    ru->ifdevice.trx_stop_func(&ru->ifdevice);
+  }
+
+  if (ru->ifdevice.trx_end_func) {
+    LOG_I(PHY, "Ending RU %d IF device\n", ru->idx);
+    ru->ifdevice.trx_end_func(&ru->ifdevice);
+  }
 }
 
 void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
@@ -829,23 +811,14 @@ void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
         case LOCAL_RF:
           reset_meas(&ru->rx_fhaul);
           AssertFatal(ru->function == gNodeB_3GPP, "ru->function %d not supported for LOCAL_RF\n", ru->function);
-          ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
-          ru->start_rf = start_rf; // need to start the local RF interface
-          ru->stop_rf = stop_rf;
-          ru->start_write_thread = start_write_thread; // starting RF TX in different thread
           fhi->ul_slot_receive = rx_rf;
           fhi->dl_slot_send = nr_fhi_rf_dl_slot_send;
           ru->rfdevice.fhi = fhi;
           break;
         case REMOTE_IF5:
-          ru->feprx = nr_fep_tp; // this is frequency-shift + DFTs
-          ru->start_rf = start_streaming;
-          ru->start_write_thread = NULL;
-          ru->nr_start_if = nr_start_if; // need to start if interface for IF5
           ru->ifdevice.fhi = fhi;
           break;
         case REMOTE_IF4p5:
-          ru->nr_start_if = nr_start_if; // need to start if interface for IF4p5
           ru->ifdevice.fhi = fhi;
           break;
         default:
