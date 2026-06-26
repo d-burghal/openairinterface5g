@@ -908,14 +908,16 @@ pipeline {
             message +=  "\n\n**Validation:** " + mrValidationWarning
             githubPRComment comment: githubPRMessage(message)
           }
-          githubNotify account: params.gitAccount,
-                       repo: params.gitRepo,
-                       credentialsId: 'github-jenkins-duranta',
-                       sha: env.GITHUB_PR_HEAD_SHA,
-                       status: 'SUCCESS',
-                       description: 'Build success',
-                       targetUrl: BUILD_URL,
-                       context: 'Jenkins Duranta CI'
+          githubNotifyWithRetry {
+            githubNotify account: params.gitAccount,
+                         repo: params.gitRepo,
+                         credentialsId: 'github-jenkins-duranta',
+                         sha: env.GITHUB_PR_HEAD_SHA,
+                         status: 'SUCCESS',
+                         description: 'Build success',
+                         targetUrl: BUILD_URL,
+                         context: 'Jenkins Duranta CI'
+          }
         }
         echo "Pipeline is SUCCESSFUL"
       }
@@ -935,14 +937,16 @@ pipeline {
           if (env.GITHUB_PR_LABELS) {
             githubPRComment comment: githubPRMessage(message)
           }
-          githubNotify account: params.gitAccount,
-                       repo: params.gitRepo,
-                       credentialsId: 'github-jenkins-duranta',
-                       sha: env.GITHUB_PR_HEAD_SHA,
-                       status: 'FAILURE',
-                       description: 'Build failed',
-                       targetUrl: BUILD_URL,
-                       context: 'Jenkins Duranta CI'
+          githubNotifyWithRetry {
+            githubNotify account: params.gitAccount,
+                         repo: params.gitRepo,
+                         credentialsId: 'github-jenkins-duranta',
+                         sha: env.GITHUB_PR_HEAD_SHA,
+                         status: 'FAILURE',
+                         description: 'Build failed',
+                         targetUrl: BUILD_URL,
+                         context: 'Jenkins Duranta CI'
+          }
         }
         echo "Pipeline FAILED"
       }
@@ -999,6 +1003,28 @@ def triggerCN5GDownstreamJob (jobName) {
   }
 }
 
+def githubNotifyWithRetry(Closure notifyCall) {
+  def maxWaitSeconds = 1800 // 30 minutes
+  def retryIntervalSeconds = 60 // 1 minute
+  def elapsed = 0
+  while (true) {
+    try {
+      notifyCall()
+      return
+    } catch (InterruptedException e) {
+      throw e
+    } catch (Exception e) {
+      if (elapsed >= maxWaitSeconds) {
+        echo "WARNING: githubNotify failed after 30 minutes of retrying. Last error: ${e.message}"
+        return
+      }
+      echo "githubNotify failed: ${e.message}. Retrying in ${retryIntervalSeconds}s (${elapsed}/${maxWaitSeconds}s elapsed)..."
+      sleep(retryIntervalSeconds)
+      elapsed += retryIntervalSeconds
+    }
+  }
+}
+
 def finalizeDownstreamJob(jobName) {
   lock ('Parent-Lock') {
     // In case of any non-success, we are retrieving the HTML report of the last completed
@@ -1026,13 +1052,15 @@ def finalizeDownstreamJob(jobName) {
       artifactUrl += 'artifact/' + fileName
     }
     if (env.GITHUB_PR_NUMBER) {
-      githubNotify account: params.gitAccount,
-                   repo: params.gitRepo,
-                   credentialsId: "github-jenkins-duranta",
-                   sha: env.GITHUB_PR_HEAD_SHA,
-                   status: downstreamResults.getOrDefault(jobName, 'FAILURE'),
-                   targetUrl: "${artifactUrl}",
-                   context: jobName
+      githubNotifyWithRetry {
+        githubNotify account: params.gitAccount,
+                     repo: params.gitRepo,
+                     credentialsId: "github-jenkins-duranta",
+                     sha: env.GITHUB_PR_HEAD_SHA,
+                     status: downstreamResults.getOrDefault(jobName, 'FAILURE'),
+                     targetUrl: "${artifactUrl}",
+                     context: jobName
+      }
     }
     artifactUrl = "\n * [${jobName}](${artifactUrl})"
     return artifactUrl
