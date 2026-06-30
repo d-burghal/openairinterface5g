@@ -10,6 +10,16 @@
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_prach_config.h"
 #include "openair1/PHY/defs_gNB.h"
 
+#define ORU_CODEBOOK_MAX_BEAMS 64
+#define ORU_CODEBOOK_MAX_NB_TX 8
+#define ORU_CODEBOOK_MAX_STREAMS 8
+
+typedef struct {
+  int nb_fh_streams;
+  int nb_beams;
+  c16_t w[ORU_CODEBOOK_MAX_BEAMS][ORU_CODEBOOK_MAX_NB_TX][ORU_CODEBOOK_MAX_STREAMS];
+} oru_codebook_t;
+
 typedef struct {
   RU_t *ru;
   /// tx carrier
@@ -48,6 +58,7 @@ typedef struct {
   time_stats_t rx_prach;
   time_stats_t rx;
   prach_item_t prach_item;
+  oru_codebook_t codebook;
 } ORU_t;
 
 int get_oru_options(ORU_t *oru);
