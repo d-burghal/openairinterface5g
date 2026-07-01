@@ -162,7 +162,7 @@ add_boolean_option(GFNI ${AUTODETECT_GFNI} "Whether GFNI intrinsics is available
 message(STATUS "CPU architecture is ${CMAKE_SYSTEM_PROCESSOR}")
 if (CROSS_COMPILE)
   message(STATUS "setting as aarch64")
-  set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -gdwarf-2 -lgcc -lrt")
+  set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -lgcc -lrt")
 elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
   # The following intrinsics are assumed to be available on any x86 system
   # (avx, f16c, fma, mmx, pclmul, sse, sse2, sse3, xop)
@@ -191,21 +191,21 @@ elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
     set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -DSIMDE_X86_SSSE3_NATIVE")
   endif()
 elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "armv7l")
-    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -gdwarf-2 -mfloat-abi=hard -mfpu=neon -lgcc -lrt")
+    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR}  -mfloat-abi=hard -mfpu=neon -lgcc -lrt")
 elseif (CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
 # Neoverse CPU part codes available at https://github.com/util-linux/util-linux/blob/master/sys-utils/lscpu-arm.c
   if (CPUPART MATCHES "0xd40") # Neoverse-V1
-    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -gdwarf-2 -mcpu=neoverse-v1 -lgcc -lrt")
+    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -mcpu=neoverse-v1 -lgcc -lrt")
   elseif (CPUPART MATCHES "0xd4f") # Neoverse-V2
-    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -gdwarf-2 -mcpu=neoverse-v2 -ftree-vectorize -lgcc -lrt")
+    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR}  -mcpu=neoverse-v2 -ftree-vectorize -lgcc -lrt")
   elseif (CPUPART MATCHES "0xd0c") # Neoverse-N1
-    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -gdwarf-2 -mcpu=neoverse-n1  -lgcc -lrt")
+    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR}  -mcpu=neoverse-n1  -lgcc -lrt")
   elseif (CPUPART MATCHES "0xd49") # Neoverse-N2
-    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -gdwarf-2 -mcpu=neoverse-n2 -ftree-vectorize -lgcc -lrt")
+    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR}  -mcpu=neoverse-n2 -ftree-vectorize -lgcc -lrt")
   elseif (CPUPART MATCHES "0xd03") # Cortex-A53
-    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -gdwarf-2 -mcpu=cortex-a53 -lgcc -lrt")
+    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -mcpu=cortex-a53 -lgcc -lrt")
   else ()
-    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -gdwarf-2 -mcpu=native -lgcc -lrt")
+    set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -mcpu=native -lgcc -lrt")
   endif()
 else()
   message(FATAL_ERROR "compile for CPU architecture ${CPUARCH}, CMAKE_SYSTEM_PROCESSOR ${CMAKE_SYSTEM_PROCESSOR}")
@@ -283,9 +283,9 @@ endif()
 
 # set a flag for changes in the source code
 # these changes are related to hardcoded path to include .h files
-set(debugOpt "-ggdb2 -DMALLOC_CHECK_=3 -fno-delete-null-pointer-checks")
+set(debugOpt "-ggdb2 -gdwarf-5 -DMALLOC_CHECK_=3 -fno-delete-null-pointer-checks")
 set(CMAKE_C_FLAGS_DEBUG "${debugOpt} -O0")
-set(CMAKE_C_FLAGS_RELWITHDEBINFO "${debugOpt} -O2")
+set(CMAKE_C_FLAGS_RELWITHDEBINFO "${debugOpt} -O3")
 set(CMAKE_C_FLAGS_RELEASE "-O3")
 
 # Enable assert() for RelWithDebInfo builds
@@ -1185,7 +1185,6 @@ set (MAC_SRC
   ${MAC_DIR}/eNB_scheduler_fairRR.c
   ${MAC_DIR}/eNB_scheduler_phytest.c
   ${MAC_DIR}/pre_processor.c
-  ${MAC_DIR}/slicing/slicing.c
   ${MAC_DIR}/config.c
   ${MAC_DIR}/config_ue.c
  )

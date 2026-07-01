@@ -1668,9 +1668,6 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/MAC/defs_NB_IoT.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/MAC/config_NB_IoT.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/MAC/eNB_scheduler.c \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/MAC/slicing/slicing.h \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/MAC/slicing/slicing_internal.h \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/MAC/slicing/slicing.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/MAC/l1_helpers.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_gNB/main.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_gNB/mac_rrc_ul.h \
