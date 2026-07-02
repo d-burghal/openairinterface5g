@@ -33,6 +33,8 @@ RUN git clone https://github.com/openairinterface/o-du-phy.git /opt/phy && \
 
 COPY . .
 
+COPY . .
+
 FROM ran-base AS ran-build-fhi72
 ARG E2AP_VERSION=E2AP_V3
 ARG KPM_VERSION=KPM_V3_00
