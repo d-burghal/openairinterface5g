@@ -625,22 +625,10 @@ static bool get_control_info(NR_UE_MAC_INST_t *mac,
                              uint16_t slot,
                              int16_t dest_id,
                              NR_SetupRelease_SL_PSFCH_Config_r16_t *configured_PSFCH) {
-  int period = 0, offset = 0;
-  // Determine current slot is csi-rs schedule slot
-  bool csi_acq = false;
   bool is_harq_feedback = configured_PSFCH ? is_feedback_scheduled(mac, frame, slot) : false;
-  // Determine current slot is csi report schedule slot
-  //nr_ue_sl_csi_period_offset();
-  LOG_D(NR_MAC, "frame.slot %4d.%2d period %d offset %d\n", frame, slot, period, offset);
-  bool csi_req_slot = false; //!((nr_slots_per_frame * frame + slot - offset) % period);
-  bool is_csi_report_sched_slot = ((sched_ctrl->sched_csi_report.frame == frame) &&
-                                  (sched_ctrl->sched_csi_report.slot == slot));
-  bool control_info = (is_harq_feedback || (csi_acq && csi_req_slot) || is_csi_report_sched_slot);
+  LOG_D(NR_MAC, "frame.slot %4d.%2d harq_feedback %d\n", frame, slot, is_harq_feedback);
 
-  LOG_D(NR_MAC, "frame.slot %4d.%2d harq_feedback %d, (csi_acq && csi_req_slot) %d, is_csi_report_sched_slot %d\n",
-        frame, slot, is_harq_feedback, (csi_acq && csi_req_slot), is_csi_report_sched_slot);
-
-  return control_info;
+  return is_harq_feedback;
 }
 
 void preprocess(NR_UE_MAC_INST_t *mac,
@@ -671,8 +659,6 @@ void preprocess(NR_UE_MAC_INST_t *mac,
               frame,
               slot);
         continue;
-      } else {
-         sched_ctrl->sched_csi_report.active = false;
       }
     } else {
       if (sched_ctrl->available_sl_harq.head < 0) {
@@ -992,40 +978,6 @@ bool nr_ue_sl_pssch_scheduler(NR_UE_MAC_INST_t *mac,
           }
         }
       }
-      uint8_t sizeof_csi_report = (sizeof(NR_MAC_SUBHEADER_FIXED) + sizeof(nr_sl_csi_report_t));
-      LOG_D(NR_MAC, "%4d.%2d buflen_remain %d ative %d, report slots: %4d.%2d size %d\n",
-            frame,
-            slot,
-            buflen_remain,
-            sched_ctrl->sched_csi_report.active,
-            sched_ctrl->sched_csi_report.frame,
-            sched_ctrl->sched_csi_report.slot,
-            sizeof_csi_report);
-
-      if (sched_ctrl->sched_csi_report.active &&
-          (sched_ctrl->sched_csi_report.frame == frame) &&
-          (sched_ctrl->sched_csi_report.slot == slot)) {
-
-        if (buflen_remain >= sizeof_csi_report) {
-          ((NR_MAC_SUBHEADER_FIXED *) pdu)->R = 0;
-          ((NR_MAC_SUBHEADER_FIXED *) pdu)->LCID = SL_SCH_LCID_SL_CSI_REPORT;
-          mac_ce_p->cur_ptr++;
-          buflen_remain -= sizeof(NR_MAC_SUBHEADER_FIXED);
-          ((nr_sl_csi_report_t *) mac_ce_p->cur_ptr)->RI = sched_ctrl->sched_csi_report.ri;
-          ((nr_sl_csi_report_t *) mac_ce_p->cur_ptr)->CQI = sched_ctrl->sched_csi_report.cqi;
-          ((nr_sl_csi_report_t *) mac_ce_p->cur_ptr)->R = 0;
-          if (!get_nrUE_params()->sync_ref)
-            LOG_D(NR_MAC, "%4d.%2d Sending sl_csi_report with CQI %i, RI %i\n",
-                 frame,
-                 slot,
-                 ((nr_sl_csi_report_t *) mac_ce_p->cur_ptr)->CQI,
-                 ((nr_sl_csi_report_t *) mac_ce_p->cur_ptr)->RI);
-          mac_ce_p->cur_ptr++;
-          buflen_remain -= sizeof(nr_sl_csi_report_t);
-        }
-        sched_ctrl->sched_csi_report.active = false;
-      }
-
       if (buflen_remain > 0) {
         LOG_D(NR_MAC, "In %s filling remainder %d bytes to the UL PDU \n", __FUNCTION__, buflen_remain);
         ((NR_MAC_SUBHEADER_FIXED *) mac_ce_p->cur_ptr)->R = 0;
