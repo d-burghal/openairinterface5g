@@ -185,7 +185,7 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
   float Coderate = (float) (pscch_pssch_pdu->target_coderate) / 10240.0f;
   bool is_BG2 = (A <= 292) || ((A <= 3824) && (Coderate <= 0.6667)) || (Coderate <= 0.25);
   uint8_t BG = is_BG2 ? 2 : 1;
-  if (!nr_ulsch_pre_encoding(UE, harq_process_ul_ue, pscch_pssch_pdu->tb_size, pscch_pssch_pdu->num_layers, BG))
+  if (nr_ulsch_pre_encoding(UE, harq_process_ul_ue, pscch_pssch_pdu->tb_size, pscch_pssch_pdu->num_layers, BG) == -1)
     return;
 
   if (nr_ulsch_encoding(UE, ulsch_ue, pscch_pssch_pdu,harq_pid, frame, slot , &G, 1, &ULSCH_ids) == -1)
