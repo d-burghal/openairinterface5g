@@ -56,6 +56,7 @@
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "PHY/CODING/nrPolar_tools/nr_polar_dci_defs.h"
 #include "PHY/CODING/nrPolar_tools/nr_polar_defs.h"
+#include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
 #include "openair2/COMMON/e1ap_messages_types.h"
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "openair2/NR_UE_PHY_INTERFACE/NR_IF_Module.h"
@@ -282,6 +283,14 @@ int main(int argc, char **argv)
   // large enough for the SLSCH transport block.
   nr_init_ul_harq_processes(UE_TX->sl_harq_processes, NR_MAX_HARQ_PROCESSES,
                             fp_sl->N_RB_SL, fp_sl->nb_antennas_tx);
+
+  // Load the LDPC coding interface (libldpc.so) used by SLSCH encode (TX) and
+  // decode (RX); without it nr_ulsch_encoding()/nr_slsch_decoding() segfault.
+  if (load_nrLDPC_coding_interface(NULL, &UE_TX->nrLDPC_coding_interface) != 0
+      || load_nrLDPC_coding_interface(NULL, &UE_RX->nrLDPC_coding_interface) != 0) {
+    printf("[SCISIM] Error loading LDPC coding interface\n");
+    exit(-1);
+  }
 
   // minimal if_inst so the production RX can deliver SCI/SLSCH indications
   memset(&g_if_inst, 0, sizeof(g_if_inst));
