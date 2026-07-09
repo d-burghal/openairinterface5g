@@ -466,7 +466,8 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
         dlschCfg->dlDmrsSymbPos,
         dlsch->cw_info.Nl);
 
-  pdsch_scratch_t *scratch = ue->pdsch_scratch;
+  const int actor_idx = proc->nr_slot_rx % ue->pdsch_num_actors;
+  pdsch_scratch_t *scratch = &ue->pdsch_scratch[actor_idx];
   const uint32_t pdsch_est_size = scratch->pdsch_est_size;
   const uint32_t rx_size_max = scratch->rx_size_max;
   int32_t (*pdsch_dl_ch_estimates)[pdsch_est_size] = (int32_t (*)[pdsch_est_size])scratch->pdsch_dl_ch_estimates;

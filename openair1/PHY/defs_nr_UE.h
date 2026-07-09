@@ -440,7 +440,7 @@ typedef struct PHY_VARS_NR_UE_s {
   Actor_t *ul_actors;
   pthread_t main_thread;
   pthread_t stat_thread;
-  // Pre-allocated PDSCH scratch buffers (avoids per-slot heap allocations)
+  // Per-DL-actor pre-allocated PDSCH scratch buffers (one set per actor to avoid races)
   struct pdsch_scratch_s {
     c16_t   *rxdataF_comp;          // [NR_SYMBOLS_PER_SLOT][NR_MAX_NB_LAYERS][rx_size_max]
     c16_t   *dl_ch_mag;             // [NR_SYMBOLS_PER_SLOT][NR_MAX_NB_LAYERS][rx_size_max]
@@ -451,6 +451,7 @@ typedef struct PHY_VARS_NR_UE_s {
     uint32_t rx_size_max;
     uint32_t pdsch_est_size;
   } *pdsch_scratch;
+  int pdsch_num_actors;
 } PHY_VARS_NR_UE;
 typedef struct pdsch_scratch_s pdsch_scratch_t;
 
