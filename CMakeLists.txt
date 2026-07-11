@@ -239,6 +239,13 @@ if (ENABLE_LDPC_CUDA)
   set(commonOpts "${commonOpts} -DLDPC_CUDA")
 endif()
 
+if (ENABLE_LDPC_HIP)
+  # HIP host code reuses the same LDPC_CUDA-guarded paths; PHY/gpu_compat.h maps
+  # the CUDA runtime calls onto HIP when GPU_USE_HIP is defined.
+  set(commonOpts "${commonOpts} -DLDPC_CUDA -DGPU_USE_HIP -D__HIP_PLATFORM_AMD__")
+  include_directories(/opt/rocm/include)
+endif()
+
 set(CMAKE_C_FLAGS
   "${C_FLAGS_PROCESSOR} ${commonOpts} -std=gnu11 -funroll-loops ${CMAKE_C_FLAGS}")
 set(CMAKE_CXX_FLAGS "${C_FLAGS_PROCESSOR} ${commonOpts} ${CMAKE_CXX_FLAGS}")
@@ -1047,6 +1054,13 @@ target_link_libraries(PHY_NR_NO_AVX_256 nr_phy_common nr_common)
 target_compile_definitions(PHY_NR_NO_AVX_256 PUBLIC USE_128BIT)
 
 target_link_libraries(PHY_NR_UE asn1_nr_rrc_hdrs nr_phy_common nr_common UTIL polar smallblock)
+
+if (ENABLE_LDPC_HIP)
+  # PHY_NR/PHY_NR_UE contain LDPC_CUDA-guarded host code that calls the HIP
+  # runtime (pinned memory); link it PUBLIC so all consuming executables inherit it
+  target_link_libraries(PHY_NR /opt/rocm/lib/libamdhip64.so)
+  target_link_libraries(PHY_NR_UE /opt/rocm/lib/libamdhip64.so)
+endif()
 
 add_library(PHY_RU ${PHY_SRC_RU})
 target_link_libraries(PHY_RU PRIVATE asn1_lte_rrc_hdrs UTIL)
@@ -1983,6 +1997,11 @@ if (ENABLE_LDPC_CUDA)
   find_package(CUDA REQUIRED)
   target_link_libraries(ldpctest PRIVATE ${CUDA_LIBRARIES})
   target_include_directories(ldpctest PRIVATE ${CUDA_INCLUDE_DIRS})
+endif()
+if (ENABLE_LDPC_HIP)
+  # ldpctest.c uses gpuHostAlloc() (HIP runtime), so link/include HIP
+  target_link_libraries(ldpctest PRIVATE /opt/rocm/lib/libamdhip64.so)
+  target_include_directories(ldpctest PRIVATE /opt/rocm/include)
 endif()
 
 add_library(physim_common OBJECT ${OPENAIR1_DIR}/SIMULATION/NR_PHY/nr_unitary_common.c)

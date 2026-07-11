@@ -29,7 +29,7 @@
  * \warning
  */
 
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
 #include <stdint.h>
 #include <stdio.h>
 #include "openair1/PHY/CODING/nrLDPC_decoder/nrLDPC_types.h"
@@ -65,7 +65,7 @@ KernelLaunchConfig Kdim_bn_R89_Node[8];
 
 // === CUDA Error Checking ===
 // Wrap any CUDA API call with CHECK(...) to automatically print error info with file and line number
-// Example usage: CHECK(cudaMalloc(&ptr, size));
+// Example usage: CHECK(gpuMalloc(&ptr, size));
 #define CHECK(call) ErrorCheck((call), __FILE__, __LINE__)
 /**
  * @brief Checks CUDA error status and prints detailed diagnostic info if an error occurred.
@@ -73,15 +73,15 @@ KernelLaunchConfig Kdim_bn_R89_Node[8];
  * @param error_code The CUDA error code returned from a CUDA runtime API call.
  * @param filename   The name of the source file where the error occurred.
  * @param lineNumber The line number in the source file where the error occurred.
- * @return cudaError_t Returns the same error code passed in, for optional further handling.
+ * @return gpuError_t Returns the same error code passed in, for optional further handling.
  */
-inline cudaError_t ErrorCheck(cudaError_t error_code, const char *filename, int lineNumber)
+inline gpuError_t ErrorCheck(gpuError_t error_code, const char *filename, int lineNumber)
 {
-  if (error_code != cudaSuccess) {
+  if (error_code != gpuSuccess) {
     printf("[CUDA ERROR] %s (%d): %s\nOccurred in file: %s at line %d\n",
-           cudaGetErrorName(error_code),
+           gpuGetErrorName(error_code),
            error_code,
-           cudaGetErrorString(error_code),
+           gpuGetErrorString(error_code),
            filename,
            lineNumber);
   }
@@ -174,7 +174,7 @@ void nrLDPC_cnProc_BG1_R13_cuda_stream_core(int8_t *cnProcBuf,
                                             uint32_t n_segments,
                                             uint32_t Z,
                                             uint32_t ZcIdx,
-                                            cudaStream_t *streams,
+                                            gpuStream_t *streams,
                                             int8_t CudaStreamIdx)
 {
   if (n_segments > NodeEdge_Switch_Cn_R13) {
@@ -189,7 +189,7 @@ void nrLDPC_cnProc_BG1_R13_cuda_stream_core(int8_t *cnProcBuf,
                                      streams[CudaStreamIdx]>>>(cnProcBuf, bnProcBuf, Z, ZcIdx);
   }
 
-  CHECK(cudaGetLastError());
+  CHECK(gpuGetLastError());
 }
 
 __global__ void bnProcKernel_BG1_R13_int8_Edge(const int8_t *__restrict__ d_bnProcBuf,
@@ -285,7 +285,7 @@ void nrLDPC_bnProc_BG1_R13_cuda_stream_core(int8_t *bnProcBuf,
                                             uint32_t n_segments,
                                             uint32_t Z,
                                             uint32_t ZcIdx,
-                                            cudaStream_t *streams,
+                                            gpuStream_t *streams,
                                             int8_t CudaStreamIdx)
 {
   if (n_segments > NodeEdge_Switch_Bn_R13) {
@@ -299,7 +299,7 @@ void nrLDPC_bnProc_BG1_R13_cuda_stream_core(int8_t *bnProcBuf,
                                      0,
                                      streams[CudaStreamIdx]>>>(bnProcBuf, cnProcBuf, llrProcBuf, llrRes, Z, ZcIdx);
   }
-  CHECK(cudaGetLastError());
+  CHECK(gpuGetLastError());
 }
 
 __global__ void bnProcKernel_BG1_R13_int8_Edge_last(const int8_t *__restrict__ d_bnProcBuf,
@@ -395,7 +395,7 @@ void nrLDPC_bnProc_BG1_R13_cuda_stream_core_last(int8_t *bnProcBuf,
                                                  uint32_t n_segments,
                                                  uint32_t Z,
                                                  uint32_t ZcIdx,
-                                                 cudaStream_t *streams,
+                                                 gpuStream_t *streams,
                                                  int8_t CudaStreamIdx)
 {
   if (n_segments > NodeEdge_Switch_Bn_R13) {
@@ -409,7 +409,7 @@ void nrLDPC_bnProc_BG1_R13_cuda_stream_core_last(int8_t *bnProcBuf,
                                           0,
                                           streams[CudaStreamIdx]>>>(bnProcBuf, cnProcBuf, llrProcBuf, llrRes, Z, ZcIdx);
   }
-  CHECK(cudaGetLastError());
+  CHECK(gpuGetLastError());
 }
 
 //-----------------------------------------↑↑↑ R13 ↑↑↑----------------------------------------
@@ -501,7 +501,7 @@ void nrLDPC_cnProc_BG1_R23_cuda_stream_core(int8_t *cnProcBuf,
                                             uint32_t n_segments,
                                             uint32_t Z,
                                             uint32_t ZcIdx,
-                                            cudaStream_t *streams,
+                                            gpuStream_t *streams,
                                             int8_t CudaStreamIdx)
 {
   if (n_segments > NodeEdge_Switch_Cn_R23) {
@@ -515,7 +515,7 @@ void nrLDPC_cnProc_BG1_R23_cuda_stream_core(int8_t *cnProcBuf,
                                      0,
                                      streams[CudaStreamIdx]>>>(cnProcBuf, bnProcBuf, Z, ZcIdx);
   }
-  CHECK(cudaGetLastError());
+  CHECK(gpuGetLastError());
 }
 
 __global__ void bnProcKernel_BG1_R23_int8_Edge(const int8_t *__restrict__ d_bnProcBuf,
@@ -611,7 +611,7 @@ void nrLDPC_bnProc_BG1_R23_cuda_stream_core(int8_t *bnProcBuf,
                                             uint32_t n_segments,
                                             uint32_t Z,
                                             uint32_t ZcIdx,
-                                            cudaStream_t *streams,
+                                            gpuStream_t *streams,
                                             int8_t CudaStreamIdx)
 {
   if (n_segments > NodeEdge_Switch_Bn_R23) {
@@ -625,7 +625,7 @@ void nrLDPC_bnProc_BG1_R23_cuda_stream_core(int8_t *bnProcBuf,
                                      0,
                                      streams[CudaStreamIdx]>>>(bnProcBuf, cnProcBuf, llrProcBuf, llrRes, Z, ZcIdx);
   }
-  CHECK(cudaGetLastError());
+  CHECK(gpuGetLastError());
 }
 
 __global__ void bnProcKernel_BG1_R23_int8_Edge_last(const int8_t *__restrict__ d_bnProcBuf,
@@ -721,7 +721,7 @@ void nrLDPC_bnProc_BG1_R23_cuda_stream_core_last(int8_t *bnProcBuf,
                                                  uint32_t n_segments,
                                                  uint32_t Z,
                                                  uint32_t ZcIdx,
-                                                 cudaStream_t *streams,
+                                                 gpuStream_t *streams,
                                                  int8_t CudaStreamIdx)
 {
   if (n_segments > NodeEdge_Switch_Bn_R23) {
@@ -735,7 +735,7 @@ void nrLDPC_bnProc_BG1_R23_cuda_stream_core_last(int8_t *bnProcBuf,
                                           0,
                                           streams[CudaStreamIdx]>>>(bnProcBuf, cnProcBuf, llrProcBuf, llrRes, Z, ZcIdx);
   }
-  CHECK(cudaGetLastError());
+  CHECK(gpuGetLastError());
 }
 //-----------------------------------------↑↑↑ R23 ↑↑↑----------------------------------------
 //-----------------------------------------↓↓↓ R89 ↓↓↓----------------------------------------
@@ -825,7 +825,7 @@ void nrLDPC_cnProc_BG1_R89_cuda_stream_core(int8_t *cnProcBuf,
                                             uint32_t n_segments,
                                             uint32_t Z,
                                             uint32_t ZcIdx,
-                                            cudaStream_t *streams,
+                                            gpuStream_t *streams,
                                             int8_t CudaStreamIdx)
 {
   if (n_segments > NodeEdge_Switch_Cn_R89) {
@@ -839,7 +839,7 @@ void nrLDPC_cnProc_BG1_R89_cuda_stream_core(int8_t *cnProcBuf,
                                      0,
                                      streams[CudaStreamIdx]>>>(cnProcBuf, bnProcBuf, Z, ZcIdx);
   }
-  CHECK(cudaGetLastError());
+  CHECK(gpuGetLastError());
 }
 
 __global__ void bnProcKernel_BG1_R89_int8_Edge(const int8_t *__restrict__ d_bnProcBuf,
@@ -935,7 +935,7 @@ void nrLDPC_bnProc_BG1_R89_cuda_stream_core(int8_t *bnProcBuf,
                                             uint32_t n_segments,
                                             uint32_t Z,
                                             uint32_t ZcIdx,
-                                            cudaStream_t *streams,
+                                            gpuStream_t *streams,
                                             int8_t CudaStreamIdx)
 {
   if (n_segments > NodeEdge_Switch_Bn_R89) {
@@ -949,7 +949,7 @@ void nrLDPC_bnProc_BG1_R89_cuda_stream_core(int8_t *bnProcBuf,
                                      0,
                                      streams[CudaStreamIdx]>>>(bnProcBuf, cnProcBuf, llrProcBuf, llrRes, Z, ZcIdx);
   }
-  CHECK(cudaGetLastError());
+  CHECK(gpuGetLastError());
 }
 
 __global__ void bnProcKernel_BG1_R89_int8_Edge_last(const int8_t *__restrict__ d_bnProcBuf,
@@ -1045,7 +1045,7 @@ void nrLDPC_bnProc_BG1_R89_cuda_stream_core_last(int8_t *bnProcBuf,
                                                  uint32_t n_segments,
                                                  uint32_t Z,
                                                  uint32_t ZcIdx,
-                                                 cudaStream_t *streams,
+                                                 gpuStream_t *streams,
                                                  int8_t CudaStreamIdx)
 {
   if (n_segments > NodeEdge_Switch_Bn_R89) {
@@ -1059,7 +1059,7 @@ void nrLDPC_bnProc_BG1_R89_cuda_stream_core_last(int8_t *bnProcBuf,
                                           0,
                                           streams[CudaStreamIdx]>>>(bnProcBuf, cnProcBuf, llrProcBuf, llrRes, Z, ZcIdx);
   }
-  CHECK(cudaGetLastError());
+  CHECK(gpuGetLastError());
 }
 //-----------------------------------------↑↑↑ R89 ↑↑↑----------------------------------------
 //-------------------------------------↓↓↓ general R ↓↓↓----------------------------------------
@@ -1100,7 +1100,7 @@ void nrLDPC_llrPreProc_BG1_cuda_stream_core(ldpc_cuda_bridge_t *buffer,
                                             uint32_t Z,
                                             uint32_t ZcIdx,
                                             uint32_t R,
-                                            cudaStream_t *streams,
+                                            gpuStream_t *streams,
                                             int8_t CudaStreamIdx)
 {
   llrPreProc_Kernel_BG1_int8_BIG_stream<<<Kdim_R13_Edge[CudaStreamIdx].grid,
@@ -1108,7 +1108,7 @@ void nrLDPC_llrPreProc_BG1_cuda_stream_core(ldpc_cuda_bridge_t *buffer,
                                           0,
                                           streams[CudaStreamIdx]>>>(buffer, numLLR, llrProcBuf, cnProcBuf, Z, ZcIdx, R);
 
-  CHECK(cudaGetLastError());
+  CHECK(gpuGetLastError());
 }
 
 __global__ void llrOutPut_Kernel_BG1_int8_BIG_stream(uint32_t R,
@@ -1140,7 +1140,7 @@ void nrLDPC_OutPut_BG1_cuda_stream_core(int8_t *llrRes,
                                         ldpc_cuda_bridge_t *buffer,
                                         uint32_t numLLR,
                                         uint32_t K,
-                                        cudaStream_t *streams,
+                                        gpuStream_t *streams,
                                         int8_t CudaStreamIdx)
 {
   llrOutPut_Kernel_BG1_int8_BIG_stream<<<Kdim_llr[CudaStreamIdx].grid, Kdim_llr[CudaStreamIdx].block, 0, streams[CudaStreamIdx]>>>(
@@ -1152,7 +1152,7 @@ void nrLDPC_OutPut_BG1_cuda_stream_core(int8_t *llrRes,
       numLLR,
       K);
 
-  CHECK(cudaGetLastError());
+  CHECK(gpuGetLastError());
 }
 //---------------------------------↑↑↑ general R ↑↑↑----------------------------------------
 static inline uint32_t get_lut_col_index_host(uint32_t Zc)
@@ -1228,7 +1228,7 @@ do { \
 
   extern "C" {
 
-  cudaError_t nrLDPC_decoder_cuda_GraphRecord(ldpc_cuda_bridge_t *buffer,
+  gpuError_t nrLDPC_decoder_cuda_GraphRecord(ldpc_cuda_bridge_t *buffer,
                                               uint32_t numLLR,
                                               int8_t *cnProcBuf,
                                               int8_t *bnProcBuf,
@@ -1241,15 +1241,15 @@ do { \
                                               uint8_t numMaxIter,
                                               uint8_t n_segments,
                                               e_nrLDPC_outMode outMode,
-                                              cudaStream_t *streams,
+                                              gpuStream_t *streams,
                                               uint8_t CudaStreamIdx,
-                                              cudaGraph_t *graphPtr,
-                                              cudaGraphExec_t *graphExecPtr,
+                                              gpuGraph_t *graphPtr,
+                                              gpuGraphExec_t *graphExecPtr,
                                               uint8_t *isCreatedFlag)
   {
-    cudaStream_t stream = streams[CudaStreamIdx];
+    gpuStream_t stream = streams[CudaStreamIdx];
     *isCreatedFlag = 0;
-    cudaError_t err = cudaSuccess;
+    gpuError_t err = gpuSuccess;
 
     Kdim_R13_Edge[CudaStreamIdx].block = dim3(Z >> 2, 4, 1);
     Kdim_R13_Edge[CudaStreamIdx].grid = dim3((num_TotalBlocks_BG1_R13_Edge + 3) >> 2, n_segments, 1);
@@ -1275,42 +1275,42 @@ do { \
     Kdim_bn_R89_Node[CudaStreamIdx].grid =
         dim3((num_TotalBlocks_bn_BG1_R89_Node + 3) >> 2, n_segments, 1); // 27 is not devidable with 2^n
 
-    err = cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal);
-    if (err != cudaSuccess) {
+    err = gpuStreamBeginCapture(stream, gpuStreamCaptureModeThreadLocal);
+    if (err != gpuSuccess) {
       return err;
     }
 
     ENQUEUE_LDPC_DECODER_SEQUENCE(streams, CudaStreamIdx);
 
-    err = cudaStreamEndCapture(stream, graphPtr);
-    if (err != cudaSuccess) {
-      cudaStreamSynchronize(stream);
+    err = gpuStreamEndCapture(stream, graphPtr);
+    if (err != gpuSuccess) {
+      gpuStreamSynchronize(stream);
       return err;
     }
 
-    err = cudaGraphInstantiate(graphExecPtr, *graphPtr, NULL, NULL, 0);
-    if (err != cudaSuccess) {
-      cudaGraphDestroy(*graphPtr);
+    err = gpuGraphInstantiate(graphExecPtr, *graphPtr, NULL, NULL, 0);
+    if (err != gpuSuccess) {
+      gpuGraphDestroy(*graphPtr);
       return err;
     }
 
     *isCreatedFlag = 1;
-    return cudaSuccess;
+    return gpuSuccess;
   }
 
-  cudaError_t nrLDPC_decoder_cuda_GraphExecute(cudaGraphExec_t graphExec,
-                                               cudaStream_t stream,
-                                               cudaEvent_t *doneEvent,
+  gpuError_t nrLDPC_decoder_cuda_GraphExecute(gpuGraphExec_t graphExec,
+                                               gpuStream_t stream,
+                                               gpuEvent_t *doneEvent,
                                                uint8_t CudaStreamIdx)
   {
-    cudaError_t err = cudaGraphLaunch(graphExec, stream);
-    //cudaStreamSynchronize(stream);
-    if (err != cudaSuccess) {
+    gpuError_t err = gpuGraphLaunch(graphExec, stream);
+    //gpuStreamSynchronize(stream);
+    if (err != gpuSuccess) {
       return err;
     }
 
     if (doneEvent) {
-      err = cudaEventRecord(doneEvent[CudaStreamIdx], stream);
+      err = gpuEventRecord(doneEvent[CudaStreamIdx], stream);
     }
 
     return err;
@@ -1329,11 +1329,11 @@ do { \
                                          uint8_t numMaxIter,
                                          uint8_t n_segments,
                                          e_nrLDPC_outMode outMode,
-                                         cudaStream_t *streams,
+                                         gpuStream_t *streams,
                                          uint8_t CudaStreamIdx,
-                                         cudaEvent_t *doneEvent)
+                                         gpuEvent_t *doneEvent)
   {
-    cudaStream_t stream = streams[CudaStreamIdx];
+    gpuStream_t stream = streams[CudaStreamIdx];
 
     Kdim_R13_Edge[CudaStreamIdx].block = dim3(Z >> 2, 4, 1);
     Kdim_R13_Edge[CudaStreamIdx].grid = dim3((num_TotalBlocks_BG1_R13_Edge + 3) >> 2, n_segments, 1);
@@ -1362,7 +1362,7 @@ do { \
     ENQUEUE_LDPC_DECODER_SEQUENCE(streams, CudaStreamIdx);
 
     if (doneEvent) {
-      cudaEventRecord(doneEvent[CudaStreamIdx], stream);
+      gpuEventRecord(doneEvent[CudaStreamIdx], stream);
     }
   }
 

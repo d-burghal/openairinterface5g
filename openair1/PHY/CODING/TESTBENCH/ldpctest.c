@@ -17,7 +17,7 @@
 #include "coding_unitary_defs.h"
 #include "common/utils/LOG/log.h"
 #ifdef LDPC_CUDA
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
 #endif
 
 #define MAX_BLOCK_LENGTH 8448
@@ -258,12 +258,12 @@ one_measurement_t test_ldpc(short max_iterations,
 
   // generate input block
 #ifdef LDPC_CUDA
-  cudaHostAlloc((void **)&test_input_p, n_segments * sizeof(uint8_t *), cudaHostAllocMapped);
+  gpuHostAlloc((void **)&test_input_p, n_segments * sizeof(uint8_t *), gpuHostAllocMapped);
   test_input = (uint8_t **)test_input_p;
 #endif
   for (int j = 0; j < n_segments; j++) {
 #ifdef LDPC_CUDA
-    cudaHostAlloc((void **)&test_input[j], ((K + 7) & ~7) / 8, cudaHostAllocMapped);
+    gpuHostAlloc((void **)&test_input[j], ((K + 7) & ~7) / 8, gpuHostAllocMapped);
 #else
     test_input[j] = malloc16(((K + 7) & ~7) / 8);
     memset(test_input[j], 0, ((K + 7) & ~7) / 8);
@@ -423,14 +423,14 @@ one_measurement_t test_ldpc(short max_iterations,
 
   for (int j = 0; j < n_segments; j++) {
 #ifdef LDPC_CUDA
-    cudaFreeHost(test_input[j]);
+    gpuFreeHost(test_input[j]);
 #else
     free(test_input[j]);
 #endif
     free(channel_input[j]);
   }
 #ifdef LDPC_CUDA
-  cudaFreeHost(test_input);
+  gpuFreeHost(test_input);
 #endif
   free(channel_input_optim);
 
@@ -589,18 +589,18 @@ int main(int argc, char *argv[])
   // find minimum value in all sets of lifting size
   Zc = 0;
 #ifdef LDPC_CUDA
-  cudaError_t err = cudaHostAlloc((void **)&estimated_output, sizeof(uint8_t) * n_segments * Kprime, cudaHostAllocMapped);
-  if (err != cudaSuccess) {
-    printf("[DEBUG] CUDA Error String: %s\n", cudaGetErrorString(err));
+  gpuError_t err = gpuHostAlloc((void **)&estimated_output, sizeof(uint8_t) * n_segments * Kprime, gpuHostAllocMapped);
+  if (err != gpuSuccess) {
+    printf("[DEBUG] CUDA Error String: %s\n", gpuGetErrorString(err));
   }
-  AssertFatal(err == cudaSuccess, "estimated_output n_segments %d Kprime %d\n", n_segments, Kprime);
-  err = cudaHostAlloc((void **)&channel_output_fixed, sizeof(int8_t) * n_segments * 68 * 384, cudaHostAllocMapped);
-  AssertFatal(err == cudaSuccess, "channel_output_fixed n_segments %d\n", n_segments);
+  AssertFatal(err == gpuSuccess, "estimated_output n_segments %d Kprime %d\n", n_segments, Kprime);
+  err = gpuHostAlloc((void **)&channel_output_fixed, sizeof(int8_t) * n_segments * 68 * 384, gpuHostAllocMapped);
+  AssertFatal(err == gpuSuccess, "channel_output_fixed n_segments %d\n", n_segments);
   if (use32bit == 1) {
-    err = cudaHostGetDevicePointer((void **)&estimated_output_dev, estimated_output, 0);
-    AssertFatal(err == cudaSuccess, "estimated_output_dev\n");
-    err = cudaHostGetDevicePointer((void **)&channel_output_fixed_dev, channel_output_fixed, 0);
-    AssertFatal(err == cudaSuccess, "channel_output_fixed_dev\n");
+    err = gpuHostGetDevicePointer((void **)&estimated_output_dev, estimated_output, 0);
+    AssertFatal(err == gpuSuccess, "estimated_output_dev\n");
+    err = gpuHostGetDevicePointer((void **)&channel_output_fixed_dev, channel_output_fixed, 0);
+    AssertFatal(err == gpuSuccess, "channel_output_fixed_dev\n");
     printf("estimated_output_dev %p, channel_output_fixed_dev %p\n", estimated_output_dev, channel_output_fixed_dev);
   }
 #else

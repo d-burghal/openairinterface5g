@@ -45,6 +45,35 @@ To examine runtime details, hardware utilization, and kernel execution efficienc
 
 
 
+## AMD GPU Support (HIP / ROCm)
+
+The same decoder sources can be compiled for **AMD GPUs** with the ROCm/HIP toolchain (`hipcc`) instead of NVIDIA's `nvcc`. This is achieved with a thin, compile-time compatibility layer — no separate code path is maintained:
+
+* `openair1/PHY/gpu_compat.h` — maps the CUDA runtime API onto HIP (`cudaMalloc` → `gpuMalloc` → `hipMalloc`, streams, events, graphs, error handling, kernel launch, …).
+* `openair1/PHY/gpu_simd_intrin_compat.h` — provides the DP4A-style SIMD intrinsics (`__vminu4`, `__vabs4`, `__vcmpeq4`, …) as portable `gpu_v*` helpers with CUDA, HIP-device, and host fallbacks.
+
+The backend is selected at compile time by `GPU_USE_CUDA` / `GPU_USE_HIP`. The build produces the **same plugin** `libldpc_cuda.so` with the **same `_cuda` shlibversion**, so every `ldpctest`, `nr_dlsim` and `nr_ulsim` command below is **identical** regardless of whether the plugin was built with CUDA or HIP.
+
+> **Note:** `ENABLE_LDPC_CUDA` and `ENABLE_LDPC_HIP` are mutually exclusive — configure with exactly one.
+
+### Tested AMD System Configuration
+
+The HIP backend has been successfully compiled and verified on:
+
+* **GPU:** AMD Radeon 8060S (Ryzen AI MAX+ 395, `gfx1151`)
+* **ROCm:** 7.2.4 (`hipcc` / AMD clang 22)
+* **CMake:** 3.28.3
+* **GCC (host C/C++ compiler):** 12.3.0
+
+Other AMD targets can be added via the GPU architecture list in `openair1/PHY/CODING/nrLDPC_coding/nrLDPC_coding_cuda/CMakeLists.txt` (`HIP_ARCHITECTURES`, e.g. `gfx90a` for MI210, `gfx1151` for Ryzen AI MAX+).
+
+### Monitoring & Profiling (ROCm)
+
+The AMD equivalents of the NVIDIA tools above are:
+
+* **`rocm-smi`**: real-time monitoring of VRAM usage, GPU utilization and power (equivalent to `nvidia-smi`).
+* **`rocprofv3` / `rocprof`**: system-wide and kernel-level profiling, including HIP Graph execution timelines (equivalent to `nsys` / `ncu`).
+
 ## Unit Test
 
 ### Build
@@ -58,6 +87,23 @@ Use the `build_oai` script to compile with CUDA support. If you have previously 
 cd ran_build/build/
 ```
 
+#### Building for AMD GPUs (HIP / ROCm)
+
+To build the same `ldpc_cuda` plugin with `hipcc` instead of `nvcc`, use the `--use-hip` flag. Do **not** combine it with `--build-lib ldpc_cuda` (that would request the CUDA backend and the two are mutually exclusive):
+
+```bash
+./build_oai --ninja --phy_simulators --use-hip
+```
+
+Equivalently, invoke CMake directly:
+
+```bash
+cmake <src_dir> -GNinja -DENABLE_PHYSIM_TESTS=ON -DENABLE_LDPC_HIP=ON -DCMAKE_PREFIX_PATH=/opt/rocm
+ninja ldpc_cuda ldpctest nr_dlsim nr_ulsim
+```
+
+The resulting `libldpc_cuda.so` links against `libamdhip64.so`; verify with `ldd libldpc_cuda.so`. From here on, all test commands are the same as for the CUDA build (the plugin keeps the `_cuda` shlibversion).
+
 ### ldpctest
 
 `ldpctest` is the foundational tool for evaluating the performance and correctness of the LDPC encoder/decoder.
@@ -69,7 +115,7 @@ cd ran_build/build/
 * `-S`: Number of segments (determines the workload size).
 * `-s`: Starting SNR in dBm.
 * `-i`: Maximum number of iterations. *(Note: Due to internal index offset implementation, the parameter `-i4` executes 5 decoding iterations.)*
-* `-G`: **Enable GPU decoder**. (Omitting this parameter defaults to the CPU baseline).
+* `-v _cuda`: **Select the GPU LDPC library** — loads `libldpc_cuda.so` (built with CUDA or HIP). Omitting `-v` defaults to the CPU baseline. *(This branch has no `-G` flag; the backend is chosen entirely by the shared-library version.)*
 
 #### Latency & Baseline Test
 
@@ -78,17 +124,17 @@ To compare the single-segment processing capability between CPU and GPU, set the
 **BG1 Rate 1/3:**
 
 * CPU: `./ldpctest -r1 -n300 -S1 -s4 -i4`
-* GPU: `./ldpctest -r1 -n300 -S1 -s4 -i4 -G`
+* GPU: `./ldpctest -r1 -n300 -S1 -s4 -i4 -v _cuda`
 
 **BG1 Rate 2/3:**
 
 * CPU: `./ldpctest -r2 -n300 -S1 -s4 -i4`
-* GPU: `./ldpctest -r2 -n300 -S1 -s4 -i4 -G`
+* GPU: `./ldpctest -r2 -n300 -S1 -s4 -i4 -v _cuda`
 
 **BG1 Rate 8/9:**
 
 * CPU: `./ldpctest -r22 -d25 -n300 -S1 -s4 -i4`
-* GPU: `./ldpctest -r22 -d25 -n300 -S1 -s4 -i4 -G`
+* GPU: `./ldpctest -r22 -d25 -n300 -S1 -s4 -i4 -v _cuda`
 
 #### Maximum Throughput Test
 
@@ -98,25 +144,24 @@ Run the following commands to benchmark the maximum GPU throughput:
 
 ```bash
 # BG1 R13 Max Throughput
-./ldpctest -r1 -n30 -S128 -s4 -i4 -G
+./ldpctest -r1 -n30 -S128 -s4 -i4 -v _cuda
 ```
 ```bash
 # BG1 R23 Max Throughput
-./ldpctest -r2 -n30 -S128 -s4 -i4 -G
+./ldpctest -r2 -n30 -S128 -s4 -i4 -v _cuda
 ```
 ```bash
 # BG1 R89 Max Throughput
-./ldpctest -r22 -d25 -n30 -S128 -s4 -i4 -G
+./ldpctest -r22 -d25 -n30 -S128 -s4 -i4 -v _cuda
 ```
 
 ### Downlink Simulator (dlsim)
 
-`nr_dlsim` is used to simulate the physical downlink shared channel (PDSCH). To offload LDPC decoding to the GPU, you must specify the CUDA shared library and enable the GPU flag.
+`nr_dlsim` is used to simulate the physical downlink shared channel (PDSCH). To offload LDPC decoding to the GPU, you only need to select the GPU shared library via `--loader.ldpc.shlibversion _cuda`.
 
-#### Mandatory Flags for GPU Acceleration
+#### Mandatory Flag for GPU Acceleration
 
-* `--loader.ldpc.shlibversion _cuda`: Directs the dynamic loader to use the CUDA-accelerated LDPC library.
-* `-Q` : Enables the GPU decoding path within the simulator logic.
+* `--loader.ldpc.shlibversion _cuda`: Directs the dynamic loader to use the GPU-accelerated LDPC library (`libldpc_cuda.so`, CUDA or HIP build). This is the **only** flag required to offload LDPC decoding to the GPU. *(Note: `-Q` is **not** a GPU switch on this branch — in `nr_dlsim` it sets the Tx amplitude.)*
 
 #### Workload & Segment Calculation
 
@@ -130,21 +175,21 @@ Understanding the resulting segment count is crucial for evaluating GPU performa
 Using MCS 13 with 273 PRBs and a single layer generates a workload of approximately 9 segments per slot.
 
 ```bash
-./nr_dlsim -n100 -s20 -e13 -R273 -b273 -x1 -y1 -z1 -P -Q --loader.ldpc.shlibversion _cuda
+./nr_dlsim -n100 -s20 -e13 -R273 -b273 -x1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda
 ```
 
 **2. Target: ~ 18 Segments (Rate 2/3)**
 Increasing the MCS to 22 while keeping 273 PRBs and 1 layer doubles the throughput requirement, resulting in about 18 segments.
 
 ```bash
-./nr_dlsim -n100 -s20 -e22 -R273 -b273 -x1 -y1 -z1 -P -Q --loader.ldpc.shlibversion _cuda
+./nr_dlsim -n100 -s20 -e22 -R273 -b273 -x1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda
 ```
 
 **3. Target: ~ 50 Segments (Rate 8/9, High Workload)**
 Using MCS 27 combined with 2x2 MIMO (`-x2 -y2 -z2`) forces a massive Transport Block Size, pushing the workload to approximately 50 segments. This scenario highly benefits from the Node-Based GPU architecture.
 
 ```bash
-./nr_dlsim -n100 -s40 -e27 -R273 -b273 -z2 -x2 -y2 -P -Q --loader.ldpc.shlibversion _cuda
+./nr_dlsim -n100 -s40 -e27 -R273 -b273 -z2 -x2 -y2 -P --loader.ldpc.shlibversion _cuda
 ```
 
 *(Note: The `-P` flag enables performance printing, allowing you to observe the decoding time per slot)*
@@ -169,20 +214,20 @@ To properly observe the GPU performance, we use the `-P` flag to print the execu
 Using MCS 13 with 273 PRBs and a single layer.
 
 ```bash
-./nr_ulsim -n100 -s20 -m13 -R273 -r273 -W1 -y1 -z1 -P -Q --loader.ldpc.shlibversion _cuda
+./nr_ulsim -n100 -s20 -m13 -R273 -r273 -W1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda
 ```
 
 **2. Target: ~ 18 Segments (Rate 2/3)**
 Increasing to MCS 22, maintaining 273 PRBs and a single layer.
 
 ```bash
-./nr_ulsim -n100 -s20 -m22 -R273 -r273 -W1 -y1 -z1 -P -Q --loader.ldpc.shlibversion _cuda
+./nr_ulsim -n100 -s20 -m22 -R273 -r273 -W1 -y1 -z1 -P --loader.ldpc.shlibversion _cuda
 ```
 
 **3. Target: ~ 50 Segments (Rate 8/9, Massive Workload)**
 Using MCS 27 with 273 PRBs and 2x2 MIMO (`-W2 -y2 -z2`).
 ```bash
-./nr_ulsim -n100 -s40 -m27 -R273 -r273 -W2 -y2 -z2 -P -Q --loader.ldpc.shlibversion _cuda
+./nr_ulsim -n100 -s40 -m27 -R273 -r273 -W2 -y2 -z2 -P --loader.ldpc.shlibversion _cuda
 ```
 
 ## E2E Test

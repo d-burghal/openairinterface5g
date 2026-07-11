@@ -98,6 +98,8 @@ Options:
    Build eclipse project files.
 --build-lib <libraries>
    Build optional shared library, <libraries> can be one or several of $OPTIONAL_LIBRARIES or \"all\"
+--use-hip
+   Build the ldpc_cuda GPU offload plugin with hipcc for AMD ROCm (instead of nvcc)
 --noavx512
    Disable AVX512 intrinsics whatever processor capability is
 --noavx2
@@ -336,6 +338,13 @@ function main() {
               done
             fi
             shift 2;;
+        --use-hip)
+            # Build the ldpc_cuda GPU offload plugin with hipcc for AMD ROCm
+            # instead of nvcc. Reuses the ldpc_cuda target/shlibversion (_cuda).
+            CMAKE_CMD="$CMAKE_CMD -DENABLE_LDPC_HIP=ON -DCMAKE_PREFIX_PATH=/opt/rocm"
+            TARGET_LIST="$TARGET_LIST ldpc_cuda"
+            echo_info "Enabling HIP (AMD ROCm) build of the ldpc_cuda offload plugin"
+            shift;;
         --noavx512)
             CMAKE_CMD="$CMAKE_CMD -DAVX512=OFF"
             echo_info "Disabling AVX512 instructions"

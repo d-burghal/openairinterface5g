@@ -11,7 +11,8 @@
  * \note
  * \warning
  */
-#include <cuda_runtime.h>
+#include "PHY/gpu_compat.h"
+#include "PHY/gpu_simd_intrin_compat.h"
 #include <stdint.h>
 #include <stdio.h>
 #include "openair1/PHY/CODING/nrLDPC_decoder/nrLDPCdecoder_defs.h"
@@ -21,19 +22,19 @@ __device__ __forceinline__ void unpack_and_sign_extend(uint32_t packed, uint32_t
   uint32_t magic_sub = 0x00800080;
 
   uint32_t lo_zext = __byte_perm(packed, 0, 0x5140);
-  *val_lo = __vsub2(lo_zext ^ magic_sub, magic_sub);
+  *val_lo = gpu_vsub2(lo_zext ^ magic_sub, magic_sub);
 
   uint32_t hi_zext = __byte_perm(packed, 0, 0x7362);
-  *val_hi = __vsub2(hi_zext ^ magic_sub, magic_sub);
+  *val_hi = gpu_vsub2(hi_zext ^ magic_sub, magic_sub);
 }
 
 __device__ __forceinline__ uint32_t saturate_and_pack(uint32_t val_lo, uint32_t val_hi)
 {
-  uint32_t lo_clamped = __vmins2(val_lo, 0x007F007F); // min(v, 127)
-  lo_clamped = __vmaxs2(lo_clamped, 0xFF80FF80); // max(v, -128)
+  uint32_t lo_clamped = gpu_vmins2(val_lo, 0x007F007F); // min(v, 127)
+  lo_clamped = gpu_vmaxs2(lo_clamped, 0xFF80FF80); // max(v, -128)
 
-  uint32_t hi_clamped = __vmins2(val_hi, 0x007F007F);
-  hi_clamped = __vmaxs2(hi_clamped, 0xFF80FF80);
+  uint32_t hi_clamped = gpu_vmins2(val_hi, 0x007F007F);
+  hi_clamped = gpu_vmaxs2(hi_clamped, 0xFF80FF80);
 
   return __byte_perm(lo_clamped, hi_clamped, 0x6420);
 }
@@ -70,13 +71,13 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Node_R13(const int8_t *
 
     uint32_t v1_lo, v1_hi;
     unpack_and_sign_extend(val1, &v1_lo, &v1_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v1_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v1_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v1_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v1_hi);
 
     uint32_t v2_lo, v2_hi;
     unpack_and_sign_extend(val2, &v2_lo, &v2_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v2_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v2_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v2_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v2_hi);
 
     currPtr += (off << 1);
   }
@@ -85,8 +86,8 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Node_R13(const int8_t *
     uint32_t val = *currPtr;
     uint32_t v_lo, v_hi;
     unpack_and_sign_extend(val, &v_lo, &v_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v_hi);
   }
 
   uint32_t saturated_llr = saturate_and_pack(MsgSumLo, MsgSumHi);
@@ -103,7 +104,7 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Node_R13(const int8_t *
     for (int temp_MsgIdx = 0; temp_MsgIdx < BnGrpIdx; temp_MsgIdx++) {
       uint32_t prevIdxWords = (temp_MsgIdx * GrpNum * NR_LDPC_ZMAX) >> 2;
       uint32_t prev = bnProcBufPtr[prevIdxWords];
-      BricksToBeGet = __vsubss4(saturated_llr, prev);
+      BricksToBeGet = gpu_vsubss4(saturated_llr, prev);
       uint32_t MsgIdx = Bn2MsgStartIdx + temp_MsgIdx;
       uint32_t circShift = bn_cn_map_BG1_Z_R13[MsgIdx][ZcIdx];
       int8_t *p_cnProcBuf = (int8_t *)(d_cnProcBuf + bn_cn_map_BG1_Z_R13[MsgIdx][0]);
@@ -145,13 +146,13 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Node_R23(const int8_t *
 
     uint32_t v1_lo, v1_hi;
     unpack_and_sign_extend(val1, &v1_lo, &v1_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v1_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v1_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v1_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v1_hi);
 
     uint32_t v2_lo, v2_hi;
     unpack_and_sign_extend(val2, &v2_lo, &v2_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v2_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v2_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v2_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v2_hi);
 
     currPtr += (off << 1);
   }
@@ -160,8 +161,8 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Node_R23(const int8_t *
     uint32_t val = *currPtr;
     uint32_t v_lo, v_hi;
     unpack_and_sign_extend(val, &v_lo, &v_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v_hi);
   }
 
   uint32_t saturated_llr = saturate_and_pack(MsgSumLo, MsgSumHi);
@@ -178,7 +179,7 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Node_R23(const int8_t *
     for (int temp_MsgIdx = 0; temp_MsgIdx < BnGrpIdx; temp_MsgIdx++) {
       uint32_t prevIdxWords = (temp_MsgIdx * GrpNum * NR_LDPC_ZMAX) >> 2;
       uint32_t prev = bnProcBufPtr[prevIdxWords];
-      BricksToBeGet = __vsubss4(saturated_llr, prev);
+      BricksToBeGet = gpu_vsubss4(saturated_llr, prev);
       uint32_t MsgIdx = Bn2MsgStartIdx + temp_MsgIdx;
       uint32_t circShift = bn_cn_map_BG1_Z_R23[MsgIdx][ZcIdx];
       int8_t *p_cnProcBuf = (int8_t *)(d_cnProcBuf + bn_cn_map_BG1_Z_R23[MsgIdx][0]);
@@ -220,13 +221,13 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Node_R89(const int8_t *
 
     uint32_t v1_lo, v1_hi;
     unpack_and_sign_extend(val1, &v1_lo, &v1_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v1_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v1_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v1_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v1_hi);
 
     uint32_t v2_lo, v2_hi;
     unpack_and_sign_extend(val2, &v2_lo, &v2_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v2_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v2_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v2_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v2_hi);
 
     currPtr += (off << 1);
   }
@@ -235,8 +236,8 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Node_R89(const int8_t *
     uint32_t val = *currPtr;
     uint32_t v_lo, v_hi;
     unpack_and_sign_extend(val, &v_lo, &v_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v_hi);
   }
 
   uint32_t saturated_llr = saturate_and_pack(MsgSumLo, MsgSumHi);
@@ -253,7 +254,7 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Node_R89(const int8_t *
     for (int temp_MsgIdx = 0; temp_MsgIdx < BnGrpIdx; temp_MsgIdx++) {
       uint32_t prevIdxWords = (temp_MsgIdx * GrpNum * NR_LDPC_ZMAX) >> 2;
       uint32_t prev = bnProcBufPtr[prevIdxWords];
-      BricksToBeGet = __vsubss4(saturated_llr, prev);
+      BricksToBeGet = gpu_vsubss4(saturated_llr, prev);
       uint32_t MsgIdx = Bn2MsgStartIdx + temp_MsgIdx;
       uint32_t circShift = bn_cn_map_BG1_Z_R89[MsgIdx][ZcIdx];
       int8_t *p_cnProcBuf = (int8_t *)(d_cnProcBuf + bn_cn_map_BG1_Z_R89[MsgIdx][0]);
@@ -295,13 +296,13 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Node_last(const int8_t 
 
     uint32_t v1_lo, v1_hi;
     unpack_and_sign_extend(val1, &v1_lo, &v1_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v1_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v1_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v1_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v1_hi);
 
     uint32_t v2_lo, v2_hi;
     unpack_and_sign_extend(val2, &v2_lo, &v2_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v2_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v2_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v2_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v2_hi);
 
     currPtr += (off << 1);
   }
@@ -310,8 +311,8 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Node_last(const int8_t 
     uint32_t val = *currPtr;
     uint32_t v_lo, v_hi;
     unpack_and_sign_extend(val, &v_lo, &v_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v_hi);
   }
 
   uint32_t saturated_llr = saturate_and_pack(MsgSumLo, MsgSumHi);
@@ -352,13 +353,13 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Edge(const int8_t *__re
 
     uint32_t v1_lo, v1_hi;
     unpack_and_sign_extend(val1, &v1_lo, &v1_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v1_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v1_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v1_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v1_hi);
 
     uint32_t v2_lo, v2_hi;
     unpack_and_sign_extend(val2, &v2_lo, &v2_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v2_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v2_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v2_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v2_hi);
 
     currPtr += (off << 1);
   }
@@ -367,8 +368,8 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Edge(const int8_t *__re
     uint32_t val = *currPtr;
     uint32_t v_lo, v_hi;
     unpack_and_sign_extend(val, &v_lo, &v_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v_hi);
   }
 
   uint32_t saturated_llr = saturate_and_pack(MsgSumLo, MsgSumHi);
@@ -379,7 +380,7 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Edge(const int8_t *__re
   } else {
     uint32_t prevIdxWords = (MsgIdx * GrpNum * NR_LDPC_ZMAX) >> 2;
     uint32_t prev = bnProcBufPtr[prevIdxWords];
-    BricksToBeGet = __vsubss4(saturated_llr, prev);
+    BricksToBeGet = gpu_vsubss4(saturated_llr, prev);
   }
 
   moveBricks_forput_circ(d_cnProcBuf, lane * 4, (uint8_t *)&BricksToBeGet, Zc, circShift);
@@ -417,13 +418,13 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Edge_last(const int8_t 
 
     uint32_t v1_lo, v1_hi;
     unpack_and_sign_extend(val1, &v1_lo, &v1_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v1_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v1_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v1_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v1_hi);
 
     uint32_t v2_lo, v2_hi;
     unpack_and_sign_extend(val2, &v2_lo, &v2_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v2_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v2_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v2_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v2_hi);
 
     currPtr += (off << 1);
   }
@@ -432,8 +433,8 @@ __device__ __forceinline__ void bnProcKernel_BG1_int8_Gn_Edge_last(const int8_t 
     uint32_t val = *currPtr;
     uint32_t v_lo, v_hi;
     unpack_and_sign_extend(val, &v_lo, &v_hi);
-    MsgSumLo = __vaddss2(MsgSumLo, v_lo);
-    MsgSumHi = __vaddss2(MsgSumHi, v_hi);
+    MsgSumLo = gpu_vaddss2(MsgSumLo, v_lo);
+    MsgSumHi = gpu_vaddss2(MsgSumHi, v_hi);
   }
 
   uint32_t saturated_llr = saturate_and_pack(MsgSumLo, MsgSumHi);
