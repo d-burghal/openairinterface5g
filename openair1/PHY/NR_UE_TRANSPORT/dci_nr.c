@@ -157,7 +157,7 @@ static void nr_pdcch_demapping_deinterleaving(uint32_t coreset_nbr_rb,
 	}
       } // pscch_processing == 0
       else { //this will need to be changed a bit when we scan for multiple SCI
-        memcpy(e_rx,llr+(RE_PER_RB_OUT_DMRS*coreset_nbr_rb),coreset_nbr_rb*coreset_time_dur*RE_PER_RB_OUT_DMRS*sizeof(uint32_t));
+        memcpy(e_rx,llr,coreset_nbr_rb*coreset_time_dur*RE_PER_RB_OUT_DMRS*sizeof(uint32_t)); // DIAG: was llr+9*nrb (skipped sym0, read OOB)
       }
     }
   }
@@ -231,7 +231,7 @@ static void nr_pdcch_extract_rbs_single(uint32_t rxdataF_sz,
 
     c16_t middle_prb_buffer[RE_PER_RB];
     for (int rb_group = 0; rb_group < coreset_nbr_rb / 6; rb_group++) {
-      if ((coreset_freq_dom[rb_group / 8] & (1 << (7 - (rb_group & 7)))) == 0) {
+      if (0 && (coreset_freq_dom[rb_group / 8] & (1 << (7 - (rb_group & 7)))) == 0) { // DIAG: bypass bitmap skip
         continue;
       }
       for (int rb = 0; rb < 6; rb++) {
@@ -639,8 +639,8 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
     if (!sci_indication) {
       get_coreset_rballoc(rel15->coreset.frequency_domain_resource, &n_rb, &cset_start);
     } else {
-      n_rb = rel15->coreset.frequency_domain_resource[0];
-      cset_start = rel15->coreset.frequency_domain_resource[1];
+      cset_start = rel15->coreset.frequency_domain_resource[0]; // DIAG: was swapped (n_rb<-[0])
+      n_rb = rel15->coreset.frequency_domain_resource[1];
     }
     for (int m = 0; m < num_monitoring_occ; m++) {
       /// PDCCH/DCI e-sequence (input to rate matching).
@@ -659,6 +659,13 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
                                         llr_stride,
 					sci_indication);
 
+      if (sci_indication) {
+        long le = 0, ee = 0;
+        for (int i = 0; i < llr_size; i++) le += (long)llr[ss_idx][m][i].r*llr[ss_idx][m][i].r + (long)llr[ss_idx][m][i].i*llr[ss_idx][m][i].i;
+        for (int i = 0; i < n_rb*rel15->coreset.duration*RE_PER_RB_OUT_DMRS; i++) ee += (long)pdcch_e_rx[i].r*pdcch_e_rx[i].r + (long)pdcch_e_rx[i].i*pdcch_e_rx[i].i;
+        printf("[SCISIM-DBG] demap: llr_size=%d llr_stride=%d n_rb=%d cset_start=%d dur=%d | llr energy=%ld e_rx energy=%ld\n",
+               llr_size, llr_stride, n_rb, cset_start, rel15->coreset.duration, le, ee);
+      }
       nr_dci_decoding_procedure(proc, pdcch_e_rx, rel15, sci_indication ? (fapi_nr_dci_indication_t*)NULL : &dci_ind, sci_indication ? &sci_ind : (sl_nr_sci_indication_t*)NULL,NULL);
     }
   }
