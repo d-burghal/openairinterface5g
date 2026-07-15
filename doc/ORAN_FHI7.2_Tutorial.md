@@ -306,7 +306,7 @@ timedatectl set-ntp false
 
 ### DPDK (Data Plane Development Kit)
 
-Download DPDK version 22.11.11 (K release).
+Download DPDK version 22.11 (K release).
 
 ```bash
 # on debian
@@ -314,13 +314,13 @@ sudo apt install wget xz-utils libnuma-dev libibverbs-dev rdma-core python3-pyel
 # on Fedora/RHEL
 sudo dnf install wget xz numactl-devel rdma-core-devel libibverbs-devel python3-pyelftools meson
 cd
-wget http://fast.dpdk.org/rel/dpdk-22.11.11.tar.xz # K release
+wget http://fast.dpdk.org/rel/dpdk-22.11.tar.xz # K release
 ```
 
 #### DPDK Compilation and Installation
 
 ```bash
-tar xvf dpdk-22.11.11.tar.xz && cd dpdk-stable-22.11.11 # K release
+tar xvf dpdk-22.11.tar.xz && cd dpdk-stable-22.11 # K release
 
 meson build
 ninja -C build
@@ -387,7 +387,7 @@ pkg-config --libs libdpdk --static
 Go back to the version folder you used to build and install
 
 ```
-cd ~/dpdk-stable-22.11.11 # K release
+cd ~/dpdk-stable-22.11 # K release
 sudo ninja deinstall -C build
 ```
 
@@ -406,7 +406,7 @@ cd ~/openairinterface5g/
 ```bash
 git clone https://github.com/openairinterface/o-du-phy.git ~/phy
 cd ~/phy
-git checkout 11.1.4 # the tag points to the `main` branch which has all patches applied that are relevant for OAI integration; the tag matches the value of cmake variable `K_VERSION`
+git checkout 11.1.5 # the tag points to the `main` branch which has all patches applied that are relevant for OAI integration; the tag matches the value of cmake variable `K_VERSION`
 ```
 or use `xran_DOWNLOAD` option when compiling OAI gNB.
 
@@ -420,7 +420,7 @@ environment variables `RTE_SDK` for the path to the source tree of DPDK, and
 ```bash
 cd ~/phy/fhi_lib/lib
 make clean
-WIRELESS_SDK_TOOLCHAIN=gcc RTE_SDK=~/dpdk-stable-22.11.11/ XRAN_DIR=~/phy/fhi_lib make XRAN_LIB_SO=1 # K release
+WIRELESS_SDK_TOOLCHAIN=gcc RTE_SDK=~/dpdk-stable-22.11/ XRAN_DIR=~/phy/fhi_lib make XRAN_LIB_SO=1 # K release
 ...
 [AR] build/libxran.so
 ./build/libxran.so
