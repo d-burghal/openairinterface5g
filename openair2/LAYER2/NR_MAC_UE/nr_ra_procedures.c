@@ -1184,7 +1184,7 @@ void trigger_MAC_UE_RA(NR_UE_MAC_INST_t *mac, dci_pdu_rel15_t *pdcch_order)
 {
   LOG_W(NR_MAC, "Triggering new RA procedure for UE with RNTI %x\n", mac->crnti);
   mac->state = UE_PERFORMING_RA;
-  reset_ra(mac, false);
+  reset_ra(mac);
   RA_config_t *ra = &mac->ra;
   mac->msg3_C_RNTI = true;
   if (pdcch_order) {
@@ -1217,13 +1217,10 @@ void prepare_msg4_msgb_feedback(NR_UE_MAC_INST_t *mac, int pid, int ack_nack)
   AssertFatal(ret == 0, "Couldn't configure PUCCH for MSG4\n");
 }
 
-void reset_ra(NR_UE_MAC_INST_t *nr_mac, bool free_prach)
+void reset_ra(NR_UE_MAC_INST_t *nr_mac)
 {
   RA_config_t *ra = &nr_mac->ra;
   if (ra->rach_ConfigDedicated)
     asn1cFreeStruc(asn_DEF_NR_RACH_ConfigDedicated, ra->rach_ConfigDedicated);
   memset(ra, 0, sizeof(RA_config_t));
-
-  if (!free_prach)
-    return;
 }

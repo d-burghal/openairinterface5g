@@ -1865,7 +1865,7 @@ void nr_rrc_mac_config_req_reset(module_id_t module_id, NR_UE_MAC_reset_cause_t 
   switch (cause) {
     case GO_TO_IDLE:
       /* TS 38.331 §5.3.11: enter RRC_IDLE and perform cell selection per TS 38.304. */
-      reset_ra(mac, true);
+      reset_ra(mac);
       nr_ue_init_mac(mac);
       release_mac_configuration(mac, cause);
       nr_ue_mac_default_configs(mac);
@@ -1876,7 +1876,7 @@ void nr_rrc_mac_config_req_reset(module_id_t module_id, NR_UE_MAC_reset_cause_t 
       /* Normal no-redirection RRCRelease: keep the selected camped cell context for TS 38.304 §5.2.5/§7.1
        * paging, while releasing connected-mode MAC state. RA stays idle until paging/NAS triggers access. */
       // Stop any in-progress RA and discard PRACH resources
-      reset_ra(mac, true);
+      reset_ra(mac);
       // Apply TS 38.321 §5.12 MAC reset (no PHY sync reinit)
       reset_mac_inst(mac);
       // Release dedicated MAC config (keep SIB1/common BWP0/paging PDCCH for the camped cell)
@@ -1889,14 +1889,14 @@ void nr_rrc_mac_config_req_reset(module_id_t module_id, NR_UE_MAC_reset_cause_t 
       break;
     case DETACH:
       LOG_A(NR_MAC, "Received detach indication\n");
-      reset_ra(mac, true);
+      reset_ra(mac);
       reset_mac_inst(mac);
       nr_ue_reset_sync_state(mac, false);
       release_mac_configuration(mac, cause);
       mac->state = UE_DETACHING;
       break;
     case REJECT:
-      reset_ra(mac, false);
+      reset_ra(mac);
       reset_mac_inst(mac);
       mac->state = UE_BARRED;
       break;
@@ -2045,7 +2045,7 @@ static void nr_mac_start_ra(NR_UE_MAC_INST_t *mac, module_id_t module_id, nr_mac
   switch (cause) {
     case NR_MAC_RA_START_SETUP:
     case NR_MAC_RA_START_T300:
-      reset_ra(mac, false);
+      reset_ra(mac);
       reset_mac_inst(mac);
       mac->msg3_C_RNTI = false;
       mac->state = UE_PERFORMING_RA;
