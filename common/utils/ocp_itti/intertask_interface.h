@@ -263,8 +263,6 @@ typedef struct {
   TASK_DEF(TASK_RLC_ENB, 200)         \
   TASK_DEF(TASK_PDCP_ENB, 200)        \
   TASK_DEF(TASK_PDCP_GNB, 200)        \
-  TASK_DEF(TASK_DATA_FORWARDING, 200) \
-  TASK_DEF(TASK_END_MARKER, 200)      \
   TASK_DEF(TASK_RRC_ENB, 200)         \
   TASK_DEF(TASK_RRC_GNB, 200)         \
   TASK_DEF(TASK_S1AP, 200)            \
