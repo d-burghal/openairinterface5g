@@ -888,7 +888,6 @@ void nr_generate_pdsch(PHY_VARS_gNB *gNB,
     return;
   }
   stop_meas(dlsch_encoding_stats);
-
   unsigned char *output_ptr = output;
   for (int i = 0; i < n_dlsch; i++) {
     output_ptr += do_one_dlsch(output_ptr, gNB, &dlsch_array[i], slot, pdsch_phase_comp_prb_mask, prb_mask_words);
