@@ -359,6 +359,7 @@ static bool validate_known_pci(NR_DL_FRAME_PARMS *frame_parms,
 
 void do_neighboring_cell_measurements(UE_nr_rxtx_proc_t *proc, PHY_VARS_NR_UE *ue, c16_t **rxdata, uint32_t rxdata_size)
 {
+  return; // Ericsson gNB: crashes below here, don't search for neighbors
   NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
 
   const uint32_t rxdataF_sz = frame_parms->ofdm_symbol_size;
