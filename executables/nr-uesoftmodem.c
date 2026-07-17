@@ -79,7 +79,8 @@ uint64_t        sidelink_frequency[MAX_NUM_CCs][4];
 // UE and OAI config variables
 double            cpuf;
 
-int create_tasks_nrue(uint32_t ue_nb) {
+static int create_tasks_nrue(uint32_t ue_nb)
+{
   LOG_D(NR_RRC, "%s(ue_nb:%d)\n", __FUNCTION__, ue_nb);
   itti_wait_ready(1);
 
@@ -119,18 +120,10 @@ void exit_function(const char *file, const char *function, const int line, const
   }
 }
 
-uint64_t get_nrUE_optmask(void) {
-  return nrUE_params.optmask;
-}
-
-uint64_t set_nrUE_optmask(uint64_t bitmask) {
-  nrUE_params.optmask = nrUE_params.optmask | bitmask;
-  return nrUE_params.optmask;
-}
-
 nrUE_params_t *get_nrUE_params(void) {
   return &nrUE_params;
 }
+
 static void get_options(configmodule_interface_t *cfg)
 {
   paramdef_t cmdline_params[] = CMDLINE_NRUEPARAMS_DESC;
@@ -188,6 +181,7 @@ static void trigger_stop(int sig)
   if (!oai_exit)
     itti_wait_tasks_unblock();
 }
+
 static void trigger_deregistration(int sig)
 {
   if (!stop_immediately && IS_SA_MODE(get_softmodem_params())) {
@@ -206,7 +200,7 @@ static void trigger_deregistration(int sig)
   }
 }
 
-void *nrue_ru_start_thread(void *arg)
+static void *nrue_ru_start_thread(void *arg)
 {
   (void)arg;
   nrue_ru_start();

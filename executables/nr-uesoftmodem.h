@@ -83,7 +83,6 @@ extern uint16_t ue_id_g;
 // clang-format on
 
 typedef struct {
-  uint64_t optmask; // mask to store boolean config options
   uint32_t ofdm_offset_divisor; // Divisor for sample offset computation for each OFDM symbol
   int max_ldpc_iterations; // number of maximum LDPC iterations
   tpool_t Tpool;
@@ -121,8 +120,6 @@ typedef struct {
   int num_dl_actors;
   int extra_pdu_id;
 } nrUE_params_t;
-extern uint64_t get_nrUE_optmask(void);
-extern uint64_t set_nrUE_optmask(uint64_t bitmask);
 extern nrUE_params_t *get_nrUE_params(void);
 
 // In nr-ue.c
