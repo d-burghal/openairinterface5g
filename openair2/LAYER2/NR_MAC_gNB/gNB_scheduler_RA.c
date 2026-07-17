@@ -2072,7 +2072,9 @@ static void nr_generate_Msg4_MsgB(module_id_t module_idP,
 
     ra->ra_state = nrRA_WAIT_Msg4_MsgB_ACK;
     LOG_I(NR_MAC,
-          "UE %04x Generate %s: feedback at %4d.%2d, payload %d bytes, next state nrRA_WAIT_Msg4_MsgB_ACK\n",
+          "%d.%d UE %04x Generate %s: feedback at %4d.%2d, payload %d bytes, next state nrRA_WAIT_Msg4_MsgB_ACK\n",
+          frameP,
+          slotP,
           UE->rnti,
           ra_type_str,
           pucch->frame,
