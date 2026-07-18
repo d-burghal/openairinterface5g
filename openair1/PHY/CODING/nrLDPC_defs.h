@@ -16,8 +16,11 @@
    within the transport block
    \var gen_code flag to generate parity check code
    0 -> encoding
-   1 -> generate parity check code with AVX2
+   1 -> generate parity check code with AVX2/AVX-512 when available
    2 -> generate parity check code without AVX2
+   3 -> generate scalar byte parity check code
+   4 -> generate CUDA parity check code
+   5 -> generate RVV parity check code
    \var tinput time statistics for data input in the encoder
    \var tprep time statistics for data preparation in the encoder
    \var tparity time statistics for adding parity bits

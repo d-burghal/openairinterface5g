@@ -23,7 +23,7 @@
 // high-throughput cases. The version with "permutex2var" instruction uses less memory (i.e. 1/64th of the memory to store the
 // input), but uses more reads instead of creating 64 shifts of the input with memcpy
 #include "ldpc384_simd512_permutex_byte.c"
-#else 
+#else
 #include "ldpc384_simd512_byte.c"
 #endif
 #endif
@@ -89,11 +89,47 @@
 #include "ldpc_BG2_Zc88_byte.c"
 #include "ldpc_BG2_Zc80_byte.c"
 #include "ldpc_BG2_Zc72_byte.c"
+#if defined(__riscv) && defined(__riscv_vector)
+#include "ldpc_BG1_Zc176_byte_rvv.c"
+#include "ldpc_BG1_Zc192_byte_rvv.c"
+#include "ldpc_BG1_Zc208_byte_rvv.c"
+#include "ldpc_BG1_Zc224_byte_rvv.c"
+#include "ldpc_BG1_Zc240_byte_rvv.c"
+#include "ldpc_BG1_Zc256_byte_rvv.c"
+#include "ldpc_BG1_Zc288_byte_rvv.c"
+#include "ldpc_BG1_Zc320_byte_rvv.c"
+#include "ldpc_BG1_Zc352_byte_rvv.c"
+#include "ldpc_BG1_Zc384_byte_rvv.c"
+#include "ldpc_BG2_Zc72_byte_rvv.c"
+#include "ldpc_BG2_Zc80_byte_rvv.c"
+#include "ldpc_BG2_Zc88_byte_rvv.c"
+#include "ldpc_BG2_Zc96_byte_rvv.c"
+#include "ldpc_BG2_Zc104_byte_rvv.c"
+#include "ldpc_BG2_Zc112_byte_rvv.c"
+#include "ldpc_BG2_Zc120_byte_rvv.c"
+#include "ldpc_BG2_Zc128_byte_rvv.c"
+#include "ldpc_BG2_Zc144_byte_rvv.c"
+#include "ldpc_BG2_Zc160_byte_rvv.c"
+#include "ldpc_BG2_Zc176_byte_rvv.c"
+#include "ldpc_BG2_Zc192_byte_rvv.c"
+#include "ldpc_BG2_Zc208_byte_rvv.c"
+#include "ldpc_BG2_Zc224_byte_rvv.c"
+#include "ldpc_BG2_Zc240_byte_rvv.c"
+#include "ldpc_BG2_Zc256_byte_rvv.c"
+#include "ldpc_BG2_Zc288_byte_rvv.c"
+#include "ldpc_BG2_Zc320_byte_rvv.c"
+#include "ldpc_BG2_Zc352_byte_rvv.c"
+#include "ldpc_BG2_Zc384_byte_rvv.c"
+#define LDPC_BG1_ZC_BYTE(ZC, c, d) ldpc_BG1_Zc##ZC##_byte_rvv((c), (d))
+#define LDPC_BG2_ZC_BYTE(ZC, c, d) ldpc_BG2_Zc##ZC##_byte_rvv((c), (d))
+#else
+#define LDPC_BG1_ZC_BYTE(ZC, c, d) ldpc##ZC##_byte((c), (d))
+#define LDPC_BG2_ZC_BYTE(ZC, c, d) ldpc_BG2_Zc##ZC##_byte((c), (d))
+#endif
 
 static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, short Zc, int simd_size, int ncols, time_stats_t *tinput_memcpy)
 {
-  // For the alignr path (aarch64, BG1, Zc=384) the simd_size copies are skipped,
-  // so only one copy is needed — avoid a 32x overallocation on the stack.
+  // For BG1 paths that do not use pre-shifted copies, only one copy is needed.
 #ifdef USE_ALIGNR
   int vla_simd = (BG == 1 && Zc >= 176) ? 1 : simd_size;
 #else
@@ -119,34 +155,34 @@ static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, sh
   if (BG == 1) {
     switch (Zc) {
       case 176:
-        ldpc176_byte(c, d);
+        LDPC_BG1_ZC_BYTE(176, c, d);
         break;
       case 192:
-        ldpc192_byte(c, d);
+        LDPC_BG1_ZC_BYTE(192, c, d);
         break;
       case 208:
-        ldpc208_byte(c, d);
+        LDPC_BG1_ZC_BYTE(208, c, d);
         break;
       case 224:
-        ldpc224_byte(c, d);
+        LDPC_BG1_ZC_BYTE(224, c, d);
         break;
       case 240:
-        ldpc240_byte(c, d);
+        LDPC_BG1_ZC_BYTE(240, c, d);
         break;
       case 256:
-        ldpc256_byte(c, d);
+        LDPC_BG1_ZC_BYTE(256, c, d);
         break;
       case 288:
-        ldpc288_byte(c, d);
+        LDPC_BG1_ZC_BYTE(288, c, d);
         break;
       case 320:
-        ldpc320_byte(c, d);
+        LDPC_BG1_ZC_BYTE(320, c, d);
         break;
       case 352:
-        ldpc352_byte(c, d);
+        LDPC_BG1_ZC_BYTE(352, c, d);
         break;
       case 384:
-        ldpc384_byte(c, d);
+        LDPC_BG1_ZC_BYTE(384, c, d);
         break;
       default:
         AssertFatal(false, "BG %d Zc %d is not supported yet\n", BG, Zc);
@@ -154,64 +190,64 @@ static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, sh
   } else if (BG == 2) {
     switch (Zc) {
       case 72:
-        ldpc_BG2_Zc72_byte(c, d);
+        LDPC_BG2_ZC_BYTE(72, c, d);
         break;
       case 80:
-        ldpc_BG2_Zc80_byte(c, d);
+        LDPC_BG2_ZC_BYTE(80, c, d);
         break;
       case 88:
-        ldpc_BG2_Zc88_byte(c, d);
+        LDPC_BG2_ZC_BYTE(88, c, d);
         break;
       case 96:
-        ldpc_BG2_Zc96_byte(c, d);
+        LDPC_BG2_ZC_BYTE(96, c, d);
         break;
       case 104:
-        ldpc_BG2_Zc104_byte(c, d);
+        LDPC_BG2_ZC_BYTE(104, c, d);
         break;
       case 112:
-        ldpc_BG2_Zc112_byte(c, d);
+        LDPC_BG2_ZC_BYTE(112, c, d);
         break;
       case 120:
-        ldpc_BG2_Zc120_byte(c, d);
+        LDPC_BG2_ZC_BYTE(120, c, d);
         break;
       case 128:
-        ldpc_BG2_Zc128_byte(c, d);
+        LDPC_BG2_ZC_BYTE(128, c, d);
         break;
       case 144:
-        ldpc_BG2_Zc144_byte(c, d);
+        LDPC_BG2_ZC_BYTE(144, c, d);
         break;
       case 160:
-        ldpc_BG2_Zc160_byte(c, d);
+        LDPC_BG2_ZC_BYTE(160, c, d);
         break;
       case 176:
-        ldpc_BG2_Zc176_byte(c, d);
+        LDPC_BG2_ZC_BYTE(176, c, d);
         break;
       case 192:
-        ldpc_BG2_Zc192_byte(c, d);
+        LDPC_BG2_ZC_BYTE(192, c, d);
         break;
       case 208:
-        ldpc_BG2_Zc208_byte(c, d);
+        LDPC_BG2_ZC_BYTE(208, c, d);
         break;
       case 224:
-        ldpc_BG2_Zc224_byte(c, d);
+        LDPC_BG2_ZC_BYTE(224, c, d);
         break;
       case 240:
-        ldpc_BG2_Zc240_byte(c, d);
+        LDPC_BG2_ZC_BYTE(240, c, d);
         break;
       case 256:
-        ldpc_BG2_Zc256_byte(c, d);
+        LDPC_BG2_ZC_BYTE(256, c, d);
         break;
       case 288:
-        ldpc_BG2_Zc288_byte(c, d);
+        LDPC_BG2_ZC_BYTE(288, c, d);
         break;
       case 320:
-        ldpc_BG2_Zc320_byte(c, d);
+        LDPC_BG2_ZC_BYTE(320, c, d);
         break;
       case 352:
-        ldpc_BG2_Zc352_byte(c, d);
+        LDPC_BG2_ZC_BYTE(352, c, d);
         break;
       case 384:
-        ldpc_BG2_Zc384_byte(c, d);
+        LDPC_BG2_ZC_BYTE(384, c, d);
         break;
       default:
         AssertFatal(false , "BG %d Zc %d is not supported yet\n", BG, Zc);

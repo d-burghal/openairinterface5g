@@ -85,7 +85,8 @@ one_measurement_t test_ldpc(short max_iterations,
                             unsigned char qbits,
                             short Kprime,
                             unsigned int ntrials,
-                            int n_segments)
+                            int n_segments,
+                            int gen_code)
 {
   one_measurement_t ret = {0};
   reset_meas(&ret.time_optim);
@@ -263,10 +264,12 @@ one_measurement_t test_ldpc(short max_iterations,
   }
 
   encoder_implemparams_t impp = {.Zc = Zc, .Kb = Kb, .BG = BG, .K = K};
-  impp.gen_code = 1;
+  impp.gen_code = gen_code;
 
-  if (ntrials == 0)
+  if (ntrials == 0) {
     ldpc_orig.LDPCencoder(test_input, channel_input[0], &impp);
+    return ret;
+  }
   impp.gen_code = 0;
   decode_abort_t dec_abort;
   init_abort(&dec_abort);
@@ -421,6 +424,7 @@ int main(int argc, char *argv[])
   int c, i = 0;
 
   int n_trials = 1;
+  int gen_code = 1;
   double SNR_step = 0.1;
 
   randominit();
@@ -434,7 +438,7 @@ int main(int argc, char *argv[])
   }
   logInit();
 
-  while ((c = getopt(argc, argv, "--:O:q:r:s:S:l:G:n:d:i:t:u:hv:")) != -1) {
+  while ((c = getopt(argc, argv, "--:O:q:r:s:S:l:G:g:n:d:i:t:u:hv:")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -460,6 +464,10 @@ int main(int argc, char *argv[])
 
       case 'G':
         ldpc_version = "_cuda";
+        break;
+
+      case 'g':
+        gen_code = atoi(optarg);
         break;
 
       case 'n':
@@ -499,6 +507,7 @@ int main(int argc, char *argv[])
         printf("-d Denominator rate, (3, 5, 25), Default: 1\n");
         printf("-l Length of payload bits in a segment (K' in 38.212-5.2.2), [1, 8448], Default: 8448\n");
         printf("-G give 1 to run cuda for LDPC, Default: 0\n");
+        printf("-g LDPC generator mode for -n0: 1 SIMD, 2 no AVX2, 3 scalar, 4 CUDA, 5 RVV; Default: 1\n");
         printf("-n Number of simulation trials, Default: 1\n");
         // printf("-M MCS2 for TB 2\n");
         printf("-s SNR per information bit (EbNo) in dB, Default: -2\n");
@@ -544,7 +553,8 @@ int main(int argc, char *argv[])
                                       qbits,
                                       Kprime, // block length bytes
                                       n_trials,
-                                      n_segments);
+                                      n_segments,
+                                      gen_code);
 
     decoded_errors[i] = res.errors;
     dec_iter[i] = res.dec_iter;

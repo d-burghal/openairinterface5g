@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
-/*! 
+/*!
  * \brief Defines the optimized LDPC encoder
  */
 
@@ -19,6 +19,102 @@
 
 #include "ldpc_encode_parity_check.c"
 #include "ldpc_generate_coefficient.c"
+
+#if defined(__riscv) && defined(__riscv_vector)
+#include <riscv_vector.h>
+
+static inline vuint8m1_t ldpc_rvv_segment_bit(vuint8m1_t bytes, unsigned int input_bit, unsigned int segment_bit, size_t vl)
+{
+  vuint8m1_t bit = __riscv_vand_vx_u8m1(__riscv_vsrl_vx_u8m1(bytes, 7 - input_bit, vl), 1, vl);
+  return __riscv_vsll_vx_u8m1(bit, segment_bit, vl);
+}
+
+static void ldpc_rvv_interleave_input(uint8_t **input,
+                                      uint8_t *cc,
+                                      unsigned int macro_segment,
+                                      unsigned int macro_segment_end,
+                                      unsigned int *i_byte,
+                                      short block_length)
+{
+  const unsigned int ns = macro_segment_end - macro_segment;
+  const unsigned int input_bytes = block_length >> 3;
+  unsigned int byte = *i_byte >> 3;
+
+  if (ns == 1) {
+    const uint8_t *p0 = input[macro_segment];
+
+    for (; byte < input_bytes; ) {
+      const size_t vl = __riscv_vsetvl_e8m1(input_bytes - byte);
+      const vuint8m1_t s0 = __riscv_vle8_v_u8m1(p0 + byte, vl);
+
+      for (unsigned int input_bit = 0; input_bit < 8; input_bit++) {
+        __riscv_vsse8_v_u8m1(cc + (byte << 3) + input_bit, 8, ldpc_rvv_segment_bit(s0, input_bit, 0, vl), vl);
+      }
+
+      byte += vl;
+    }
+  } else if (ns == 8) {
+    const uint8_t *p0 = input[macro_segment + 0];
+    const uint8_t *p1 = input[macro_segment + 1];
+    const uint8_t *p2 = input[macro_segment + 2];
+    const uint8_t *p3 = input[macro_segment + 3];
+    const uint8_t *p4 = input[macro_segment + 4];
+    const uint8_t *p5 = input[macro_segment + 5];
+    const uint8_t *p6 = input[macro_segment + 6];
+    const uint8_t *p7 = input[macro_segment + 7];
+
+    for (; byte < input_bytes; ) {
+      const size_t vl = __riscv_vsetvl_e8m1(input_bytes - byte);
+      const vuint8m1_t s0 = __riscv_vle8_v_u8m1(p0 + byte, vl);
+      const vuint8m1_t s1 = __riscv_vle8_v_u8m1(p1 + byte, vl);
+      const vuint8m1_t s2 = __riscv_vle8_v_u8m1(p2 + byte, vl);
+      const vuint8m1_t s3 = __riscv_vle8_v_u8m1(p3 + byte, vl);
+      const vuint8m1_t s4 = __riscv_vle8_v_u8m1(p4 + byte, vl);
+      const vuint8m1_t s5 = __riscv_vle8_v_u8m1(p5 + byte, vl);
+      const vuint8m1_t s6 = __riscv_vle8_v_u8m1(p6 + byte, vl);
+      const vuint8m1_t s7 = __riscv_vle8_v_u8m1(p7 + byte, vl);
+
+      for (unsigned int input_bit = 0; input_bit < 8; input_bit++) {
+        vuint8m1_t r01 = __riscv_vor_vv_u8m1(ldpc_rvv_segment_bit(s0, input_bit, 0, vl),
+                                             ldpc_rvv_segment_bit(s1, input_bit, 1, vl),
+                                             vl);
+        vuint8m1_t r23 = __riscv_vor_vv_u8m1(ldpc_rvv_segment_bit(s2, input_bit, 2, vl),
+                                             ldpc_rvv_segment_bit(s3, input_bit, 3, vl),
+                                             vl);
+        vuint8m1_t r45 = __riscv_vor_vv_u8m1(ldpc_rvv_segment_bit(s4, input_bit, 4, vl),
+                                             ldpc_rvv_segment_bit(s5, input_bit, 5, vl),
+                                             vl);
+        vuint8m1_t r67 = __riscv_vor_vv_u8m1(ldpc_rvv_segment_bit(s6, input_bit, 6, vl),
+                                             ldpc_rvv_segment_bit(s7, input_bit, 7, vl),
+                                             vl);
+        vuint8m1_t packed = __riscv_vor_vv_u8m1(__riscv_vor_vv_u8m1(r01, r23, vl),
+                                                __riscv_vor_vv_u8m1(r45, r67, vl),
+                                                vl);
+        __riscv_vsse8_v_u8m1(cc + (byte << 3) + input_bit, 8, packed, vl);
+      }
+
+      byte += vl;
+    }
+  } else {
+    for (; byte < input_bytes; ) {
+      const size_t vl = __riscv_vsetvl_e8m1(input_bytes - byte);
+
+      for (unsigned int input_bit = 0; input_bit < 8; input_bit++) {
+        vuint8m1_t packed = __riscv_vmv_v_x_u8m1(0, vl);
+        for (unsigned int j = 0; j < ns; j++) {
+          vuint8m1_t seg = __riscv_vle8_v_u8m1(input[macro_segment + j] + byte, vl);
+          packed = __riscv_vor_vv_u8m1(packed, ldpc_rvv_segment_bit(seg, input_bit, j, vl), vl);
+        }
+        __riscv_vsse8_v_u8m1(cc + (byte << 3) + input_bit, 8, packed, vl);
+      }
+
+      byte += vl;
+    }
+  }
+
+  *i_byte = input_bytes << 3;
+}
+#endif
 
 int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
 {
@@ -37,7 +133,7 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   int simd_size;
   unsigned int macro_segment, macro_segment_end;
 
-  
+
   macro_segment = impp->first_seg;
   macro_segment_end = (impp->n_segments > impp->first_seg + 8) ? impp->first_seg + 8 : impp->n_segments;
   ///printf("macro_segment: %d\n", macro_segment);
@@ -108,7 +204,11 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   }
 #endif
 
-#ifndef __aarch64__
+#if defined(__riscv) && defined(__riscv_vector)
+  ldpc_rvv_interleave_input(input, cc, macro_segment, macro_segment_end, &i_byte, block_length);
+#endif
+
+#if !defined(__aarch64__) && !(defined(__riscv) && defined(__riscv_vector))
   simde__m256i shufmask = simde_mm256_set_epi64x(0x0303030303030303, 0x0202020202020202,0x0101010101010101, 0x0000000000000000);
   simde__m256i andmask  = simde_mm256_set1_epi64x(0x0102040810204080);  // every 8 bits -> 8 bytes, pattern repeats.
   simde__m256i zero256   = simde_mm256_setzero_si256();
@@ -126,7 +226,7 @@ int LDPCencoder(uint8_t **input, uint8_t *output, encoder_implemparams_t *impp)
   for (; i_byte < ((block_length >> 5 ) << 5); i_byte += 32) {
     unsigned int i = i_byte >> 5;
     c256 = simde_mm256_and_si256(simde_mm256_cmpeq_epi8(simde_mm256_andnot_si256(simde_mm256_shuffle_epi8(simde_mm256_set1_epi32(((uint32_t*)input[macro_segment])[i]), shufmask),andmask),zero256),masks[0]);
-    for (int j=macro_segment+1; j < macro_segment_end; j++) {    
+    for (int j=macro_segment+1; j < macro_segment_end; j++) {
       c256 = simde_mm256_or_si256(simde_mm256_and_si256(simde_mm256_cmpeq_epi8(simde_mm256_andnot_si256(simde_mm256_shuffle_epi8(simde_mm256_set1_epi32(((uint32_t*)input[j])[i]), shufmask),andmask),zero256),masks[j-macro_segment]),c256);
     }
     ((simde__m256i *)cc)[i] = c256;
