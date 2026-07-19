@@ -36,21 +36,6 @@ bool nr_modulation_layer_mapping(const uint32_t *in,
                                  c16_t tx_layers[][layerSz]);
 
 /*! \brief Perform NR layer mapping. TS 38.211 V15.4.0 subclause 7.3.1.3
-  @param[in] mod_symbs, double Pointer to modulated symbols for each codeword
-  @param[in] n_layers, number of layers
-  @param[in] n_symbs, number of modulated symbols
-  @param[out] tx_layers, modulated symbols for each layer
-*/
-
-void nr_layer_mapping(int nbCodes,
-                      int encoded_len,
-                      c16_t mod_symbs[nbCodes][encoded_len],
-                      uint8_t n_layers,
-                      int layerSz,
-                      uint32_t n_symbs,
-                      c16_t tx_layers[][layerSz]);
-
-/*! \brief Perform NR layer mapping. TS 38.211 V15.4.0 subclause 7.3.1.3
   @param[in] ulsch_ue, double Pointer to NR_UE_ULSCH_t struct
   @param[in] n_layers, number of layers
   @param[in] n_symbs, number of modulated symbols
