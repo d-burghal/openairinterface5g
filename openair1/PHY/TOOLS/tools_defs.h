@@ -310,6 +310,24 @@ The function implemented is : \f$\mathbf{y} = y + \alpha\mathbf{x}\f$
 
   static inline void multadd_real_vector_complex_scalar(const int16_t *x, const c16_t alpha, c16_t *y, const uint32_t N)
   {
+#if defined(__riscv) && defined(__riscv_vector)
+    /* RVV path: y[j] += mulhi_s1(alpha, x[j]) (saturating), where
+     * mulhi_s1(a,b) = ((a*b)>>16)<<2 (mulhi then a 16-bit left shift). VLA and
+     * bit-exact with the x86/SIMDe body below (rvv_harness/rvv_multadd_test.c). */
+    int16_t *yp = &y[0].r;
+    for (uint32_t j = 0; j < N;) {
+      size_t vl = __riscv_vsetvl_e16m1(N - j);
+      vint16m1_t xv = __riscv_vle16_v_i16m1(x + j, vl);
+      vint16m1_t yr = __riscv_vsll_vx_i16m1(__riscv_vnsra_wx_i16m1(__riscv_vwmul_vx_i32m2(xv, alpha.r, vl), 16, vl), 2, vl);
+      vint16m1_t yi = __riscv_vsll_vx_i16m1(__riscv_vnsra_wx_i16m1(__riscv_vwmul_vx_i32m2(xv, alpha.i, vl), 16, vl), 2, vl);
+      vint16m1x2_t yseg = __riscv_vlseg2e16_v_i16m1x2(yp + 2 * j, vl);
+      vint16m1_t nr = __riscv_vsadd_vv_i16m1(__riscv_vget_v_i16m1x2_i16m1(yseg, 0), yr, vl);
+      vint16m1_t ni = __riscv_vsadd_vv_i16m1(__riscv_vget_v_i16m1x2_i16m1(yseg, 1), yi, vl);
+      __riscv_vsseg2e16_v_i16m1x2(yp + 2 * j, __riscv_vcreate_v_i16m1x2(nr, ni), vl);
+      j += vl;
+    }
+    return;
+#endif
     // do 8 multiplications at a time
     simd_q15_t *x_128 = (simd_q15_t *)x, *y_128 = (simd_q15_t *)y;
 
@@ -749,6 +767,29 @@ static inline void rotate_cpx_vector(const c16_t *const x, const c16_t alpha, c1
   // stores result in y
   // N is the number of complex numbers
   // output_shift reduces the result of the multiplication by this number of bits
+#if defined(__riscv) && defined(__riscv_vector)
+  /* RVV path: y[j] = (alpha * x[j]) >> output_shift, saturating. Runs every
+   * OFDM symbol (TX/RX, gNB+UE). VLA (any shift, incl. the common 15) and
+   * bit-exact with the x86/SIMDe vector path (rvv_harness/rvv_rotate_test.c). */
+  {
+    const int16_t ar = alpha.r, ai = alpha.i;
+    const int16_t *xp = &x[0].r;
+    int16_t *yp = &y[0].r;
+    for (uint32_t j = 0; j < N;) {
+      size_t vl = __riscv_vsetvl_e16m1(N - j);
+      vint16m1x2_t xs = __riscv_vlseg2e16_v_i16m1x2(xp + 2 * j, vl);
+      vint16m1_t xr = __riscv_vget_v_i16m1x2_i16m1(xs, 0);
+      vint16m1_t xi = __riscv_vget_v_i16m1x2_i16m1(xs, 1);
+      vint32m2_t re = __riscv_vsub_vv_i32m2(__riscv_vwmul_vx_i32m2(xr, ar, vl), __riscv_vwmul_vx_i32m2(xi, ai, vl), vl);
+      vint32m2_t im = __riscv_vwmacc_vx_i32m2(__riscv_vwmul_vx_i32m2(xr, ai, vl), ar, xi, vl);
+      vint16m1_t re16 = __riscv_vnclip_wx_i16m1(__riscv_vsra_vx_i32m2(re, (size_t)output_shift, vl), 0, __RISCV_VXRM_RDN, vl);
+      vint16m1_t im16 = __riscv_vnclip_wx_i16m1(__riscv_vsra_vx_i32m2(im, (size_t)output_shift, vl), 0, __RISCV_VXRM_RDN, vl);
+      __riscv_vsseg2e16_v_i16m1x2(yp + 2 * j, __riscv_vcreate_v_i16m1x2(re16, im16), vl);
+      j += vl;
+    }
+    return;
+  }
+#endif
 #if defined(__x86_64__) || defined(__i386__)
   if (__builtin_cpu_supports("avx2")) {
     // output is 32 bytes aligned, but not the input
