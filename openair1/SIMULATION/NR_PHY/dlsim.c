@@ -1475,6 +1475,7 @@ int main(int argc, char **argv)
       printStatIndent3(&gNB->toutput,"DLSCH LDPC output generation time");
       printStatIndent3(&gNB->dlsch_rate_matching_stats,"DLSCH Rate Matching time");
       printStatIndent3(&gNB->dlsch_interleaving_stats,  "DLSCH Interleaving time");
+      printStatIndent3(&gNB->tconcat,                    "DLSCH concatenation time");
       printStatIndent2(&gNB->dlsch_pdsch_generation_stats,"DLSCH PDSCH Generation time");
       printStatIndent3(&gNB->dlsch_scrambling_stats, "DLSCH scrambling time");
       if (gNB->dlsch_layer_mapping_stats.trials > 0) {

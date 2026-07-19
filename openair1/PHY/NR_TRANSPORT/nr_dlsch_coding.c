@@ -265,6 +265,7 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                                                        .tprep = tprep,
                                                        .tparity = tparity,
                                                        .toutput = toutput,
+                                                       .tconcat = tconcat,
                                                        .TBs = TBs};
   gNB->nrLDPC_coding_interface.nrLDPC_coding_encoder(&slot_parameters);
 
