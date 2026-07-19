@@ -3,4 +3,6 @@ rvv_cpx_mult_test
 rvv_chcomp_test
 rvv_llr_test
 rvv_c16mult_test
+rvv_multadd_test
+rvv_rotate_test
 *.o
