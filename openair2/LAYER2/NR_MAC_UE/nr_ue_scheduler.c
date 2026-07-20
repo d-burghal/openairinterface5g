@@ -1790,7 +1790,12 @@ static bool schedule_uci_on_pusch(NR_UE_MAC_INST_t *mac,
     }
   }
 
-  AssertFatal(pusch_pdu->pusch_uci.csi_payload.p1_bits == 0, "PUSCH already has CSI report\n");
+  if(pusch_pdu->pusch_uci.csi_payload.p1_bits == 0){
+	 LOG_E(NR_MAC,  "PUSCH already has CSI report\n");
+	 mux_done = true;
+  release_ul_config(ulcfg_pdu, false);
+  return mux_done;
+  }
 
   // Check if this PUCCH has CSI report to send. If so, multiplex it on PUSCH
   if (pucch->csi_payload.p1_bits > 0) {

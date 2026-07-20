@@ -120,8 +120,8 @@ typedef struct {
   uint8_t harq_pid;
   uint8_t cw_idx;
   uint8_t ack_nack;
-  uint32_t pdu_length;
-  uint8_t* pdu;
+  uint32_t Pdu_length;
+  uint8_t Pdu[16384];
 } fapi_nr_pdsch_pdu_t;
 
 typedef struct {

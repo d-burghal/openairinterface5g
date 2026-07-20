@@ -114,8 +114,14 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
         rx->pdsch_pdu.harq_pid = harq_pid;
         rx->pdsch_pdu.cw_idx = cw_idx;
         rx->pdsch_pdu.ack_nack = dl_harq->decodeResult;
-        rx->pdsch_pdu.pdu = b;
-        rx->pdsch_pdu.pdu_length = dlsch->cw_info.TBS / 8;
+        rx->pdsch_pdu.Pdu_length = dlsch->cw_info.TBS / 8;
+        DevAssert(rx->pdsch_pdu.Pdu_length < sizeof(rx->pdsch_pdu.Pdu));
+        memcpy(rx->pdsch_pdu.Pdu, b, rx->pdsch_pdu.Pdu_length);
+	char buf[4096]= {0};
+	char *p = buf;
+	for (int i = 0; i < dlsch->cw_info.TBS / 8 && i < 1024; ++i)
+		p += sprintf(p, " %02x", b[i]);
+	LOG_A(PHY, "PDSCH %d bytes for HARQ %d cw_idx %d result %d: %s\n", rx->pdsch_pdu.Pdu_length, harq_pid, cw_idx, dl_harq->decodeResult, buf);
         if (dl_harq->decodeResult) {
           int t = WS_C_RNTI;
           if (pdu_type == FAPI_NR_RX_PDU_TYPE_RAR)
@@ -128,7 +134,7 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
                             .direction = DIRECTION_DOWNLINK,
                             .type = ue->frame_parms.frame_type == FDD ? FDD_RADIO : TDD_RADIO,
                             .pdu_buffer = b,
-                            .pdu_buffer_size = rx->pdsch_pdu.pdu_length,
+                            .pdu_buffer_size = rx->pdsch_pdu.Pdu_length,
                             .ueid = 0,
                             .rntiType = t,
                             .rnti = dlsch->rnti,

@@ -143,14 +143,14 @@ static int8_t handle_pcch(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_in
 {
   const fapi_nr_pdsch_pdu_t *pdsch_pdu = &dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu;
 
-  if (!pdsch_pdu->ack_nack || !pdsch_pdu->pdu || pdsch_pdu->pdu_length == 0) {
+  if (!pdsch_pdu->ack_nack || pdsch_pdu->Pdu_length == 0) {
     LOG_W(NR_MAC,
           "[%04d.%02d][UE %d] PCCH RX fail: ack=%d len=%d\n",
           dl_info->frame,
           dl_info->slot,
           mac->ue_id,
           pdsch_pdu->ack_nack,
-          pdsch_pdu->pdu_length);
+          pdsch_pdu->Pdu_length);
     return 0;
   }
 
@@ -159,8 +159,8 @@ static int8_t handle_pcch(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_in
         dl_info->frame,
         dl_info->slot,
         mac->ue_id,
-        pdsch_pdu->pdu_length);
-  send_pcch_rrc(mac->ue_id, pdsch_pdu->pdu, pdsch_pdu->pdu_length, NULL);
+        pdsch_pdu->Pdu_length);
+  send_pcch_rrc(mac->ue_id, pdsch_pdu->Pdu, pdsch_pdu->Pdu_length, NULL);
   return 0;
 }
 
@@ -295,8 +295,8 @@ static uint32_t nr_ue_dl_processing(NR_UE_MAC_INST_t *mac, nr_downlink_indicatio
           ret_mask |= (handle_bcch_dlsch(mac,
                                          dl_info->gNB_index,
                                          rx_indication_body.pdsch_pdu.ack_nack,
-                                         rx_indication_body.pdsch_pdu.pdu,
-                                         rx_indication_body.pdsch_pdu.pdu_length,
+                                         rx_indication_body.pdsch_pdu.Pdu,
+                                         rx_indication_body.pdsch_pdu.Pdu_length,
                                          dl_info->hfn,
                                          dl_info->frame,
                                          dl_info->slot)) << FAPI_NR_RX_PDU_TYPE_SIB;

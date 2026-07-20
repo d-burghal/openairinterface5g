@@ -3296,14 +3296,14 @@ static void nr_ue_process_rar(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *d
   ra->t_crnti = 0;
   uint8_t n_subPDUs  = 0;  // number of RAR payloads
   uint8_t n_subheaders = 0;  // number of MAC RAR subheaders
-  uint8_t *dlsch_buffer = dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.pdu;
+  uint8_t *dlsch_buffer = dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.Pdu;
   NR_RA_HEADER_RAPID *rarh = (NR_RA_HEADER_RAPID *) dlsch_buffer; // RAR subheader pointer
   NR_MAC_RAR *rar = (NR_MAC_RAR *) (dlsch_buffer + 1);   // RAR subPDU pointer
   uint8_t preamble_index = ra->ra_PreambleIndex;
   uint16_t rnti = mac->ra.ra_rnti;
 
   T(T_NRUE_MAC_DL_RAR_PDU_WITH_DATA, T_INT(rnti), T_INT(frame), T_INT(slot),
-    T_BUFFER(dlsch_buffer, dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.pdu_length));
+    T_BUFFER(dlsch_buffer, dl_info->rx_ind->rx_indication_body[pdu_id].pdsch_pdu.Pdu_length));
 
   ra->RA_backoff_limit = 0;
   LOG_D(NR_MAC, "[%d.%d]: [UE %d][RAPROC] MAC received RAR (current preamble %d)\n", frame, slot, mac->ue_id, preamble_index);
@@ -4004,8 +4004,8 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
   frame_t frameP = dl_info->frame;
   int slot = dl_info->slot;
   fapi_nr_pdsch_pdu_t *pdsch_pdu = &(dl_info->rx_ind->rx_indication_body + pdu_id)->pdsch_pdu;
-  uint8_t *pduP = pdsch_pdu->pdu;
-  int32_t pdu_len = (int32_t)pdsch_pdu->pdu_length;
+  uint8_t *pduP = pdsch_pdu->Pdu;
+  int32_t pdu_len = (int32_t)pdsch_pdu->Pdu_length;
   uint8_t CC_id = dl_info->cc_id;
   uint8_t done = 0;
   RA_config_t *ra = &mac->ra;
@@ -4016,7 +4016,7 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
 
   T(T_NRUE_MAC_DL_PDU_WITH_DATA, T_INT(mac->crnti), T_INT(frameP), T_INT(slot), T_INT(pdsch_pdu->harq_pid), T_BUFFER(pduP, pdu_len));
 
-  LOG_D(MAC,
+  LOG_I(MAC,
         "[%d.%d]: processing PDU %d (with length %d) of %d total number of PDUs...\n",
         frameP,
         slot,
@@ -4187,7 +4187,7 @@ static void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_
           LOG_W(NR_MAC, "Received PDU for a suspended RB, corresponding to LCID %d. Dropping it.\n", rx_lcid);
           break;
         }
-        LOG_D(NR_MAC, "%4d.%2d : DLSCH -> LCID %d %d bytes\n", frameP, slot, rx_lcid, mac_len);
+        LOG_I(NR_MAC, "%4d.%2d : DLSCH -> LCID %d %d bytes\n", frameP, slot, rx_lcid, mac_len);
         nr_rlc_data_ind_t ind = {.ch = rx_lcid, .buf = pduP + mac_subheader_len, .len = mac_len};
         data_ind[num_data_ind++] = ind;
         DevAssert(num_data_ind < MAX_NUM_DATA_IND);
