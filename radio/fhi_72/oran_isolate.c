@@ -250,7 +250,6 @@ void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
       .nb_tx = ru->nb_tx,
       .rxdataF = ru->common.rxdataF,
       .beam_id = ru->common.beam_id,
-      .prach_buf = NULL,
   };
 
   /* Firstly, process PUSCH packets */
@@ -266,10 +265,9 @@ void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
   }
 
   /* Secondly, process PRACH packets */
-  int f_prach, sl_prach;
-  ret = xran_fh_rx_prach_read_slot(ru->gNB_list[0], &ru_info, &f_prach, &sl_prach);
+  ret = xran_fh_rx_prach_read_slot(ru->gNB_list[0], &ru_info, frame, slot);
   if (ret != 0) {
-    printf("ORAN: %d.%d ORAN_fh_if4p5_south_in ERROR in RX PRACH function \n", f_prach, sl_prach);
+    printf("ORAN: %d.%d ORAN_fh_if4p5_south_in ERROR in RX PRACH function \n", *frame, *slot);
   }
 
   int slots_per_frame = 10 << (ru->openair0_cfg.nr_scs_for_raster);

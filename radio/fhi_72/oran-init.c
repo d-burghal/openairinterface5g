@@ -381,7 +381,7 @@ static void oran_allocate_buffers(void *handle,
   }
 
   xran_5g_fronthault_config(pi->instanceHandle, src, srccp, dst, dstcp, oai_xran_fh_rx_callback, &portInstances->pusch_tag, fh_config->nNumerology[0]);
-  xran_5g_prach_req(pi->instanceHandle, prachdst, prachdstdecomp, oai_xran_fh_rx_prach_callback, &portInstances->prach_tag, fh_config->nNumerology[0]);
+  xran_5g_prach_req(pi->instanceHandle, prachdst, prachdstdecomp, NULL, &portInstances->prach_tag, fh_config->nNumerology[0]);
 }
 
 void *oai_oran_initialize(struct xran_fh_init *xran_fh_init, struct xran_fh_config *xran_fh_config)
