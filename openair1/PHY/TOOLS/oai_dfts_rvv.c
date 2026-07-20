@@ -2,10 +2,20 @@
  * SPDX-License-Identifier: LicenseRef-CSSL-1.0
  */
 
-/* RISC-V is handled by its own sibling oai_dfts_rvv.c (see that file). Keeping
- * RISC-V out of this file lets the x86 implementation evolve (e.g. an AVX2-only
- * rework) without breaking the RISC-V build. */
-#if defined(__x86_64__) || defined(__i386__)
+/* RISC-V DFT/IDFT backend.
+ *
+ * This is the RISC-V sibling of oai_dfts.c (x86) and oai_dfts_neon.c (ARM). It
+ * currently carries the generic (SIMDe-lowered) implementation split out of
+ * oai_dfts.c so that RISC-V keeps a correct dft/idft on both vector and
+ * non-vector builds while the RVV kernels are brought up size-by-size.
+ *
+ * Bring-up plan: replace the per-size dft/idft inner kernels with hand-written
+ * RVV (vsetvl loops, vlseg2/vsseg2 for re/im deinterleave, vwmacc for twiddle
+ * complex-mul), modelled structurally on oai_dfts_neon.c. Each size is validated
+ * byte-exact in the rvv_harness before wiring in. RVV kernels live under the
+ * inner `#ifdef __riscv_vector` guard; the SIMDe fallback below covers builds
+ * whose -march lacks the `v` extension. */
+#if defined(__riscv)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +24,9 @@
 #include <math.h>
 #include <pthread.h>
 #include <execinfo.h>
+#ifdef __riscv_vector
+#include <riscv_vector.h>
+#endif
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
