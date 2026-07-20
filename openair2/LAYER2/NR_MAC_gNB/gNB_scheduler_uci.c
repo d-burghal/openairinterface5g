@@ -1174,7 +1174,6 @@ int nr_acknack_scheduling(gNB_MAC_INST *mac,
   const NR_ServingCellConfigCommon_t *scc = mac->common_channels[CC_id].ServingCellConfigCommon;
   const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
 
-  const int minfbtime = mac->radio_config.minRXTXTIME + NTN_gNB_Koffset;
   const NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
   const frame_structure_t *fs = &mac->frame_structure;
   const int n_slots_frame = fs->numb_slots_frame;
@@ -1194,7 +1193,7 @@ int nr_acknack_scheduling(gNB_MAC_INST *mac,
 
   for (int f = 0; f < fb_size; f++) {
     // can't schedule ACKNACK before minimum feedback time
-    if((pdsch_to_harq_feedback[f] + NTN_gNB_Koffset) < minfbtime)
+    if((pdsch_to_harq_feedback[f] + NTN_gNB_Koffset) < 4)
       continue;
     const int pucch_slot = (slot + pdsch_to_harq_feedback[f] + NTN_gNB_Koffset) % n_slots_frame;
     // check if the slot is UL
