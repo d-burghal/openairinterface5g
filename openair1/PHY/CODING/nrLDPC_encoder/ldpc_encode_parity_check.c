@@ -27,7 +27,11 @@
 #include "ldpc384_simd512_byte.c"
 #endif
 #endif
-#ifdef USE_ALIGNR
+#if defined(__riscv) && defined(__riscv_vector)
+/* RVV build: BG1 kernels are provided by the *_rvv.c includes below; the
+ * simde/alignr BG1 kernels are unused here, so skip them to cut RISC-V compile
+ * time. */
+#elif defined(USE_ALIGNR)
 #include "ldpc384_alignr_byte_128.c"
 #include "ldpc352_alignr_byte_128.c"
 #include "ldpc320_alignr_byte_128.c"
@@ -59,6 +63,7 @@
 #include "ldpc224_byte_128.c"
 #include "ldpc192_byte_128.c"
 #endif
+#if !(defined(__riscv) && defined(__riscv_vector)) /* BG2 simde kernels: unused on RVV (see *_rvv.c below) */
 #include "ldpc_BG2_Zc384_byte.c"
 #include "ldpc_BG2_Zc384_byte_128.c"
 #include "ldpc_BG2_Zc352_byte.c"
@@ -89,6 +94,7 @@
 #include "ldpc_BG2_Zc88_byte.c"
 #include "ldpc_BG2_Zc80_byte.c"
 #include "ldpc_BG2_Zc72_byte.c"
+#endif /* !RVV: end BG2 simde kernels */
 #if defined(__riscv) && defined(__riscv_vector)
 #include "ldpc_BG1_Zc176_byte_rvv.c"
 #include "ldpc_BG1_Zc192_byte_rvv.c"
@@ -130,12 +136,22 @@
 static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, short Zc, int simd_size, int ncols, time_stats_t *tinput_memcpy)
 {
   // For BG1 paths that do not use pre-shifted copies, only one copy is needed.
-#ifdef USE_ALIGNR
+#if defined(__riscv) && defined(__riscv_vector)
+  // The RVV encoder kernels (BG1 and BG2) read only raw logical indices within
+  // the first 2*22*Zc region and never touch the pre-shifted copies, so a single
+  // copy suffices. This avoids a ~simd_size x larger stack VLA (~500 KB for
+  // BG2/Zc384, a stack-overflow risk in small-stack threads) and the pre-shift
+  // memcpy loop below (which is bounded by vla_simd and therefore skipped).
+  int vla_simd = 1;
+#elif defined(USE_ALIGNR)
   int vla_simd = (BG == 1 && Zc >= 176) ? 1 : simd_size;
 #else
   int vla_simd = simd_size;
 #endif
-  unsigned char c[2 * 22 * Zc * vla_simd] __attribute__((aligned(64))); //double size matrix of c
+  // +256 guard: the RVV kernels' source window is otherwise an exact fit
+  // (max read = Zc + maxindex - 1, only ~3 bytes below 2*22*Zc for BG1/Zc384).
+  // The margin gives headroom for a tail vle8 and any future index/LMUL change.
+  unsigned char c[2 * 22 * Zc * vla_simd + 256] __attribute__((aligned(64))); //double size matrix of c
   if (tinput_memcpy)
     start_meas(tinput_memcpy);
   for (int i1 = 0; i1 < ncols; i1++)   {
@@ -146,7 +162,7 @@ static void encode_parity_check_part_optim(uint8_t *cc, uint8_t *d, short BG, sh
   if (BG == 2)
 #endif
   {
-    for (int i1 = 1; i1 < simd_size; i1++) {
+    for (int i1 = 1; i1 < vla_simd; i1++) {  // bounded by vla_simd so it matches the c[] buffer size (skipped when vla_simd==1)
       memcpy(&c[(2 * ncols * Zc * i1)], &c[i1], (2 * ncols * Zc * sizeof(unsigned char)) - i1);
     }
   }
