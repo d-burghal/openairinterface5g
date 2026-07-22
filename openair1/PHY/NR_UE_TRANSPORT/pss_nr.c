@@ -174,7 +174,7 @@ pss_detection_result_t pss_search_time_nr(const pss_search_t *p)
 
   int pss_space[NUMBER_PSS_SEQUENCE+1]={0,1,2,-1};
   if (p->target_Nid_cell != -1) {
-    pss_space[0] = GET_NID2(p->target_Nid_cell);
+    pss_space[0] = p->target_Nid_cell % NUMBER_PSS_SEQUENCE;
     pss_space[1] = -1;
   }
 
