@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <stdint.h>
 #include <sys/epoll.h>
 #include <netdb.h>
 #include <pthread.h>
@@ -41,7 +42,8 @@
 // Simulator role
 typedef enum { ROLE_SERVER = 1, ROLE_CLIENT } role;
 
-#define MAX_NUM_ANTENNAS_TX 8
+#define VRTSIM_MAX_GNB_ANTENNAS OPENAIR0_MAX_ANTENNAS
+#define VRTSIM_MAX_UE_ANTENNAS 4
 #define SAVED_SAMPLES_LEN 256
 #define MAX_NUM_UES MAX_MOBILES_PER_GNB
 
@@ -57,6 +59,21 @@ typedef enum { ROLE_SERVER = 1, ROLE_CLIENT } role;
 #define DEFAULT_CHANNEL_NAME "vrtsim_channel"
 #define DEFAULT_DESCRIPTOR "/tmp/vrtsim_connection"
 #define TPOOL_HLP "Thread pool for channel modelling. Only used if CUDA support is disabled."
+
+static void *vrtsim_aligned_calloc(size_t count, size_t size)
+{
+  AssertFatal(count == 0 || size <= SIZE_MAX / count, "VRTSIM allocation size overflow\n");
+  size_t bytes = count * size;
+  size_t aligned_bytes = (bytes + 31) & ~(size_t)31;
+  if (aligned_bytes == 0)
+    aligned_bytes = 32;
+
+  void *ptr = NULL;
+  int ret = posix_memalign(&ptr, 32, aligned_bytes);
+  AssertFatal(ret == 0 && ptr != NULL, "VRTSIM aligned allocation of %zu bytes failed: %s\n", aligned_bytes, strerror(ret));
+  memset(ptr, 0, bytes);
+  return ptr;
+}
 
 // clang-format off
 #define VRTSIM_PARAMS_DESC \
@@ -440,8 +457,16 @@ static void parse_ue_config(vrtsim_state_t *vrtsim_state)
                   "Invalid antenna format '%s' for UE %d, use e.g. '1x2'\n",
                   antennas,
                   i);
-      AssertFatal(tx_ant > 0 && tx_ant <= MAX_NUM_ANTENNAS_TX, "Invalid TX antenna count %d for UE %d\n", tx_ant, i);
-      AssertFatal(rx_ant > 0 && rx_ant <= MAX_NUM_ANTENNAS_TX, "Invalid RX antenna count %d for UE %d\n", rx_ant, i);
+      AssertFatal(tx_ant > 0 && tx_ant <= VRTSIM_MAX_UE_ANTENNAS,
+                  "Invalid TX antenna count %d for UE %d, expected 1..%d\n",
+                  tx_ant,
+                  i,
+                  VRTSIM_MAX_UE_ANTENNAS);
+      AssertFatal(rx_ant > 0 && rx_ant <= VRTSIM_MAX_UE_ANTENNAS,
+                  "Invalid RX antenna count %d for UE %d, expected 1..%d\n",
+                  rx_ant,
+                  i,
+                  VRTSIM_MAX_UE_ANTENNAS);
       vrtsim_state->ue_conf[i].tx_ant = tx_ant;
       vrtsim_state->ue_conf[i].rx_ant = rx_ant;
     } else {
@@ -683,7 +708,17 @@ static int vrtsim_connect(openair0_device_t *device)
         }
         LOG_A(HW, "VRTSIM: Multi-UE channel taps via CIR DB\n");
       } else {
-        vrtsim_state->cirdb_providers[0] = cirdb_connect(device->openair0_cfg[0].tx_num_channels, vrtsim_state->peer_rx_ant, &sel, &vrtsim_state->channel_desc[0]);
+        cirdb_select_opts_t single_sel = sel;
+        if (vrtsim_state->role == ROLE_SERVER && vrtsim_state->num_ues == 1) {
+          single_sel.want_model_id = vrtsim_state->ue_conf[0].cir_conf.model_id;
+          single_sel.want_ds_ns = vrtsim_state->ue_conf[0].cir_conf.ds_ns;
+          single_sel.want_speed_mps = vrtsim_state->ue_conf[0].cir_conf.speed_mps;
+          single_sel.want_aoa_deg = (float)vrtsim_state->ue_conf[0].cir_conf.aoa_deg;
+        }
+        vrtsim_state->cirdb_providers[0] = cirdb_connect(device->openair0_cfg[0].tx_num_channels,
+                                                         vrtsim_state->peer_rx_ant,
+                                                         &single_sel,
+                                                         &vrtsim_state->channel_desc[0]);
         LOG_A(HW, "VRTSIM: channel taps via CIR DB\n");
       }
     } else {
@@ -727,7 +762,7 @@ static int vrtsim_write_with_chanmod(vrtsim_state_t *vrtsim_state,
                                      int nbAnt)
 {
   // Sample history for channel impulse response
-  static c16_t saved_samples[MAX_NUM_ANTENNAS_TX][SAVED_SAMPLES_LEN] __attribute__((aligned(32))) = {0};
+  static c16_t saved_samples[VRTSIM_MAX_GNB_ANTENNAS][SAVED_SAMPLES_LEN] __attribute__((aligned(32))) = {0};
   if (vrtsim_state->use_cirdb) {
     double seconds = (double)timestamp / vrtsim_state->sample_rate;
     uint64_t elapsed_ns = (uint64_t)(seconds * 1e9 + 0.5);
@@ -771,19 +806,22 @@ static int vrtsim_write_with_chanmod(vrtsim_state_t *vrtsim_state,
                 "Need to ensure at least %ld samples are saved between calls\n",
                 channel_length - 1);
 
-    cf_t channel_impulse_response[nb_rx * nb_tx][channel_length] __attribute__((aligned(32)));
-    cf_t *channel_impulse_response_p[nb_rx * nb_tx] __attribute__((aligned(32)));
+    const size_t num_links = (size_t)nb_rx * nb_tx;
+    cf_t *channel_impulse_response = NULL;
+    cf_t **channel_impulse_response_p = vrtsim_aligned_calloc(num_links, sizeof(*channel_impulse_response_p));
     int channel_index = 0;
     if (!vrtsim_state->taps_socket && !vrtsim_state->use_cirdb) {
+      channel_impulse_response = vrtsim_aligned_calloc(num_links * channel_length, sizeof(*channel_impulse_response));
       const float pathloss_linear = powf(10, chan_desc->path_loss_dB / 20.0);
       for (int aarx = 0; aarx < nb_rx; aarx++) {
         for (int aatx = 0; aatx < nb_tx; aatx++) {
           const cf_t *channelModel = chan_desc->ch_ps[aarx + (aatx * chan_desc->nb_rx)];
+          cf_t *impulse_response = &channel_impulse_response[(size_t)channel_index * channel_length];
           for (int i = 0; i < channel_length; i++) {
-            channel_impulse_response[channel_index][i].r = channelModel[i].r * pathloss_linear;
-            channel_impulse_response[channel_index][i].i = channelModel[i].i * pathloss_linear;
+            impulse_response[i].r = channelModel[i].r * pathloss_linear;
+            impulse_response[i].i = channelModel[i].i * pathloss_linear;
           }
-          channel_impulse_response_p[channel_index] = channel_impulse_response[channel_index];
+          channel_impulse_response_p[channel_index] = impulse_response;
           channel_index++;
         }
       }
@@ -795,16 +833,16 @@ static int vrtsim_write_with_chanmod(vrtsim_state_t *vrtsim_state,
         }
       }
     }
-    c16_t output[nb_rx][nsamps] __attribute__((aligned(32)));
-    c16_t *output_ptr[nb_rx] __attribute__((aligned(32)));
+    c16_t *output = vrtsim_aligned_calloc((size_t)nb_rx * nsamps, sizeof(*output));
+    c16_t **output_ptr = vrtsim_aligned_calloc(nb_rx, sizeof(*output_ptr));
     for (int aarx = 0; aarx < nb_rx; aarx++) {
-      output_ptr[aarx] = output[aarx];
+      output_ptr[aarx] = &output[(size_t)aarx * nsamps];
     }
-    c16_t *input_ptr[nb_tx] __attribute__((aligned(32)));
+    c16_t **input_ptr = vrtsim_aligned_calloc(nb_tx, sizeof(*input_ptr));
     for (int i = 0; i < nb_tx; i++) {
       input_ptr[i] = samplesVoid[i];
     }
-    c16_t *saved_samples_ptr[nb_tx] __attribute__((aligned(32)));
+    c16_t **saved_samples_ptr = vrtsim_aligned_calloc(nb_tx, sizeof(*saved_samples_ptr));
     for (int i = 0; i < nb_tx; i++) {
       saved_samples_ptr[i] = &saved_samples[i][SAVED_SAMPLES_LEN - (channel_length - 1)];
     }
@@ -841,8 +879,14 @@ static int vrtsim_write_with_chanmod(vrtsim_state_t *vrtsim_state,
 #endif
 
     for (int aarx = 0; aarx < nb_rx; aarx++) {
-      vrtsim_write_internal(vrtsim_state, timestamp, output[aarx], nsamps, rx_antenna_offset + aarx);
+      vrtsim_write_internal(vrtsim_state, timestamp, &output[(size_t)aarx * nsamps], nsamps, rx_antenna_offset + aarx);
     }
+    free(saved_samples_ptr);
+    free(input_ptr);
+    free(output_ptr);
+    free(output);
+    free(channel_impulse_response_p);
+    free(channel_impulse_response);
     rx_antenna_offset += nb_rx;
   }
 
@@ -870,10 +914,10 @@ static int vrtsim_write(openair0_device_t *device,
                         int flags)
 {
   AssertFatal(nsamps > 0, "Number of samples must be greater than 0\n");
-  AssertFatal(nbAnt > 0 && nbAnt <= MAX_NUM_ANTENNAS_TX,
+  AssertFatal(nbAnt > 0 && nbAnt <= VRTSIM_MAX_GNB_ANTENNAS,
               "Number of antennas %d must be between 1 and %d\n",
               nbAnt,
-              MAX_NUM_ANTENNAS_TX);
+              VRTSIM_MAX_GNB_ANTENNAS);
   AssertFatal(timestamp >= 0, "Timestamp must be non-negative, got %ld\n", timestamp);
   timestamp -= device->openair0_cfg->command_line_sample_advance;
   vrtsim_state_t *vrtsim_state = (vrtsim_state_t *)device->priv;

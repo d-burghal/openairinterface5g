@@ -73,6 +73,7 @@ void fh_if5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
   ru->ifdevice.trx_write_func2(&ru->ifdevice, timestamp, buffs, 0, get_samples_per_slot(slot, ru->nr_frame_parms), 0, ru->nb_tx);
 }
 
+
 /*************************************************************/
 /* Input Fronthaul from south RCC/RAU                        */
 
@@ -415,8 +416,12 @@ void fill_rf_config(RU_t *ru, char *rf_config_file)
 
   cfg->configFilename = rf_config_file;
 
-  AssertFatal(ru->nb_tx > 0 && ru->nb_tx <= 8, "openair0 does not support more than 8 antennas\n");
-  AssertFatal(ru->nb_rx > 0 && ru->nb_rx <= 8, "openair0 does not support more than 8 antennas\n");
+  AssertFatal(ru->nb_tx > 0 && ru->nb_tx <= OPENAIR0_MAX_ANTENNAS,
+              "openair0 does not support more than %d antennas\n",
+              OPENAIR0_MAX_ANTENNAS);
+  AssertFatal(ru->nb_rx > 0 && ru->nb_rx <= OPENAIR0_MAX_ANTENNAS,
+              "openair0 does not support more than %d antennas\n",
+              OPENAIR0_MAX_ANTENNAS);
 
   cfg->num_rb_dl = N_RB;
   cfg->tx_num_channels = ru->nb_tx;
@@ -1206,4 +1211,3 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
   } // j=0..num_rus
   return;
 }
-
