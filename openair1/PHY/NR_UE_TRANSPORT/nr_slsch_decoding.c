@@ -274,11 +274,14 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
     harq_process->harq_to_be_cleared = false;
   }
 
-  int ret_decoder = UE->nrLDPC_coding_interface.nrLDPC_coding_decoder(&slot_parameters);
+  // nrLDPC_coding_decoder() always returns 0 and signals per-segment success via
+  // decodeSuccess; count the successfully decoded segments here so the caller can
+  // tell whether the transport block was received correctly.
+  UE->nrLDPC_coding_interface.nrLDPC_coding_decoder(&slot_parameters);
 
   // post decode
 
-
+  int nb_decoded_segments = 0;
   uint32_t offset = 0;
   for (int r = 0; r < TB.C; r++) {
     nrLDPC_segment_decoding_parameters_t nrLDPC_segment_decoding_parameters = TB.segments[r];
@@ -287,6 +290,7 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
       memcpy(harq_process->b + offset,
              harq_process->c[r],
              (harq_process->K >> 3) - (harq_process->F >> 3) - ((harq_process->C > 1) ? 3 : 0));
+      nb_decoded_segments++;
     } else {
       LOG_D(PHY, "sidelink segment error %d/%d\n", r, harq_process->C);
       LOG_D(PHY, "SLSCH %d in error\n", SLSCH_id);
@@ -295,5 +299,7 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
 
   }
 
-  return ret_decoder;
+  // Return the number of correctly decoded code segments (== C on full success,
+  // 0 on failure) so nr_slsch_procedures()' nbDecode>0 test is meaningful.
+  return nb_decoded_segments;
 }
