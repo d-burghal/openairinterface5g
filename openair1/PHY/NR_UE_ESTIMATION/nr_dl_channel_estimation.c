@@ -525,9 +525,6 @@ c32_t nr_pbch_dmrs_correlation(const NR_DL_FRAME_PARMS *fp,
   AssertFatal(dmrss >= 0 && dmrss < 3, "symbol %d is illegal for PBCH DM-RS \n", dmrss);
 
   unsigned int ssb_offset = fp->first_carrier_offset + ssb_start_subcarrier;
-  if (ssb_offset >= fp->ofdm_symbol_size)
-    ssb_offset -= fp->ofdm_symbol_size;
-
   unsigned int k = Nid_cell % 4;
 
   DEBUG_PBCH("PBCH DMRS Correlation : OFDM size %d, Ncp=%d, k=%u symbol %d\n",
@@ -542,9 +539,11 @@ c32_t nr_pbch_dmrs_correlation(const NR_DL_FRAME_PARMS *fp,
   nr_pbch_dmrs_rx(dmrss, (uint32_t *)nr_gold_pbch, pilot, false);
   c32_t computed_val = {0};
   for (int aarx = 0; aarx < fp->nb_antennas_rx; aarx++) {
-    int re_offset = ssb_offset;
+    int re_offset = ssb_offset + k;
+    if (re_offset >= fp->ofdm_symbol_size)
+      re_offset -= fp->ofdm_symbol_size;
     c16_t *pil = pilot;
-    const c16_t *rxF = &rxdataF[aarx][k];
+    const c16_t *rxF = rxdataF[aarx];
 
     DEBUG_PBCH("pbch ch est pilot RB_DL %d\n", fp->N_RB_DL);
     DEBUG_PBCH("k %u, first_carrier %d\n", k, fp->first_carrier_offset);
@@ -633,10 +632,6 @@ int nr_pbch_channel_estimation(const NR_DL_FRAME_PARMS *fp,
     num_rbs = 20;
   }
 
-  unsigned int ssb_offset = fp->first_carrier_offset + ssb_start_subcarrier;
-  if (ssb_offset >= fp->ofdm_symbol_size)
-    ssb_offset -= fp->ofdm_symbol_size;
-
   const int k = nushift;
 
   DEBUG_PBCH("PBCH Channel Estimation : gNB_id %d, OFDM size %d, Ncp=%d, Ns=%d, k=%d\n",
@@ -683,9 +678,13 @@ int nr_pbch_channel_estimation(const NR_DL_FRAME_PARMS *fp,
   // Note: pilot returned by the following function is already the complex conjugate of the transmitted DMRS
   nr_pbch_dmrs_rx(dmrss, gold_seq, pilot, sidelink);
 
+  unsigned int ssb_offset = fp->first_carrier_offset + ssb_start_subcarrier;
   int re_offset = ssb_offset;
+  if (re_offset >= fp->ofdm_symbol_size)
+    re_offset -= fp->ofdm_symbol_size;
+
   const c16_t *pil = pilot;
-  const c16_t *rxF = rxdataF + k;
+  const c16_t *rxF = rxdataF;
   c16_t *dl_ch = dl_ch_estimates;
 
   memset(dl_ch, 0, sizeof(c16_t) * fp->ofdm_symbol_size);
