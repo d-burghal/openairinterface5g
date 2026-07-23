@@ -659,13 +659,6 @@ void nr_pdcch_dci_indication(const UE_nr_rxtx_proc_t *proc,
                                         llr_stride,
 					sci_indication);
 
-      if (sci_indication) {
-        long le = 0, ee = 0;
-        for (int i = 0; i < llr_size; i++) le += (long)llr[ss_idx][m][i].r*llr[ss_idx][m][i].r + (long)llr[ss_idx][m][i].i*llr[ss_idx][m][i].i;
-        for (int i = 0; i < n_rb*rel15->coreset.duration*RE_PER_RB_OUT_DMRS; i++) ee += (long)pdcch_e_rx[i].r*pdcch_e_rx[i].r + (long)pdcch_e_rx[i].i*pdcch_e_rx[i].i;
-        printf("[SCISIM-DBG] demap: llr_size=%d llr_stride=%d n_rb=%d cset_start=%d dur=%d | llr energy=%ld e_rx energy=%ld\n",
-               llr_size, llr_stride, n_rb, cset_start, rel15->coreset.duration, le, ee);
-      }
       nr_dci_decoding_procedure(proc, pdcch_e_rx, rel15, sci_indication ? (fapi_nr_dci_indication_t*)NULL : &dci_ind, sci_indication ? &sci_ind : (sl_nr_sci_indication_t*)NULL,NULL);
     }
   }
