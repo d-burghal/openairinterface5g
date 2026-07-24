@@ -84,7 +84,7 @@ uint32_t nr_generate_sci(PHY_VARS_NR_UE *ue,
     uint32_t dmrs_length = (n_rb+pdcch_pdu_rel15->BWPStart)*6; //2(QPSK)*3(per RB)*6(REG per CCE)
     uint32_t encoded_length = dci_pdu->AggregationLevel*18; //2(QPSK)*9(per RB) for SCI
     if (dci_pdu->RNTI != 0xFFFF)
-      LOG_A(PHY, "SCI : rb_offset %d, nb_rb %d, DMRS length per symbol %d\t SCI encoded length %d (precoder_granularity %d, reg_mapping %d), Scrambling_Id %d, ScramblingRNTI %x, PayloadSizeBits %d\n",
+      LOG_D(PHY, "SCI : rb_offset %d, nb_rb %d, DMRS length per symbol %d\t SCI encoded length %d (precoder_granularity %d, reg_mapping %d), Scrambling_Id %d, ScramblingRNTI %x, PayloadSizeBits %d\n",
             rb_offset, n_rb,dmrs_length, encoded_length,pdcch_pdu_rel15->precoderGranularity,pdcch_pdu_rel15->CceRegMappingType,
             dci_pdu->ScramblingId,dci_pdu->ScramblingRNTI,dci_pdu->PayloadSizeBits);
     dmrs_length += rb_offset*6; // To accommodate more DMRS symbols in case of rb offset

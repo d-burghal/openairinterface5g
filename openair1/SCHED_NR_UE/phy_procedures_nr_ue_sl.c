@@ -891,44 +891,6 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
     // (MSB-first over the slot), not StartSymbolIndex; PSCCH is monitored from symbol 1
     rel15->coreset.StartSymbolBitmap = 1 << (fp->symbols_per_slot - 1 - 1);
     phy_data->phy_pdcch_config.nb_search_space = 1;
-
-    // DEBUG: is there any energy in the received time-domain slot we are about to
-    // demodulate? If this is ~0 the receiver is not getting the transmitted signal
-    // (RF/timing/slot problem) rather than a decode problem.
-    {
-      const uint32_t slot_offset = get_samples_slot_timestamp(fp, nr_slot_rx);
-      const uint32_t slot_len = get_samples_per_slot(nr_slot_rx, fp);
-      for (int aa = 0; aa < fp->nb_antennas_rx; aa++) {
-        int32_t e = signal_energy((int32_t *)&ue->common_vars.rxdata[aa][slot_offset], slot_len);
-        if (e > 0)
-        LOG_A(NR_PHY,
-              "(%d.%d) PSCCH RX ant%d: rxdata time-domain slot energy %d (%d dB), offset %u len %u | Nid=%u startrb=%u numrbs=%u numsym=%u sci_len=%u\n",
-              frame_rx, nr_slot_rx, aa, e, dB_fixed(e), slot_offset, slot_len,
-              phy_data->nr_sl_pscch_pdu.pscch_dmrs_scrambling_id,
-              phy_data->nr_sl_pscch_pdu.pscch_startrb,
-              phy_data->nr_sl_pscch_pdu.pscch_numrbs,
-              phy_data->nr_sl_pscch_pdu.pscch_numsym,
-              phy_data->nr_sl_pscch_pdu.sci_1a_length);
-      }
-    }
-
-    // DEBUG: nr_rx_pdcch_symbol()/nr_pdcch_channel_estimation() do PSCCH channel
-    // estimation and RE extraction against ue->frame_parms (the DL grid), while the
-    // signal was transmitted/demodulated on the SL grid. If these differ, the DMRS
-    // pilots are read from the wrong subcarriers. (scisim can't catch this because
-    // it memcpy()s the DL frame params into the SL ones.)
-    {
-      const NR_DL_FRAME_PARMS *dl = &ue->frame_parms;
-      LOG_A(NR_PHY,
-            "(%d.%d) PSCCH RX grid: SL[N_RB_DL=%d ofdm=%d fco=%d scs=%d Ncp=%d symb/slot=%d] "
-            "vs ue->frame_parms[N_RB_DL=%d ofdm=%d fco=%d scs=%d Ncp=%d symb/slot=%d]%s\n",
-            frame_rx, nr_slot_rx,
-            fp->N_RB_DL, fp->ofdm_symbol_size, fp->first_carrier_offset, fp->subcarrier_spacing, fp->Ncp, fp->symbols_per_slot,
-            dl->N_RB_DL, dl->ofdm_symbol_size, dl->first_carrier_offset, dl->subcarrier_spacing, dl->Ncp, dl->symbols_per_slot,
-            (fp->ofdm_symbol_size != dl->ofdm_symbol_size || fp->first_carrier_offset != dl->first_carrier_offset
-             || fp->N_RB_DL != dl->N_RB_DL) ? "  <<< MISMATCH: PSCCH chest reads the wrong grid" : "");
-    }
-
     pdcch_processing(ue, proc, phy_data,1);
 
     LOG_D(NR_PHY,"returned from pscch processing\n");
@@ -1113,18 +1075,6 @@ void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc
            phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH) {
       LOG_I(NR_PHY, "(%d.%d) Sending %s\n", frame_tx, slot_tx, sl_tx_actions[phy_data->sl_tx_action - SL_NR_CONFIG_TYPE_TX_PSBCH]);
     phy_data->pscch_Nid = nr_generate_sci1(ue, txdataF[0], fp, AMP, slot_tx, &phy_data->nr_sl_pssch_pscch_pdu) &0xFFFF;
-    // DEBUG: dump the transmitted SCI-1A so it can be compared with the receiver.
-    // dmrs_gold_id is the id the TX PSCCH DMRS sequence was built with
-    // (sl_config.sl_DMRS_ScrambleId); it MUST equal the RX coreset.pdcch_dmrs_scrambling_id.
-    {
-      const sl_nr_tx_config_pscch_pssch_pdu_t *t = &phy_data->nr_sl_pssch_pscch_pdu;
-      LOG_I(NR_PHY,
-            "(%d.%d) TX PSCCH SCI-1A: Nid=%u dmrs_gold_id=%u data_scr_id=%u startrb=%u numrbs=%u numsym=%u sci_len=%u payload=0x%llx\n",
-            frame_tx, slot_tx, phy_data->pscch_Nid,
-            ue->SL_UE_PHY_PARAMS.sl_config.sl_DMRS_ScrambleId, t->pscch_dmrs_scrambling_id,
-            t->startrb, t->pscch_numrbs, t->pscch_numsym, t->pscch_sci_payload_len,
-            (unsigned long long)(*(const uint64_t *)t->pscch_sci_payload));
-    }
     nr_ue_slsch_procedures(ue, phy_data->nr_sl_pssch_pscch_pdu.harq_pid, frame_tx, slot_tx, phy_data, txdataF);
 
     sl_phy_params->pscch.num_pscch_tx ++;
