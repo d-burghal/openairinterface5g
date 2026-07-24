@@ -375,6 +375,22 @@ static void nr_rx_pdcch_symbol(PHY_VARS_NR_UE *ue,
   int avgs = avg[0];
   for (int i = 1; i < fp->nb_antennas_rx; i++)
       avgs = cmax(avgs, avg[i]);
+  // DEBUG (PSCCH/SCI): channel-estimate quality. A strong, consistent chest_ext
+  // energy means the DMRS matched and the front-end is OK, so a decode failure is
+  // a bit-level issue; a weak/erratic one points to a DMRS-id/timing/CFO problem.
+  if (pscch_processing) {
+    const int nre = n_rb * RE_PER_RB_OUT_DMRS;
+    long che = 0, rxe = 0;
+    for (int i = 0; i < nre; i++) {
+      che += (long)pdcch_dl_ch_estimates_ext[0][i].r * pdcch_dl_ch_estimates_ext[0][i].r
+           + (long)pdcch_dl_ch_estimates_ext[0][i].i * pdcch_dl_ch_estimates_ext[0][i].i;
+      rxe += (long)rxdataF_ext[0][i].r * rxdataF_ext[0][i].r
+           + (long)rxdataF_ext[0][i].i * rxdataF_ext[0][i].i;
+    }
+    LOG_I(NR_PHY_DCI,
+          "(%d.%d) PSCCH sym %d: chan_level avgs=%d, chest_ext E=%ld, rxF_ext E=%ld over %d REs (n_rb=%d, dmrs_scr_id=%d)\n",
+          proc->frame_rx, proc->nr_slot_rx, symbol, avgs, che, rxe, nre, n_rb, scrambling_id);
+  }
   const int log2_maxh = (log2_approx(avgs) / 2) + 5; //+frame_parms->nb_antennas_rx;
   int rx_comp_sz = ceil_mod(llr_size_symbol, 4);
   __attribute__((aligned(32))) c16_t rxdataF_comp[fp->nb_antennas_rx][rx_comp_sz];
@@ -601,13 +617,16 @@ static void nr_dci_decoding_procedure(const UE_nr_rxtx_proc_t *proc,
 	}	
         break;    // If DCI is found, no need to check for remaining DCI lengths
       } else {
-        LOG_D(NR_PHY_DCI,
-              "(%i.%i) Decoded crc %x does not match rnti %x for DCI format %d\n",
+        LOG_I(NR_PHY_DCI,
+              "(%i.%i) Decoded %s crc %x does not match rnti %x for format %d (payloadSize %d, decoded payload %llx)\n",
               proc->frame_rx,
               proc->nr_slot_rx,
+              sci_ind ? "SCI" : "DCI",
               crc,
               n_rnti,
-              rel15->dci_format_options[k]);
+              rel15->dci_format_options[k],
+              dci_length,
+              *(unsigned long long *)dci_estimation);
       }
     }
     e_rx_cand_idx += RE_PER_RB_OUT_DMRS * L * 6; // e_rx index for next candidate (L CCEs, 6 REGs per CCE and 9 REs per REG )
