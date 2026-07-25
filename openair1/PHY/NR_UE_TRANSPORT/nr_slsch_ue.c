@@ -190,7 +190,13 @@ void nr_ue_slsch_procedures(PHY_VARS_NR_UE *UE,
 
   if (nr_ulsch_encoding(UE, ulsch_ue, pscch_pssch_pdu,harq_pid, frame, slot , &G, 1, &ULSCH_ids) == -1)
     return;
- 
+
+  // DEBUG: CRC over the transmitted SLSCH transport block, to compare with the
+  // value the receiver logs after decoding (same crc24c over harq_process->b).
+  LOG_I(NR_PHY, "SLSCH ENCODE %d.%d: harq %d tb_size %d G %u TB-crc24c=0x%06x\n",
+        frame, slot, harq_pid, pscch_pssch_pdu->tb_size, G,
+        crc24c(harq_process_ul_ue->payload_AB, pscch_pssch_pdu->tb_size << 3) >> 8);
+
   
   uint32_t sci2_encoded_output[sci2_re*2];
   

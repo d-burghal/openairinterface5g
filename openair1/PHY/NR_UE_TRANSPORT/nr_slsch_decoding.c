@@ -292,11 +292,24 @@ int nr_slsch_decoding(struct PHY_VARS_NR_UE_s *UE,
              (harq_process->K >> 3) - (harq_process->F >> 3) - ((harq_process->C > 1) ? 3 : 0));
       nb_decoded_segments++;
     } else {
-      LOG_D(PHY, "sidelink segment error %d/%d\n", r, harq_process->C);
-      LOG_D(PHY, "SLSCH %d in error\n", SLSCH_id);
+      LOG_I(PHY, "sidelink segment error %d/%d\n", r, harq_process->C);
+      LOG_I(PHY, "SLSCH %d in error\n", SLSCH_id);
     }
     offset += ((harq_process->K >> 3) - (harq_process->F >> 3) - ((harq_process->C > 1) ? 3 : 0));
 
+  }
+
+  // DEBUG: CRC over the decoded SLSCH transport block, to compare with the value
+  // the transmitter logs (same crc24c over the TB). They match iff the TB was
+  // recovered correctly; when decoding fails, harq_process->b is garbage so the
+  // CRC will not match.
+  {
+    int nok = 0;
+    for (int r = 0; r < TB.C; r++)
+      if (TB.segments[r].decodeSuccess) nok++;
+    LOG_I(PHY, "SLSCH DECODE %d.%d: harq %d tb_size %d G %u segments ok %d/%d TB-crc24c=0x%06x\n",
+          frame, nr_tti_rx, harq_pid, TBS, TB.G, nok, TB.C,
+          crc24c(harq_process->b, TBS << 3) >> 8);
   }
 
   // Return the number of correctly decoded code segments (== C on full success,

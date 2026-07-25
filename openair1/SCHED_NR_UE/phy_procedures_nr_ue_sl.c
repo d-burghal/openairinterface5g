@@ -461,7 +461,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue, int frame_rx, int slot_rx, int SLSCH
               number_dmrs_symbols, // number of dmrs symbols irrespective of single or double symbol dmrs
               pssch_pdu->mod_order,
               pssch_pdu->num_layers);
-  LOG_D(NR_PHY,"slot %d rb_size %d, number_symbols %d, nb_re_dmrs %d, dmrs symbol positions %d, number_dmrs_symbols %d, qam_mod_order %d, nrOfLayer %d\n",
+  LOG_I(NR_PHY,"slot %d rb_size %d, number_symbols %d, nb_re_dmrs %d, dmrs symbol positions %d, number_dmrs_symbols %d, qam_mod_order %d, nrOfLayer %d\n",
         slot_rx,
         rb_size,
         number_symbols,
@@ -470,6 +470,14 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue, int frame_rx, int slot_rx, int SLSCH
         number_dmrs_symbols, // number of dmrs symbols irrespective of single or double symbol dmrs
         pssch_pdu->mod_order,
         pssch_pdu->num_layers);
+  // Compare the RX PSSCH allocation with the TX side. rb_size uses num_subch (pool
+  // total); the TX uses l_subch (SCI-signalled grant, l_subch*subchannel_size). They
+  // must match -- if num_subch != l_subch the RX reads the wrong RBs.
+  LOG_I(NR_PHY,
+        "PSSCH alloc RX: startrb=%d subchannel_size=%d num_subch=%d l_subch=%d => rb_size(num_subch*sc)=%d vs l_subch*sc=%d | tb_size=%d numsym=%d pscch_numsym=%d\n",
+        pssch_pdu->startrb, pssch_pdu->subchannel_size, pssch_pdu->num_subch, pssch_pdu->l_subch,
+        pssch_pdu->num_subch * pssch_pdu->subchannel_size, pssch_pdu->l_subch * pssch_pdu->subchannel_size,
+        slsch_pdu->tb_size, number_symbols, pssch_pdu->pscch_numsym);
 
   //----------------------------------------------------------
   //--------------------- SLSCH decoding ---------------------
@@ -510,7 +518,7 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue, int frame_rx, int slot_rx, int SLSCH
   slsch_status.TBS = slsch_pdu->tb_size;
   slsch_status.harq_pid =  harq_pid;
   slsch_status.rxok = nbDecode>0 ? true : false;
-  LOG_D(NR_PHY, "%4d.%2d SLSCH %s received ok \n", proc->frame_rx, proc->nr_slot_rx,nbDecode>0 ? "" : "not");
+  LOG_I(NR_PHY, "%4d.%2d SLSCH %s received ok \n", proc->frame_rx, proc->nr_slot_rx,nbDecode>0 ? "" : "not");
   sl_rx_indication.sfn = proc->frame_rx;
   sl_rx_indication.slot = proc->nr_slot_rx;
   sl_rx_indication.rx_indication_body[0].rx_slsch_pdu.ack_nack_rcvd = (uint8_t*)calloc(num_acks, sizeof(uint8_t));
@@ -1073,8 +1081,16 @@ void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc
   }
   else if (phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH ||
            phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH_PSFCH) {
-      LOG_I(NR_PHY, "(%d.%d) Sending %s\n", frame_tx, slot_tx, sl_tx_actions[phy_data->sl_tx_action - SL_NR_CONFIG_TYPE_TX_PSBCH]);
     phy_data->pscch_Nid = nr_generate_sci1(ue, txdataF[0], fp, AMP, slot_tx, &phy_data->nr_sl_pssch_pscch_pdu) &0xFFFF;
+      LOG_I(NR_PHY, "(%d.%d) Sending %s, pscch_NID %d\n", frame_tx, slot_tx, sl_tx_actions[phy_data->sl_tx_action - SL_NR_CONFIG_TYPE_TX_PSBCH], phy_data->pscch_Nid);
+    {
+      const sl_nr_tx_config_pscch_pssch_pdu_t *t = &phy_data->nr_sl_pssch_pscch_pdu;
+      LOG_I(NR_PHY,
+            "PSSCH alloc TX: startrb=%d subchannel_size=%d num_subch=%d l_subch=%d => rb_size=%d | tb_size=%d pssch_numsym=%d startsym=%d dmrs_pos=%d mcs=%d\n",
+            t->startrb, t->subchannel_size, t->num_subch, t->l_subch, t->l_subch * t->subchannel_size,
+            t->tb_size, t->pssch_numsym, t->pssch_startsym, t->dmrs_symbol_position, t->mcs);
+    }
+
     nr_ue_slsch_procedures(ue, phy_data->nr_sl_pssch_pscch_pdu.harq_pid, frame_tx, slot_tx, phy_data, txdataF);
 
     sl_phy_params->pscch.num_pscch_tx ++;
