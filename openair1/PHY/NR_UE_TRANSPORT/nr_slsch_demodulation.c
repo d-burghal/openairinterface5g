@@ -908,9 +908,11 @@ void nr_rx_pssch(PHY_VARS_NR_UE *ue,
                                                   pssch_pdu->sci2_len,
                                                   sci2_re);
 	       // send SCI indication with SCI2 payload and get SLSCH information if CRC is OK
-	       LOG_D(NR_PHY,"SCI indication (crc %x)\n",crc);
-	       if (crc==0) ue->SL_UE_PHY_PARAMS.pssch.rx_sci2_ok++;   
-	       else        ue->SL_UE_PHY_PARAMS.pssch.rx_sci2_errors++;   
+	       LOG_I(NR_PHY,"SCI2 DECODE %d.%d: crc=%x (%s) Nid=%d sci2_len=%d sci2_re=%d payload=0x%llx\n",
+	             frame, slot, crc, crc == 0 ? "OK" : "FAIL", pssch_pdu->Nid,
+	             pssch_pdu->sci2_len, sci2_re, (unsigned long long)sci_estimation[0]);
+	       if (crc==0) ue->SL_UE_PHY_PARAMS.pssch.rx_sci2_ok++;
+	       else        ue->SL_UE_PHY_PARAMS.pssch.rx_sci2_errors++;
 	       sl_nr_sci_indication_t sci_ind={0}; 
                sci_ind.sfn = frame;
                sci_ind.slot = slot;

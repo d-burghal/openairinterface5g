@@ -474,10 +474,11 @@ int nr_slsch_procedures(PHY_VARS_NR_UE *ue, int frame_rx, int slot_rx, int SLSCH
   // total); the TX uses l_subch (SCI-signalled grant, l_subch*subchannel_size). They
   // must match -- if num_subch != l_subch the RX reads the wrong RBs.
   LOG_I(NR_PHY,
-        "PSSCH alloc RX: startrb=%d subchannel_size=%d num_subch=%d l_subch=%d => rb_size(num_subch*sc)=%d vs l_subch*sc=%d | tb_size=%d numsym=%d pscch_numsym=%d\n",
+        "PSSCH alloc RX: startrb=%d subchannel_size=%d num_subch=%d l_subch=%d => rb_size(num_subch*sc)=%d vs l_subch*sc=%d | tb_size=%d numsym=%d pscch_numsym=%d G=%u mcs=%d mcs_table=%d Qm=%d rv=%d ndi=%d harq_pid=%d\n",
         pssch_pdu->startrb, pssch_pdu->subchannel_size, pssch_pdu->num_subch, pssch_pdu->l_subch,
         pssch_pdu->num_subch * pssch_pdu->subchannel_size, pssch_pdu->l_subch * pssch_pdu->subchannel_size,
-        slsch_pdu->tb_size, number_symbols, pssch_pdu->pscch_numsym);
+        slsch_pdu->tb_size, number_symbols, pssch_pdu->pscch_numsym,
+        G, slsch_pdu->mcs, slsch_pdu->mcs_table, pssch_pdu->mod_order, slsch_pdu->rv_index, slsch_pdu->ndi, slsch_pdu->harq_pid);
 
   //----------------------------------------------------------
   //--------------------- SLSCH decoding ---------------------
@@ -1086,9 +1087,10 @@ void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc
     {
       const sl_nr_tx_config_pscch_pssch_pdu_t *t = &phy_data->nr_sl_pssch_pscch_pdu;
       LOG_I(NR_PHY,
-            "PSSCH alloc TX: startrb=%d subchannel_size=%d num_subch=%d l_subch=%d => rb_size=%d | tb_size=%d pssch_numsym=%d startsym=%d dmrs_pos=%d mcs=%d\n",
+            "PSSCH alloc TX: startrb=%d subchannel_size=%d num_subch=%d l_subch=%d => rb_size=%d | tb_size=%d pssch_numsym=%d startsym=%d dmrs_pos=%d mcs=%d mcs_table=%d Qm=%d rv=%d ndi=%d harq_pid=%d\n",
             t->startrb, t->subchannel_size, t->num_subch, t->l_subch, t->l_subch * t->subchannel_size,
-            t->tb_size, t->pssch_numsym, t->pssch_startsym, t->dmrs_symbol_position, t->mcs);
+            t->tb_size, t->pssch_numsym, t->pssch_startsym, t->dmrs_symbol_position, t->mcs,
+            t->mcs_table, t->mod_order, t->rv_index, t->ndi, t->harq_pid);
     }
 
     nr_ue_slsch_procedures(ue, phy_data->nr_sl_pssch_pscch_pdu.harq_pid, frame_tx, slot_tx, phy_data, txdataF);
