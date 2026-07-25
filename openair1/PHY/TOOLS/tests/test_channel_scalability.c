@@ -18,6 +18,8 @@
 
 configmodule_interface_t *uniqCfg = NULL;
 
+#define CHANNEL_BENCH_SAMPLE_RATE_MSPS 122.88
+
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assert_not_exit)
 {
   fprintf(stderr, "Exit function called from %s:%d in %s(). Message: %s\n", file, line, function, s);
@@ -126,7 +128,7 @@ int main(int argc, char **argv)
         printf("  -c, --num-channels <N>   Number of parallel channels to simulate (Default: 1)\n");
         printf("  -t, --nb-tx <N>          Number of transmit antennas (Default: 4)\n");
         printf("  -r, --nb-rx <N>          Number of receive antennas (Default: 4)\n");
-        printf("  -s, --num-samples <N>    Number of samples (Default: 30720)\n");
+        printf("  -s, --num-samples <N>    Number of samples (Default: 122880)\n");
         printf("  -l, --ch-len <N>         Channel length (Default: 32)\n");
         printf("  -n, --trials <N>         Number of trials for averaging (Default: 50)\n");
         printf("  -S, --sum-outputs        Enable summation of outputs for interference simulation.\n");
@@ -524,8 +526,17 @@ int main(int argc, char **argv)
   double speedup = (avg_cpu_us > 0 && avg_gpu_us > 0) ? (avg_cpu_us / avg_gpu_us) : 0;
   double avg_cpu_per_channel_us = avg_cpu_us / num_channels;
   double avg_gpu_per_channel_us = avg_gpu_us / num_channels;
-  double total_samples_processed = (double)num_channels * nb_rx * num_samples;
-  double gpu_throughput_gsps = total_samples_processed / (avg_gpu_us * 1000.0);
+  double radio_duration_us = (double)num_samples / CHANNEL_BENCH_SAMPLE_RATE_MSPS;
+  double cpu_realtime_factor = avg_cpu_us > 0 ? radio_duration_us / avg_cpu_us : 0;
+  double gpu_realtime_factor = avg_gpu_us > 0 ? radio_duration_us / avg_gpu_us : 0;
+  double total_output_samples = (double)num_channels * nb_rx * num_samples;
+  double cpu_output_msps = avg_cpu_us > 0 ? total_output_samples / avg_cpu_us : 0;
+  double gpu_output_msps = avg_gpu_us > 0 ? total_output_samples / avg_gpu_us : 0;
+  double total_link_samples = total_output_samples * nb_tx;
+  double cpu_link_msps = avg_cpu_us > 0 ? total_link_samples / avg_cpu_us : 0;
+  double gpu_link_msps = avg_gpu_us > 0 ? total_link_samples / avg_gpu_us : 0;
+  double cpu_cmac_gps = cpu_link_msps * channel_length / 1000.0;
+  double gpu_cmac_gps = gpu_link_msps * channel_length / 1000.0;
   char val_str[30];
 
   printf("\n--- Final Benchmark Results ---\n\n");
@@ -536,17 +547,31 @@ int main(int argc, char **argv)
   snprintf(val_str, sizeof(val_str), "%d x %d", nb_tx, nb_rx);
   printf("| %-32s | %-24s |\n", "MIMO Configuration (Tx x Rx)", val_str);
   printf("| %-32s | %-24d |\n", "Signal Length (Samples)", num_samples);
+  snprintf(val_str, sizeof(val_str), "%.2f", CHANNEL_BENCH_SAMPLE_RATE_MSPS);
+  printf("| %-32s | %-19s %-4s |\n", "Sample Rate Assumption", val_str, "[MSPS]");
+  printf("| %-32s   %-19.2f %-4s |\n", "Radio Duration per Trial", radio_duration_us, "[us]");
   printf("| %-32s | %-24d |\n", "Trials per configuration", num_trials);
   printf("+----------------------------------+--------------------------+\n");
   printf("| %-32s | %-24s |\n", "Performance Metric", "Value");
   printf("+----------------------------------+--------------------------+\n");
-  printf("| %-32s   %-19.2f %-4s |\n", "Total CPU Time", avg_cpu_us, "[us]");
-  printf("| %-32s   %-19.2f %-4s |\n", "Total GPU Time", avg_gpu_us, "[us]");
-  printf("| %-32s   %-19.2f %-4s |\n", "Avg Time per Channel - CPU", avg_cpu_per_channel_us, "[us]");
-  printf("| %-32s   %-19.2f %-4s |\n", "Avg Time per Channel - GPU", avg_gpu_per_channel_us, "[us]");
+  printf("| %-32s   %-19.2f %-4s |\n", "CPU Wall Time per Trial", avg_cpu_us, "[us]");
+  printf("| %-32s   %-19.2f %-4s |\n", "GPU Wall Time per Trial", avg_gpu_us, "[us]");
+  printf("| %-32s   %-19.2f %-4s |\n", "CPU Wall Time per Channel", avg_cpu_per_channel_us, "[us]");
+  printf("| %-32s   %-19.2f %-4s |\n", "GPU Wall Time per Channel", avg_gpu_per_channel_us, "[us]");
   snprintf(val_str, sizeof(val_str), "%.2fx", speedup);
   printf("| %-32s   %-24s |\n", "Speedup (CPU/GPU)", val_str);
-  printf("| %-32s   %-24.3f |\n", "GPU Throughput (GSPS)", gpu_throughput_gsps);
+  snprintf(val_str, sizeof(val_str), "%.2fx", cpu_realtime_factor);
+  printf("| %-32s   %-24s |\n", "CPU Real-Time Factor", val_str);
+  snprintf(val_str, sizeof(val_str), "%.2fx", gpu_realtime_factor);
+  printf("| %-32s   %-24s |\n", "GPU Real-Time Factor", val_str);
+  printf("| %-32s   %-24.3f |\n", "CPU Output Rate [MSPS]", cpu_output_msps);
+  printf("| %-32s   %-24.3f |\n", "GPU Output Rate [MSPS]", gpu_output_msps);
+  printf("| %-32s   %-24.3f |\n", "CPU Link-Sample Rate [MSPS]", cpu_link_msps);
+  printf("| %-32s   %-24.3f |\n", "GPU Link-Sample Rate [MSPS]", gpu_link_msps);
+  printf("| %-32s   %-24.3f |\n", "CPU Complex MAC Rate [G/s]", cpu_cmac_gps);
+  printf("| %-32s   %-24.3f |\n", "GPU Complex MAC Rate [G/s]", gpu_cmac_gps);
+  printf("| %-32s   %-24s |\n", "CPU Meets Radio Budget", cpu_realtime_factor >= 1.0 ? "yes" : "no");
+  printf("| %-32s   %-24s |\n", "GPU Meets Radio Budget", gpu_realtime_factor >= 1.0 ? "yes" : "no");
   printf("+----------------------------------+--------------------------+\n");
 
   free(tx_sig_data);

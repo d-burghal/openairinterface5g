@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 #include <time.h>
 #include <getopt.h>
@@ -19,10 +20,42 @@ extern "C" {
 }
 configmodule_interface_t *uniqCfg = NULL;
 
+static constexpr double sample_rate_msps = 122.88;
+
 extern "C" void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
 {
   fprintf(stderr, "FATAL: %s at %s:%s:%d\n", s, file, function, line);
   exit(EXIT_FAILURE);
+}
+
+static uint64_t monotonic_time_ns()
+{
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+}
+
+static void set_channel_benchmark_counters(benchmark::State &state,
+                                           uint64_t total_wall_ns,
+                                           int nb_tx,
+                                           int nb_rx,
+                                           int num_samples,
+                                           int channel_length)
+{
+  const double iterations = state.iterations();
+  const double slot_wall_us = iterations > 0 ? (double)total_wall_ns / iterations / 1000.0 : 0.0;
+  const double slot_budget_us = (double)num_samples / sample_rate_msps;
+  const double output_msps = slot_wall_us > 0.0 ? (double)num_samples * nb_rx / slot_wall_us : 0.0;
+  const double link_msps = output_msps * nb_tx;
+  const double cmac_gps = link_msps * channel_length / 1000.0;
+
+  state.counters["SlotWallUs"] = slot_wall_us;
+  state.counters["SlotBudgetUs"] = slot_budget_us;
+  state.counters["RTFactor"] = slot_wall_us > 0.0 ? slot_budget_us / slot_wall_us : 0.0;
+  state.counters["RadioMSPS"] = sample_rate_msps;
+  state.counters["OutMSPSWall"] = output_msps;
+  state.counters["LinkMSPSWall"] = link_msps;
+  state.counters["CMACGWall"] = cmac_gps;
 }
 
 #ifdef CHANNEL_SIM_CUDA
@@ -59,8 +92,9 @@ static void BM_channel_convolution_gpu(benchmark::State &state)
     generate_random_signal(input[aatx], num_input_samples);
   }
 
-  size_t total_samples = 0;
+  uint64_t total_wall_ns = 0;
   for (auto _ : state) {
+    uint64_t start_ns = monotonic_time_ns();
     cuda_channel_pipeline(gpu_context,
                           (const cf_t **)channel.data(),
                           (const c16_t **)input.data(),
@@ -74,9 +108,9 @@ static void BM_channel_convolution_gpu(benchmark::State &state)
                           nb_tx,
                           nb_rx,
                           0.0f);
-    total_samples += num_samples;
+    total_wall_ns += monotonic_time_ns() - start_ns;
   }
-  state.counters["MSPS"] = benchmark::Counter(total_samples / 1000000.f, benchmark::Counter::kIsRate);
+  set_channel_benchmark_counters(state, total_wall_ns, nb_tx, nb_rx, num_samples, channel_length);
 
   cuda_channel_pipeline_shutdown(gpu_context);
 }
@@ -112,8 +146,9 @@ static void BM_channel_convolution_cpu(benchmark::State &state)
     generate_random_signal(input[aatx], num_input_samples);
   }
 
-  size_t total_samples = 0;
+  uint64_t total_wall_ns = 0;
   for (auto _ : state) {
+    uint64_t start_ns = monotonic_time_ns();
     channel_convolution_cpu((const cf_t **)channel.data(),
                             (const c16_t **)input.data(),
                             nullptr,
@@ -125,9 +160,9 @@ static void BM_channel_convolution_cpu(benchmark::State &state)
                             channel_length,
                             nb_tx,
                             nb_rx);
-    total_samples += num_samples;
+    total_wall_ns += monotonic_time_ns() - start_ns;
   }
-  state.counters["MSPS"] = benchmark::Counter(total_samples / 1000000.0f, benchmark::Counter::kIsRate);
+  set_channel_benchmark_counters(state, total_wall_ns, nb_tx, nb_rx, num_samples, channel_length);
 
   for (int i = 0; i < nb_tx; ++i)
     delete[] input[i];
@@ -171,8 +206,9 @@ static void BM_channel_convolution_tpool(benchmark::State &state)
   void *tpool = init_tpool(16);
   channel_pipeline_init(0.0f);
 
-  size_t total_samples = 0;
+  uint64_t total_wall_ns = 0;
   for (auto _ : state) {
+    uint64_t start_ns = monotonic_time_ns();
     channel_pipeline(tpool,
                      (const cf_t **)channel.data(),
                      (const c16_t **)input.data(),
@@ -186,9 +222,9 @@ static void BM_channel_convolution_tpool(benchmark::State &state)
                      nb_tx,
                      nb_rx,
                      0.0f);
-    total_samples += num_samples;
+    total_wall_ns += monotonic_time_ns() - start_ns;
   }
-  state.counters["MSPS"] = benchmark::Counter(total_samples / 1000000.f, benchmark::Counter::kIsRate);
+  set_channel_benchmark_counters(state, total_wall_ns, nb_tx, nb_rx, num_samples, channel_length);
 
   channel_pipeline_shutdown();
 
