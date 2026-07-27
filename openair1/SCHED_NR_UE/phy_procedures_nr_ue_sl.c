@@ -652,21 +652,6 @@ int psbch_pscch_pssch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *pr
 
     LOG_D(NR_PHY, "Doing N0 measurements in %s\n", __FUNCTION__);
     //    nr_ue_rrc_measurements(ue, proc, rxdataF);
-
-    if (frame_rx % 64 == 0) {
-      LOG_I(NR_PHY, "============================================\n");
-
-      LOG_I(NR_PHY,
-            "[UE%d] %d:%d PSBCH Stats: TX %d, RX ok %d, RX not ok %d\n",
-            ue->Mod_id,
-            frame_rx,
-            nr_slot_rx,
-            sl_phy_params->psbch.num_psbch_tx,
-            sl_phy_params->psbch.rx_ok,
-            sl_phy_params->psbch.rx_errors);
-
-      LOG_I(NR_PHY, "============================================\n");
-    }
   }
   #if 0
   else if (phy_data->sl_rx_action == SL_NR_CONFIG_TYPE_RX_PSCCH){
@@ -1067,21 +1052,6 @@ void phy_procedures_nrUE_SL_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc
     sl_nr_tx_config_psbch_pdu_t *psbch_vars = &phy_data->psbch_vars;
     nr_tx_psbch(ue, frame_tx, slot_tx, psbch_vars, txdataF);
     sl_phy_params->psbch.num_psbch_tx++;
-
-    if (frame_tx % 64 == 0) {
-      LOG_I(NR_PHY, "============================================\n");
-
-      LOG_I(NR_PHY,
-            "[UE%d] %d:%d PSBCH Stats: TX %d, RX ok %d, RX not ok %d\n",
-            ue->Mod_id,
-            frame_tx,
-            slot_tx,
-            sl_phy_params->psbch.num_psbch_tx,
-            sl_phy_params->psbch.rx_ok,
-            sl_phy_params->psbch.rx_errors);
-
-      LOG_I(NR_PHY, "============================================\n");
-    }
     tx_action = 1;
   }
   else if (phy_data->sl_tx_action == SL_NR_CONFIG_TYPE_TX_PSCCH_PSSCH ||
