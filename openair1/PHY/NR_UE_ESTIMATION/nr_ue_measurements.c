@@ -122,15 +122,15 @@ uint32_t nr_ue_calculate_ssb_rsrp(const NR_DL_FRAME_PARMS *fp,
 {
   const int k_start = 56;
   const int k_end = 183;
-  const unsigned int ssb_offset = fp->first_carrier_offset + ssb_start_subcarrier;
   uint32_t rsrp = 0;
 
   int nb_re = 0;
   for (int aarx = 0; aarx < fp->nb_antennas_rx; aarx++) {
     const c16_t *rxF_sss = rxdataF[aarx];
-    for(int k = k_start; k < k_end; k++){
-      int re = (ssb_offset + k) % fp->ofdm_symbol_size;
+    unsigned int re = CIRCULAR_INC(fp->first_carrier_offset, ssb_start_subcarrier, fp->ofdm_symbol_size);
+    for (int k = k_start; k < k_end; k++) {
       rsrp += squaredMod(rxF_sss[re]);
+      re = CIRCULAR_INC(re, 1, fp->ofdm_symbol_size);
       nb_re++;
     }
   }
