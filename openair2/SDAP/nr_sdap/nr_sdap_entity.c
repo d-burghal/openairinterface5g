@@ -504,8 +504,10 @@ static void nr_sdap_add_entity(const int is_gnb, const ue_id_t ue_id, const sdap
   // set default DRB
   if (sdap->defaultDRB) {
     sdap_entity->default_drb = sdap->drb_id;
-    LOG_I(SDAP, "Default DRB for the created SDAP entity: DRB %d \n", sdap_entity->default_drb);
+    // TODO how does TUN thread know which QFI (1) for SA (2) sidelink => first one?
+    sdap_entity->qfi = sdap->mappedQFIs2Add[0];
   }
+  LOG_I(SDAP, "UE %ld SDAP Entity: DRB %d Default DRB %d QFI %d\n", ue_id, sdap->drb_id, sdap_entity->default_drb, sdap_entity->qfi);
 
   // Add QoS flows to the DRB (initial configuration)
   nr_sdap_add_qos_flows_to_drb(sdap_entity, sdap);
