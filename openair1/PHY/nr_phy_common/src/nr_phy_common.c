@@ -405,20 +405,17 @@ void nr_channel_level(const int symbol,
   }
 }
 
-void nr_scale_channel(int size, c16_t ch_estimates_ext[][size], int symb, uint32_t len, int nb_rx, int shift_ch_ext)
+void nr_scale_channel(int len, c16_t ch_estimates_ext[][len], int nb_rx, int shift_ch_ext)
 {
+  AssertFatal((len % 16) == 0 && ((intptr_t)ch_estimates_ext % 64) == 0, "this function call is for aligned 64 bytes buffers");
   for (int aarx = 0; aarx < nb_rx; aarx++) {
-    simde__m128i *ul_ch128 = (simde__m128i *)&ch_estimates_ext[aarx][symb * len];
-    int loop_end = len >> 2;
-    for (int i = 0; i < loop_end; i++) {
-      ul_ch128[i] = simde_mm_srai_epi16(ul_ch128[i], shift_ch_ext);
-    }
-    // loop for the remaining elements
-    int start_index = loop_end * 4;
-    for (int j = start_index; j < len; j++) {
-      c16_t *temp = ((c16_t *)ul_ch128) + j;
-      *temp = c16Shift(*temp, shift_ch_ext);
-    }
+    int i = 0;
+#if defined(__AVX512F__) && defined(__AVX512BW__)
+    for (; i < (len & ~15); i += 16)
+      *(__m512i *)(ch_estimates_ext + i) = _mm512_srai_epi16(*(__m512i *)(ch_estimates_ext[aarx] + i), shift_ch_ext);
+#endif
+    for (; i < (len & ~7); i += 8)
+      *(simde__m256i *)(ch_estimates_ext + i) = simde_mm256_srai_epi16(*(simde__m256i *)(ch_estimates_ext[aarx] + i), shift_ch_ext);
   }
 }
 

@@ -742,8 +742,8 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
     dmrs_symbol = get_valid_dmrs_idx_for_channel_est(rel15_ul_ref->ul_dmrs_symb_pos, meas_symbol);
   else // average of channel estimates stored in first symbol
     dmrs_symbol = get_next_dmrs_symbol_in_slot(rel15_ul_ref->ul_dmrs_symb_pos, rel15_ul_ref->start_symbol_index, end_symbol);
-  int size_est = nb_re_pusch * frame_parms->symbols_per_slot;
-  __attribute__((aligned(32))) c16_t ul_ch_estimates_ext[total_layers][num_sp_streams][size_est];
+  int size_est = ceil_mod(nb_re_pusch * frame_parms->symbols_per_slot, 16);
+  __attribute__((aligned(64))) c16_t ul_ch_estimates_ext[total_layers][num_sp_streams][size_est];
   memset(ul_ch_estimates_ext, 0, sizeof(ul_ch_estimates_ext));
   int buffer_length = rel15_ul_ref->rb_size * NR_NB_SC_PER_RB;
   c16_t temp_rxFext[num_sp_streams][buffer_length] __attribute__((aligned(32)));
@@ -770,7 +770,7 @@ int nr_rx_pusch_group_tp(PHY_VARS_gNB *gNB,
 
   int avg[num_sp_streams][total_layers];
   for (int i = 0; i < total_layers; i++) {
-    nr_scale_channel(size_est, ul_ch_estimates_ext[i], meas_symbol, nb_re_pusch, num_sp_streams, shift_ch_ext);
+    nr_scale_channel(size_est, ul_ch_estimates_ext[i], num_sp_streams, shift_ch_ext);
     nr_channel_level(meas_symbol, size_est, ul_ch_estimates_ext[i], num_sp_streams, avg[i], nb_re_pusch);
   }
 
