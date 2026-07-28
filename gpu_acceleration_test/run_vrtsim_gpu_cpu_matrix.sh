@@ -50,7 +50,7 @@ run_one() {
   local cirdb_bin="${CIRDB_DIR}/${CHANLEN_BIN[$chanlen]}"
   local ds_ns="${CHANLEN_DS[$chanlen]}"
 
-  echo "=== Running: build=$build_name gnb_ant=${gnb_ant}x${gnb_ant} ue_ant=${ue_ant}x${ue_ant} chanlen=$chanlen run=$run_num ==="
+  echo "=== Running: build=$build_name channel=${antenna_tag} gNB=${gnb_ant}x${gnb_ant} UE=${ue_ant}x${ue_ant} chanlen=$chanlen run=$run_num ==="
 
   local gnb_session="vrtsim_${tag}_gnb"
   local ue_session="vrtsim_${tag}_ue"
