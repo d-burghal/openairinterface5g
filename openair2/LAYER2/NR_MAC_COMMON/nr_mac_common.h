@@ -13,6 +13,17 @@
 #include "nr_prach_config.h"
 #include "common/utils/nr/nr_common.h"
 
+typedef struct {
+  int dl_feature_set_percc_id;
+  int ul_feature_set_percc_id;
+} NR_feature_set_ids_t;
+ typedef enum {
+  NR_SA, /* 1 NR CC */
+  EN_DC, /* 1 EUTRA CC + 1 NR CC */
+  NR_DC, /* 2 NR CCs */
+} nr_rat_type_t;
+NR_feature_set_ids_t get_feature_set_ids (const NR_UE_NR_Capability_t *cap, int band, nr_rat_type_t type);
+
 #define NB_SRS_PERIOD         (18)
 static const uint16_t srs_period[NB_SRS_PERIOD] = { 0, 1, 2, 4, 5, 8, 10, 16, 20, 32, 40, 64, 80, 160, 320, 640, 1280, 2560};
 
