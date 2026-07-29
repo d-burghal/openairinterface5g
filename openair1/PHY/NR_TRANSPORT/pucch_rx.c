@@ -205,20 +205,20 @@ void nr_decode_pucch0(PHY_VARS_gNB *gNB,
 
   const uint8_t num_sp_streams = pucch_pdu->param_v4.numSpatialStreamIndices;
 
-  c64_t xr[num_sp_streams][pucch_pdu->nr_of_symbols][12] __attribute__((aligned(32)));
+  c64_t xr[num_sp_streams][pucch_pdu->nr_of_symbols][NR_NB_SC_PER_RB] __attribute__((aligned(32)));
   memset(xr, 0, sizeof(xr));
 
   int64_t xrtmag = 0, xrtmag_next = 0;
   uint8_t maxpos = 0;
   uint8_t index = 0;
 
-  int nb_re_pucch = 12 * pucch_pdu->prb_size; // prb size is 1
+  const int nb_re_pucch = NR_NB_SC_PER_RB * pucch_pdu->prb_size; // prb size is 1
   int64_t signal_energy = 0, signal_energy_ant0 = 0;
 
   for (int l = 0; l < pucch_pdu->nr_of_symbols; l++) {
     uint8_t l2 = l + pucch_pdu->start_symbol_index;
 
-    re_offset[l] = CIRCULAR_INC(frame_parms->first_carrier_offset, 12 * prb_offset[l], frame_parms->ofdm_symbol_size);
+    re_offset[l] = CIRCULAR_INC(frame_parms->first_carrier_offset, NR_NB_SC_PER_RB * prb_offset[l], frame_parms->ofdm_symbol_size);
     for (int aa = 0; aa < num_sp_streams; aa++) {
       c16_t rp[nb_re_pucch];
       memset(rp, 0, sizeof(rp));
@@ -256,12 +256,13 @@ void nr_decode_pucch0(PHY_VARS_gNB *gNB,
     for (int aa = 0; aa < num_sp_streams; aa++) {
       for (int l = 0; l < pucch_pdu->nr_of_symbols; l++) {
         seq_index =
-            (pucch_pdu->initial_cyclic_shift + mcs[i] + gNB->pucch0_lut.lut[cs_ind][slot][l + pucch_pdu->start_symbol_index]) % 12;
+            (pucch_pdu->initial_cyclic_shift + mcs[i] + gNB->pucch0_lut.lut[cs_ind][slot][l + pucch_pdu->start_symbol_index])
+            % NR_NB_SC_PER_RB;
 #ifdef DEBUG_NR_PUCCH_RX
         printf("PUCCH symbol %d seq %d, seq_index %d, mcs %d\n", l, i, seq_index, mcs[i]);
 #endif
         corr[aa][l] = (c64_t){0};
-        for (int n = 0; n < 12; n++) {
+        for (int n = 0; n < NR_NB_SC_PER_RB; n++) {
           corr[aa][l].r += xr[aa][l][n].r * idft12_re[seq_index][n] + xr[aa][l][n].i * idft12_im[seq_index][n];
           corr[aa][l].i += xr[aa][l][n].r * idft12_im[seq_index][n] - xr[aa][l][n].i * idft12_re[seq_index][n];
         }
@@ -508,7 +509,7 @@ void nr_decode_pucch1(PHY_VARS_gNB *gNB,
   const bool intraSlotFrequencyHopping = pucch_pdu->prb_start != pucch_pdu->second_hop_prb;
   float inv_sqrt2 = 0.70710678118f; // 1 / sqrt(2)
   int64_t signal_energy = 0, signal_energy_ant0 = 0;
-  uint8_t nb_re_pucch = pucch_pdu->prb_size * 12;
+  uint8_t nb_re_pucch = pucch_pdu->prb_size * NR_NB_SC_PER_RB;
   pucch_GroupHopping_t pucch_GroupHopping = pucch_pdu->group_hop_flag + (pucch_pdu->sequence_hop_flag << 1);
   int16_t amp = 0x7FFF;
   int xrtmag_dBtimes10 = 0;
@@ -1152,7 +1153,7 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
   int Prx = pucch_pdu->param_v4.numSpatialStreamIndices;
   //  AssertFatal((pucch_pdu->prb_size&1) == 0,"prb_size %d is not a multiple of2\n",pucch_pdu->prb_size);
   // use 2 for Nb antennas in case of single antenna to allow the following allocations
-  const int nb_re_pucch = 12 * pucch_pdu->prb_size;
+  const int nb_re_pucch = NR_NB_SC_PER_RB * pucch_pdu->prb_size;
   c16_t rp[Prx][nb_symbols][nb_re_pucch];
   memset(rp, 0, sizeof(rp));
 
