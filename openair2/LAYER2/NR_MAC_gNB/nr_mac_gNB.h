@@ -821,6 +821,7 @@ typedef struct NR_UE_info {
   /// in case of reconfiguration, new CellConfig to apply
   NR_CellGroupConfig_t *reconfigCellGroup;
   NR_UE_NR_Capability_t *capability;
+  NR_feature_set_ids_t uecap_fs_ids;
   measgap_config_t measgap_config;
   // UE selected beam index
   uint16_t UE_beam_index;
@@ -1298,6 +1299,7 @@ typedef struct gNB_MAC_INST_s {
   nr_mac_rrc_ul_if_t mac_rrc;
   f1_config_t f1_config;
   int16_t frame;
+  int nr_band;
 
   /// number of UEs to exceed to disable stats
   int stats_max_ue;

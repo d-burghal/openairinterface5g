@@ -60,7 +60,7 @@ static const band_combination_match_t find_band_combination(const NR_UE_NR_Capab
   return match;
 }
 
-NR_feature_set_ids_t get_feature_set_ids (const NR_UE_NR_Capability_t *cap, int band, nr_rat_type_t type)
+NR_feature_set_ids_t get_feature_set_ids(const NR_UE_NR_Capability_t *cap, int band, nr_rat_type_t type)
 {
   NR_feature_set_ids_t ids = {0};
   band_combination_match_t band_comb = find_band_combination(cap, band, type);

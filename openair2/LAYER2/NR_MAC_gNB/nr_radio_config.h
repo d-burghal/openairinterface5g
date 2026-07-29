@@ -17,6 +17,7 @@
 #include "f1ap_messages_types.h"
 #include "common/platform_types.h"
 #include "openair2/LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
+#include "openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_configuration.h"
 struct NR_MeasurementTimingConfiguration;
 struct NR_PDSCH_TimeDomainResourceAllocationList;
@@ -80,6 +81,7 @@ NR_CellGroupConfig_t *get_initial_cellGroupConfig(int uid,
 void update_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
                             const int uid,
                             const NR_UE_NR_Capability_t *uecap,
+                            const NR_feature_set_ids_t *fs_ids,
                             const nr_mac_config_t *configuration,
                             const NR_ServingCellConfigCommon_t *scc);
 int encode_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig, uint8_t *buffer, int max_buffer_size);
@@ -89,6 +91,7 @@ int encode_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig, uint8_t *buffe
  * parameter servingcellconfigdedicated! */
 NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigCommon_t *servingcellconfigcommon,
                                                      const NR_UE_NR_Capability_t *uecap,
+                                                     const NR_feature_set_ids_t *fs_ids,
                                                      int scg_id,
                                                      int servCellIndex,
                                                      const nr_mac_config_t *configuration,
@@ -112,6 +115,7 @@ NR_RLC_BearerConfig_t *get_DRB_RLC_BearerConfig(long lcChannelId,
 NR_CellGroupConfig_t *update_cellGroupConfig_for_BWP_switch(NR_CellGroupConfig_t *cellGroupConfig,
                                                             const nr_mac_config_t *configuration,
                                                             const NR_UE_NR_Capability_t *uecap,
+                                                            const NR_feature_set_ids_t *fs_ids,
                                                             const NR_ServingCellConfigCommon_t *scc,
                                                             int uid,
                                                             int old_bwp,
@@ -127,6 +131,6 @@ NR_CellGroupConfig_t *update_cellGroupConfig_for_beam_switch(NR_CellGroupConfig_
 NR_MeasurementTimingConfiguration_t *get_nr_mtc(uint8_t *buf, uint32_t len);
 measgap_config_t create_measgap_config(const NR_MeasurementTimingConfiguration_t *mtc, int scs, int min_rxtxtime);
 int encode_measgap_config(const measgap_config_t *c, uint8_t *buf);
-long ue_supported_ul_layers(const NR_UE_NR_Capability_t *uecap);
-long ue_supported_dl_layers(const NR_ServingCellConfigCommon_t *scc, const NR_UE_NR_Capability_t *uecap);
+long ue_supported_ul_layers(const NR_UE_NR_Capability_t *uecap, int ul_id);
+long ue_supported_dl_layers(const NR_ServingCellConfigCommon_t *scc, const NR_UE_NR_Capability_t *uecap, int dl_id);
 #endif

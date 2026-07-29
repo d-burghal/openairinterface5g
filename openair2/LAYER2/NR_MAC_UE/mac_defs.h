@@ -566,6 +566,7 @@ typedef struct NR_UE_MAC_INST_s {
   uint32_t uecap_maxMIMO_PDSCH_layers;
   uint32_t uecap_maxMIMO_PUSCH_layers_cb;
   uint32_t uecap_maxMIMO_PUSCH_layers_nocb;
+  NR_feature_set_ids_t uecap_fs_ids;
 
   NR_UL_TIME_ALIGNMENT_t ul_time_alignment;
   NR_TDD_UL_DL_ConfigCommon_t *tdd_UL_DL_ConfigurationCommon;
