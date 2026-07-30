@@ -675,6 +675,8 @@ typedef struct {
   // pdcch closed loop adjust for PDCCH aggregation level, range <0, 1>
   // 0 - good channel, 1 - bad channel
   float pdcch_cl_adjust;
+
+  int pending_sr_ctr;
 } NR_UE_sched_ctrl_t;
 
 typedef struct NR_mac_dir_stats {
@@ -788,6 +790,17 @@ typedef struct {
   char *nvipc_shm_prefix;
   int8_t nvipc_poll_core;
 } nvipc_params_t;
+
+typedef struct NR_cell_mac_stats {
+  uint64_t current_dl_bytes;   // Current slot/frame DL bytes
+  uint64_t current_ul_bytes;   // Current slot/frame UL bytes
+  uint32_t num_active_ues;     // Number of active UEs
+  uint64_t total_dl_slots;      // Total slots with DL transmission
+  uint64_t active_dl_slots;     // Slots with actual DL data transmission
+  uint64_t lcid_dl_slots[64];   // Slots with actual DL data transmission per LCID
+  uint64_t lcid_dl_bytes[64];   // Cumulative DL bytes per LCID
+  uint64_t lcid_ul_bytes[64];   // Cumulative UL bytes per LCID
+} NR_cell_mac_stats_t;
 
 typedef struct {
   uint64_t total_prb_aggregate;
@@ -918,6 +931,7 @@ typedef struct gNB_MAC_INST_s {
   pthread_mutex_t sched_lock;
 
   mac_stats_t mac_stats;
+  NR_cell_mac_stats_t cell_mac_stats;
   uint64_t num_scheduled_prach_rx;
 } gNB_MAC_INST;
 

@@ -61,7 +61,24 @@
 #include "NR_ServingCellConfig.h"
 #include "NR_MeasConfig.h"
 #include "NR_ServingCellConfigCommonSIB.h"
+#include <sys/time.h>
 
+// Multi-gNB support definitions
+#define MAX_GNBS 8  // Maximum number of gNBs that can be detected
+
+
+// Structure to hold information for each detected gNB
+typedef struct {
+  uint8_t gnb_id;                    // gNB identifier (phy_id from NFAPI)
+  NR_MIB_t *mib;                     // Decoded MIB from this gNB
+  bool mib_received;                 // Flag indicating MIB reception
+  bool get_sib1;                     // Decoded SIB1 from this gNB
+  float rsrp_dBm;                    // RSRP measurement for this gNB
+  float rsrq_dBm;                    // RSRQ measurement for this gNB
+  uint8_t pmi;                       // PMI measurement for this gNB
+  uint8_t ri;                        // RI measurement for this gNB
+  uint8_t cqi;                       // CQI measurement for this gNB
+} gnb_mac_info_t;
 
 // ==========
 // NR UE defs
@@ -643,6 +660,11 @@ typedef struct NR_UE_MAC_INST_s {
   bool msg3_C_RNTI;
   pthread_mutex_t if_mutex;
   ue_mac_stats_t stats;
+  
+  // Multi-gNB support fields
+  gnb_mac_info_t cell_list[MAX_GNBS];     // Array for up to MAX_GNBS gNBs
+  int selected_gnb_id;                     // Currently selected gNB ID
+  pthread_mutex_t cell_selection_mutex;    // Mutex for cell selection data access
 } NR_UE_MAC_INST_t;
 
 static inline int GET_NTN_UE_K_OFFSET(const ntn_timing_advance_componets_t *ntn_ta, int scs)

@@ -69,6 +69,7 @@
 #define MAX_MEAS_CONFIG 64
 #define MAX_MEAS_ID 64
 #define MAX_QUANTITY_CONFIG 2
+#define MAX_GNBS 8  // Maximum number of gNBs that can be detected
 
 typedef enum {
   nr_SecondaryCellGroupConfig_r15=0,
@@ -175,6 +176,8 @@ typedef struct NR_UE_Timers_Constants_s {
   NR_timer_t T390;
   // NTN timer T430 which guards UL SYNC
   NR_timer_t T430;
+  // Cell selection timer
+  NR_timer_t TcellSelect;
   // counters
   uint32_t N310_cnt;
   uint32_t N311_cnt;
@@ -191,6 +194,39 @@ typedef enum {
 
 typedef enum { RB_NOT_PRESENT, RB_ESTABLISHED, RB_SUSPENDED } NR_RB_status_t;
 
+// Cell Selection Status Enum
+
+// Structure to hold information for each gNB during cell selection
+typedef struct {
+  uint8_t gnb_id;                    // gNB identifier
+  NR_MIB_t *mib;                     // Decoded MIB from this gNB
+  bool mib_received;                 // Flag indicating MIB reception
+  
+  uint16_t physCellId;
+  
+  uint32_t arfcn_ssb;
+  float rsrp;       // in dBm
+  float rsrq;       // in dB
+  float Srxlev;      // S criterion for Rx level
+  float Squal;       // S criterion for quality
+  
+  // SIB1 Cell Selection Parameters
+  int q_RxLevMin;      // From SIB1, in dBm
+  int q_RxLevMinOffset; // From SIB1, in dB
+  int q_QualMin;        // From SIB1, in dB
+  int q_QualMinOffset;  // From SIB1, in dB
+  
+  bool sib1_received;                // Flag indicating SIB1 reception
+  bool barred;                       // Cell barring status
+  bool suitable;                     // Cell suitability for selection
+  bool selected;                     // Flag indicating if this cell is selected
+  NR_UE_RRC_SI_INFO SInfo;
+  
+} gnb_cell_info_t;
+
+
+
+
 typedef struct rrcPerNB {
   NR_MeasObjectToAddMod_t *MeasObj[MAX_MEAS_OBJ];
   NR_ReportConfigToAddMod_t *ReportConfig[MAX_MEAS_CONFIG];
@@ -205,7 +241,10 @@ typedef struct rrcPerNB {
 typedef struct NR_UE_RRC_INST_s {
   instance_t ue_id;
   rrcPerNB_t perNB[NB_CNX_UE];
-
+  gnb_cell_info_t cell_stats[MAX_GNBS];
+  int num_detected_cells;
+  int selected_gnb_id;
+  bool cell_selection_complete;
   rnti_t rnti;
   uint32_t phyCellID;
   long arfcn_ssb;
@@ -248,6 +287,7 @@ typedef struct NR_UE_RRC_INST_s {
   NR_SL_PreconfigurationNR_r16_t *sl_preconfig;
   // NTN params
   bool is_NTN_UE;
+
 } NR_UE_RRC_INST_t;
 
 #endif

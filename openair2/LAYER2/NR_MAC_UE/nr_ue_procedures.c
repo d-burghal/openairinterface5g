@@ -187,9 +187,22 @@ int get_rnti_type(const NR_UE_MAC_INST_t *mac, const uint16_t rnti)
   return rnti_type;
 }
 
-void nr_ue_decode_mib(NR_UE_MAC_INST_t *mac, int cc_id)
+void nr_ue_decode_mib(NR_UE_MAC_INST_t *mac, int cc_id, uint8_t gnb_id)
 {
-  LOG_D(MAC,"[L2][MAC] decode mib\n");
+  LOG_D(MAC,"[L2][MAC] decode mib for gNB ID %d\n", gnb_id);
+
+  // Store MIB information for this gNB
+  if (gnb_id < MAX_GNBS) {
+    // Lock mutex for cell selection data access
+    pthread_mutex_lock(&mac->cell_selection_mutex);
+    
+    // Store MIB for this gNB
+    mac->cell_list[gnb_id].gnb_id = gnb_id;
+    mac->cell_list[gnb_id].mib = mac->mib;
+    mac->cell_list[gnb_id].mib_received = true;
+    
+    pthread_mutex_unlock(&mac->cell_selection_mutex);
+  }
 
   if (mac->mib->cellBarred == NR_MIB__cellBarred_barred) {
     LOG_W(MAC, "Cell is barred. Going back to sync mode.\n");
@@ -511,7 +524,7 @@ static int nr_ue_process_dci_ul_00(NR_UE_MAC_INST_t *mac,
     LOG_E(MAC, "Cannot schedule PUSCH\n");
     return -1;
   }
-
+  // LOG_D(MAC, "Calling lockGet_ul_config from nr_ue_process_dci_ul_00 frame_tx %d slot_tx %d\n", frame_tx, slot_tx);
   fapi_nr_ul_config_request_pdu_t *pdu = lockGet_ul_config(mac, frame_tx, slot_tx, FAPI_NR_UL_CONFIG_TYPE_PUSCH);
   if (!pdu)
     return -1;
@@ -525,7 +538,7 @@ static int nr_ue_process_dci_ul_00(NR_UE_MAC_INST_t *mac,
                                 dci_ind->rnti,
                                 dci_ind->ss_type,
                                 NR_UL_DCI_FORMAT_0_0);
-  if (ret != 0)
+  if (ret != 0) 
     remove_ul_config_last_item(pdu);
   release_ul_config(pdu, false);
   return ret;
@@ -609,7 +622,7 @@ static int nr_ue_process_dci_ul_01(NR_UE_MAC_INST_t *mac,
     LOG_E(MAC, "Cannot schedule PUSCH\n");
     return -1;
   }
-
+  // LOG_D(MAC, "Calling lockGet_ul_config from nr_ue_process_dci_ul_01 frame_tx %d slot_tx %d\n", frame_tx, slot_tx);
   fapi_nr_ul_config_request_pdu_t *pdu = lockGet_ul_config(mac, frame_tx, slot_tx, FAPI_NR_UL_CONFIG_TYPE_PUSCH);
   if (!pdu)
     return -1;
@@ -2576,7 +2589,7 @@ int8_t nr_ue_get_SR(NR_UE_MAC_INST_t *mac, frame_t frame, slot_t slot, NR_Schedu
   sr_info->pending = false;
   sr_info->counter = 0;
   nr_timer_stop(&sr_info->prohibitTimer);
-  schedule_RA_after_SR_failure(mac);
+    schedule_RA_after_SR_failure(mac);
   return -1;
 }
 
@@ -2863,7 +2876,12 @@ csi_payload_t get_ssb_rsrp_payload(NR_UE_MAC_INST_t *mac,
         }
       }
       AssertFatal(*SSB_resource.list.array[ssb_rsrp[0][0]] == mac->mib_ssb, "Couldn't find corresponding SSB in csi_SSB_ResourceList\n");
-      ssb_rsrp[1][0] = mac->ssb_measurements.ssb_rsrp_dBm;
+      
+      if (get_softmodem_params()->emulate_l1) {
+        ssb_rsrp[1][0] = mac->nr_ue_emul_l1.rsrp_dBm;
+      } else {
+        ssb_rsrp[1][0] = mac->ssb_measurements.ssb_rsrp_dBm;
+      }
 
       uint8_t ssbi;
 
@@ -4248,4 +4266,3 @@ static void nr_ue_process_rar(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *d
 #endif
   return;
 }
-

@@ -65,10 +65,37 @@ RUN apt-get update && \
         python3-requests \
         libusb-1.0-0 \
         libyaml-cpp-dev \
+        doxygen \
+        libgnutls28-dev \
+        libpthread-stubs0-dev \
+        tshark \
+        uml-utilities \
+        libforms-bin \
+        libforms-dev \
+        libxft-dev \
+        libpcre3-dev \
+        libssh-dev \
+        libxml2-dev \
+        automake  \
+        build-essential \
+        cmake \
+        ninja-build \
+        pkg-config \
+        git \
+        libblas-dev \
+        liblapack-dev \
+        liblapacke-dev \
+        libreadline-dev \
+        libconfig-dev \
+        libsctp-dev  \
+        libssl-dev  \
+        libtool  \
+        patch \
+        zlib1g-dev \
+        xxd \
         # For clickhouse
         libcurl4-openssl-dev \
-        vim \
-        openssh-server && \
+        vim && \
 # if the --sanitize option was used to build, additional packages are required
     /bin/bash -c 'if [[ "$BUILD_OPTION" = "--sanitize" ]]; then DEBIAN_FRONTEND=noninteractive apt-get install --yes \
         #libasan5 \ # see below
@@ -141,8 +168,6 @@ RUN ldconfig && \
         /usr/local/lib/libtelnetsrv.so \
         /usr/local/lib/libtelnetsrv_ci.so 
         # /usr/local/lib/libuhd.so.4.4.0
-
-RUN mkdir /var/run/sshd && chmod 0755 /var/run/sshd
 
 WORKDIR /opt/oai-gnb
 #EXPOSE 2152/udp  # S1U, GTP/UDP

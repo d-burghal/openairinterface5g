@@ -6337,6 +6337,12 @@ int nfapi_nr_p7_message_unpack(void *pMessageBuf,
         result = unpack_ue_release_resp(&pReadPackedMessage, end, pMessageHeader, config);
       break;
 
+    case NFAPI_NR_PHY_MSG_TYPE_VENDOR_EXT_SLOT_RESPONSE:
+      if (check_nr_fapi_unpack_length(NFAPI_NR_PHY_MSG_TYPE_VENDOR_EXT_SLOT_RESPONSE, unpackedBufLen)) {
+        result = unpack_nr_slot_response(&pReadPackedMessage,  end, pMessageHeader, config);
+			}
+			break;
+
     default:
 
       if (pMessageHeader->message_id >= NFAPI_VENDOR_EXT_MSG_MIN && pMessageHeader->message_id <= NFAPI_VENDOR_EXT_MSG_MAX) {

@@ -213,6 +213,11 @@ int fapi_nr_p7_message_unpack(void *pMessageBuf,
         result = unpack_nr_rach_indication(&pReadPackedMessage, end, pMessageHeader, config);
       }
     break;
+    case NFAPI_NR_PHY_MSG_TYPE_VENDOR_EXT_SLOT_RESPONSE:
+      if (check_nr_fapi_unpack_length(NFAPI_NR_PHY_MSG_TYPE_VENDOR_EXT_SLOT_RESPONSE, unpackedBufLen)) {
+        result = unpack_nr_slot_response(&pReadPackedMessage, end, pMessageHeader, config);
+      }
+    break;
     default:
 
       if (pMessageHeader->message_id >= NFAPI_VENDOR_EXT_MSG_MIN && pMessageHeader->message_id <= NFAPI_VENDOR_EXT_MSG_MAX) {
@@ -1354,6 +1359,33 @@ uint8_t unpack_nr_slot_indication(uint8_t **ppReadPackedMsg,
   nfapi_nr_slot_indication_scf_t *pNfapiMsg = (nfapi_nr_slot_indication_scf_t *)msg;
 
   if (!(pull16(ppReadPackedMsg, &pNfapiMsg->sfn, end) && pull16(ppReadPackedMsg, &pNfapiMsg->slot, end)))
+    return 0;
+
+  return 1;
+}
+
+uint8_t pack_nr_slot_response(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p7_codec_config_t *config)
+{
+  nfapi_nr_slot_response_t *pNfapiMsg = (nfapi_nr_slot_response_t *)msg;
+
+  if (!(push16(pNfapiMsg->sfn, ppWritePackedMsg, end) && push16(pNfapiMsg->slot, ppWritePackedMsg, end) && 
+        push16(pNfapiMsg->rnti, ppWritePackedMsg, end) &&
+        push16(pNfapiMsg->message_types, ppWritePackedMsg, end)))
+    return 0;
+
+  return 1;
+}
+
+uint8_t unpack_nr_slot_response(uint8_t **ppReadPackedMsg,
+                                uint8_t *end,
+                                void *msg,
+                                nfapi_p7_codec_config_t *config)
+{
+  nfapi_nr_slot_response_t *pNfapiMsg = (nfapi_nr_slot_response_t *)msg;
+
+  if (!(pull16(ppReadPackedMsg, &pNfapiMsg->sfn, end) && pull16(ppReadPackedMsg, &pNfapiMsg->slot, end) && 
+        pull16(ppReadPackedMsg, &pNfapiMsg->rnti, end) &&
+        pull16(ppReadPackedMsg, &pNfapiMsg->message_types, end)))
     return 0;
 
   return 1;

@@ -955,7 +955,7 @@ static void update_mib_conf(NR_MIB_t *target, NR_MIB_t *source)
   target->intraFreqReselection = source->intraFreqReselection;
 }
 
-void nr_rrc_mac_config_req_mib(module_id_t module_id, int cc_idP, NR_MIB_t *mib, int sched_sib)
+void nr_rrc_mac_config_req_mib(module_id_t module_id, int cc_idP, NR_MIB_t *mib, int sched_sib, int gnb_idx, bool cell_selection_complete)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
   int ret = pthread_mutex_lock(&mac->if_mutex);
@@ -970,7 +970,8 @@ void nr_rrc_mac_config_req_mib(module_id_t module_id, int cc_idP, NR_MIB_t *mib,
     mac->get_sib1 = true;
   else if (sched_sib > 1)
     mac->get_otherSI[sched_sib - 2] = true;
-  nr_ue_decode_mib(mac, cc_idP);
+ 
+  nr_ue_decode_mib(mac, cc_idP, gnb_idx); // Default gNB ID for single gNB case
   ret = pthread_mutex_unlock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
 }
@@ -1744,9 +1745,19 @@ void nr_rrc_mac_config_req_reset(module_id_t module_id, NR_UE_MAC_reset_cause_t 
       sync_req.ssb_bw_scan = false;
       nr_ue_send_synch_request(mac, module_id, 0, &sync_req);
       break;
+    
+    /*
+      case Tcellselect_EXPIRY:
+      release_mac_configuration(mac, cause);
+      nr_ue_mac_default_configs(mac);
+      mac->state = UE_PERFORMING_RA;
+      
+      break;
+*/
     case RRC_SETUP_REESTAB_RESUME:
       release_mac_configuration(mac, cause);
       nr_ue_mac_default_configs(mac);
+
       break;
     case UL_SYNC_LOST_T430_EXPIRED:
       // TS 38.331 Section 5.2.2.6, TS 38.321 Section 5.2a
@@ -1809,7 +1820,7 @@ static void configure_si_schedulingInfo(NR_UE_MAC_INST_t *mac,
   }
 }
 
-void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *sib1, bool can_start_ra)
+void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *sib1, bool can_start_ra, int selected_gnb_id)
 {
   NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
   int ret = pthread_mutex_lock(&mac->if_mutex);
@@ -1846,11 +1857,25 @@ void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *si
     AssertFatal(mac->current_UL_BWP, "Couldn't find DL-BWP0\n");
     configure_timeAlignmentTimer(&mac->time_alignment_timer, mac->timeAlignmentTimerCommon, mac->current_UL_BWP->scs);
   }
-  if (mac->state == UE_RECEIVING_SIB && can_start_ra)
+  if (mac->state == UE_RECEIVING_SIB && can_start_ra){
+    // update_mac_stats_after_cell_selection(mac,selected_gnb_id);
+    mac->selected_gnb_id = selected_gnb_id;
     mac->state = UE_PERFORMING_RA;
-
+  }
   if (!get_softmodem_params()->emulate_l1)
     mac->if_module->phy_config_request(&mac->phy_config);
+  ret = pthread_mutex_unlock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
+}
+
+void nr_rrc_mac_start_ra_after_cell_selection(module_id_t module_id, int selected_gnb_id)
+{
+  NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+  int ret = pthread_mutex_lock(&mac->if_mutex);
+  AssertFatal(!ret, "mutex failed %d\n", ret);
+  mac->selected_gnb_id = selected_gnb_id;
+  if (mac->state == UE_RECEIVING_SIB && get_softmodem_params()->emulate_l1)
+    mac->state = UE_PERFORMING_RA;
   ret = pthread_mutex_unlock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);
 }

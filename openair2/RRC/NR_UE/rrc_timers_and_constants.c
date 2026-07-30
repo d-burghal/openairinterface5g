@@ -130,6 +130,12 @@ void nr_rrc_handle_timers(NR_UE_RRC_INST_t *rrc)
   if (release_timer_expired)
     handle_RRCRelease(rrc);
 
+  bool tcellselect_expired = nr_timer_tick(&timers->TcellSelect);
+  if (tcellselect_expired) {
+    LOG_I(NR_RRC, "Timer TcellSelect expired! Performing cell selection\n");
+    handle_tcellselect_expiry(rrc);
+  }
+
   bool t300_expired = nr_timer_tick(&timers->T300);
   if(t300_expired) {
     LOG_W(NR_RRC, "Timer T300 expired! No timely response to RRCSetupRequest\n");
@@ -610,6 +616,8 @@ void set_default_timers_and_constants(NR_UE_Timers_Constants_t *tac)
   // 38.331 9.2.3 Default values timers and constants
   nr_timer_setup(&tac->T310, 1000, 10); // 10ms step
   nr_timer_setup(&tac->T311, 30000, 10); // 10ms step
+  // Initialize TcellSelect timer with default value of 1 second
+  nr_timer_setup(&tac->TcellSelect, 1000, 10); // 10ms step
   tac->N310_k = 1;
   tac->N311_k = 1;
 }

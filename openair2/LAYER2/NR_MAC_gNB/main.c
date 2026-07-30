@@ -84,24 +84,35 @@ void *nrmac_stats_thread(void *arg) {
     return NULL;
   }
 
+  curl_global_init(CURL_GLOBAL_DEFAULT);
+
   while (oai_exit == 0) {
-    char *p = output;
-    NR_SCHED_LOCK(&gNB->sched_lock);
-    p += dump_mac_stats(gNB, p, end - p, false);
-    NR_SCHED_UNLOCK(&gNB->sched_lock);
-    p += snprintf(p, end - p, "\n");
-    p += print_meas_log(&gNB->eNB_scheduler, "DL & UL scheduling timing", NULL, NULL, p, end - p);
-    p += print_meas_log(&gNB->schedule_dlsch, "dlsch scheduler", NULL, NULL, p, end - p);
-    p += print_meas_log(&gNB->rlc_data_req, "rlc_data_req", NULL, NULL, p, end - p);
-    p += print_meas_log(&gNB->rlc_status_ind, "rlc_status_ind", NULL, NULL, p, end - p);
-    p += print_meas_log(&gNB->nr_srs_ri_computation_timer, "UL-RI computation time", NULL, NULL, p, end - p);
-    p += print_meas_log(&gNB->nr_srs_tpmi_computation_timer, "UL-TPMI computation time", NULL, NULL, p, end - p);
-    fwrite(output, p - output, 1, file);
-    fflush(file);
-    sleep(1);
-    fseek(file,0,SEEK_SET);
+    if (file) {
+      char *p = output;
+      NR_SCHED_LOCK(&gNB->sched_lock);
+      p += dump_mac_stats(gNB, p, end - p, false);
+      NR_SCHED_UNLOCK(&gNB->sched_lock);
+      p += snprintf(p, end - p, "\n");
+      p += print_meas_log(&gNB->eNB_scheduler, "DL & UL scheduling timing", NULL, NULL, p, end - p);
+      p += print_meas_log(&gNB->schedule_dlsch, "dlsch scheduler", NULL, NULL, p, end - p);
+      p += print_meas_log(&gNB->rlc_data_req, "rlc_data_req", NULL, NULL, p, end - p);
+      p += print_meas_log(&gNB->rlc_status_ind, "rlc_status_ind", NULL, NULL, p, end - p);
+      p += print_meas_log(&gNB->nr_srs_ri_computation_timer, "UL-RI computation time", NULL, NULL, p, end - p);
+      p += print_meas_log(&gNB->nr_srs_tpmi_computation_timer, "UL-TPMI computation time", NULL, NULL, p, end - p);
+      fwrite(output, p - output, 1, file);
+      fflush(file);
+      sleep(1);
+      fseek(file,0,SEEK_SET);
+    }
+
+    if (RC.nrmac[0]->radio_config.metrics_db_url && strcmp(RC.nrmac[0]->radio_config.metrics_db_url, "") != 0) {
+      dump_mac_stats_to_clickhouse(gNB);
+      dump_cell_mac_stats_to_clickhouse(gNB);
+    }
+
   }
-  fclose(file);
+  if (file)
+    fclose(file);
   return NULL;
 }
 
@@ -111,10 +122,10 @@ void clear_mac_stats(gNB_MAC_INST *gNB) {
   }
 }
 
+
 void executeClickHouseQuery(const char *query) {
   CURL *curl;
   CURLcode res;
-  curl_global_init(CURL_GLOBAL_DEFAULT);
   curl = curl_easy_init();
   if(curl) {
     /* Build query */
@@ -171,21 +182,7 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t output_len, bool r
   /* this function is called from gNB_dlsch_ulsch_scheduler(), so assumes the
    * scheduler to be locked*/
   NR_SCHED_ENSURE_LOCKED(&gNB->sched_lock);
-
   NR_SCHED_LOCK(&gNB->UE_info.mutex);
-
-  char timestamp_ns[64];
-  if (strlen(gNB->radio_config.metrics_db_url) > 0) {
-      /* Prepare timestamp value */
-      struct timeval cur_time;
-      gettimeofday(&cur_time, NULL);
-      size_t tns_size = sizeof(timestamp_ns);
-      struct tm *tm_info = gmtime(&cur_time.tv_sec);
-      strftime(timestamp_ns, tns_size, "%Y-%m-%d %H:%M:%S", tm_info);
-      char nanoseconds[32];
-      snprintf(nanoseconds, sizeof(nanoseconds), ".%03ld000000", cur_time.tv_usec / 1000);
-      strncat(timestamp_ns, nanoseconds, tns_size - strlen(timestamp_ns) - 1);
-  }
 
   UE_iterator(gNB->UE_info.connected_ue_list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -281,58 +278,189 @@ size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t output_len, bool r
 
     if (strlen(gNB->radio_config.metrics_db_url) > 0)
     {
-      /* Insert UE values in Clickhouse DB */
-      char *insert_values_query = malloc(2048);
-      snprintf(insert_values_query, 2048,"INSERT INTO oai.mac_stats (\
-      TsTaiNs, gNB_ID, RNTI, Sync, PH_dB, PCMAX_dB, RSRP_dBm, \
-      CQI, RI, PMI_1, PMI_2, \
-      DLSCH_R1, DLSCH_R2, DLSCH_R3, DLSCH_R4, DLSCH_ERRORS, PUCCH0_DTX, DL_BLER, DL_MCS_TABLE, DL_MCS, \
-      ULSCH_R1, ULSCH_R2, ULSCH_R3, ULSCH_R4, ULSCH_ERRORS, ULSCH_DTX, UL_BLER, UL_MCS_TABLE, UL_MCS, UL_MOD, NPRB, SNR_dB, \
-      MAC_TX_bytes_total, MAC_RX_bytes_total, \
-      MAC_TX_bytes_curr, MAC_RX_bytes_curr, \
-      LCID1_TX_bytes, LCID1_RX_bytes, \
-      LCID2_TX_bytes, LCID2_RX_bytes, \
-      LCID4_TX_bytes, LCID4_RX_bytes, \
-      LCID5_TX_bytes, LCID5_RX_bytes \
-      ) VALUES (\
-      '%s', %d, %d, '%s', %d, %d, %d, \
-      %d, %d, %d, %d, \
-      %"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", %d, %.5f, %d, %d, \
-      %"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", %d, %.5f, %d, %d, %d, %d, %f, \
-      %14"PRIu64", %14"PRIu64", \
-      %14"PRIu64", %14"PRIu64", \
-      %14"PRIu64", %14"PRIu64", \
-      %14"PRIu64", %14"PRIu64", \
-      %14"PRIu64", %14"PRIu64")",
-      timestamp_ns, (int)gNB->f1_config.setup_req->gNB_DU_id, UE->rnti,
-      in_sync ? "in-sync" : "out-of-sync", sched_ctrl->ph, sched_ctrl->pcmax, avg_rsrp,
-      sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.wb_cqi_1tb,
-      sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.ri+1,
-      sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.pmi_x1,
-      sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.pmi_x2,
-      stats->dl.rounds[0], stats->dl.rounds[1], stats->dl.rounds[2], stats->dl.rounds[3],
-      stats->dl.errors, stats->pucch0_DTX,
-      sched_ctrl->dl_bler_stats.bler, UE->current_DL_BWP.mcsTableIdx, sched_ctrl->dl_bler_stats.mcs,
-      stats->ul.rounds[0], stats->ul.rounds[1], stats->ul.rounds[2], stats->ul.rounds[3],
-      stats->ul.errors, stats->ulsch_DTX, sched_ctrl->ul_bler_stats.bler,
-      UE->current_UL_BWP.mcs_table, sched_ctrl->ul_bler_stats.mcs,
-      nr_get_Qm_ul(sched_ctrl->ul_bler_stats.mcs,UE->current_UL_BWP.mcs_table),
-      UE->mac_stats.NPRB, (sched_ctrl->pusch_snrx10 / 10) + (sched_ctrl->pusch_snrx10 % 10) / 10.0f,
-      stats->dl.total_bytes, stats->ul.total_bytes,
-      stats->dl.current_bytes, stats->ul.current_bytes,
-      stats->dl.lc_bytes[1], stats->ul.lc_bytes[1],
-      stats->dl.lc_bytes[2], stats->ul.lc_bytes[2],
-      stats->dl.lc_bytes[4], stats->ul.lc_bytes[4],
-      stats->dl.lc_bytes[5], stats->ul.lc_bytes[5]);
-
-      // executeClickHouseQuery(insert_values_query);
-      pthread_t query_insert_thread;
-      pthread_create(&query_insert_thread, NULL, executeClickHouseQueryThread, (void*)insert_values_query);
+      
+      // pthread_t query_insert_thread;
+      // pthread_create(&query_insert_thread, NULL, executeClickHouseQueryThread, (void*)insert_values_query);
     }
   }
   NR_SCHED_UNLOCK(&gNB->UE_info.mutex);
   return output - begin;
 }
+
+void dump_mac_stats_to_clickhouse(gNB_MAC_INST *gNB)
+{
+  /* Only execute if metrics_db_url is valid */
+  if (!gNB->radio_config.metrics_db_url || strlen(gNB->radio_config.metrics_db_url) == 0) {
+    return;
+  }
+
+  /* Insert UE values in Clickhouse DB */
+  char timestamp_ns[64];
+  /* Prepare timestamp value */
+  struct timeval cur_time;
+  gettimeofday(&cur_time, NULL);
+  size_t tns_size = sizeof(timestamp_ns);
+  struct tm *tm_info = gmtime(&cur_time.tv_sec);
+  strftime(timestamp_ns, tns_size, "%Y-%m-%d %H:%M:%S", tm_info);
+  char nanoseconds[32];
+  snprintf(nanoseconds, sizeof(nanoseconds), ".%03ld000000", cur_time.tv_usec / 1000);
+  strncat(timestamp_ns, nanoseconds, tns_size - strlen(timestamp_ns) - 1);
+
+
+  char query[8192];
+  char values[2048];
+
+  strcpy(query, "INSERT INTO oai.mac_stats ("
+                "TsTaiNs, gNB_ID, RNTI, Sync, PH_dB, PCMAX_dB, RSRP_dBm, "
+                "CQI, RI, PMI_1, PMI_2, "
+                "DLSCH_R1, DLSCH_R2, DLSCH_R3, DLSCH_R4, DLSCH_ERRORS, PUCCH0_DTX, DL_BLER, DL_MCS_TABLE, DL_MCS, "
+                "ULSCH_R1, ULSCH_R2, ULSCH_R3, ULSCH_R4, ULSCH_ERRORS, ULSCH_DTX, UL_BLER, UL_MCS_TABLE, UL_MCS, UL_MOD, NPRB, SNR_dB, "
+                "MAC_TX_bytes, MAC_RX_bytes, "
+                "LCID1_TX_bytes, LCID1_RX_bytes, "
+                "LCID2_TX_bytes, LCID2_RX_bytes, "
+                "LCID4_TX_bytes, LCID4_RX_bytes, "
+                "LCID5_TX_bytes, LCID5_RX_bytes"
+                ") VALUES \n");
+
+  int ue_idx = 0;
+  UE_iterator(gNB->UE_info.connected_ue_list, UE) {
+    NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+    NR_mac_stats_t *stats = &UE->mac_stats;
+    const int avg_rsrp = stats->num_rsrp_meas > 0 ? stats->cumul_rsrp / stats->num_rsrp_meas : 0;
+    bool in_sync = !sched_ctrl->ul_failure;
+
+    // if (ue_idx > 0) {
+    //   strcat(query, ",");
+    // }
+    
+    sprintf(values, 
+          "('%s', %d, %d, '%s', %d, %d, %d, "
+          "%d, %d, %d, %d, "
+          "%"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", %d, %.5f, %d, %d, "
+          "%"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", %d, %.5f, %d, %d, %d, %d, %f, "
+          "%14"PRIu64", %14"PRIu64", "
+          "%14"PRIu64", %14"PRIu64", "
+          "%14"PRIu64", %14"PRIu64", "
+          "%14"PRIu64", %14"PRIu64", "
+          "%14"PRIu64", %14"PRIu64"),\n",
+          timestamp_ns, (int)gNB->f1_config.setup_req->gNB_DU_id, UE->rnti,
+          in_sync ? "in-sync" : "out-of-sync", sched_ctrl->ph, sched_ctrl->pcmax, avg_rsrp,
+          sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.wb_cqi_1tb,
+          sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.ri+1,
+          sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.pmi_x1,
+          sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.pmi_x2,
+          stats->dl.rounds[0], stats->dl.rounds[1], stats->dl.rounds[2], stats->dl.rounds[3],
+          stats->dl.errors, stats->pucch0_DTX,
+          sched_ctrl->dl_bler_stats.bler, UE->current_DL_BWP.mcsTableIdx, sched_ctrl->dl_bler_stats.mcs,
+          stats->ul.rounds[0], stats->ul.rounds[1], stats->ul.rounds[2], stats->ul.rounds[3],
+          stats->ul.errors, stats->ulsch_DTX, sched_ctrl->ul_bler_stats.bler,
+          UE->current_UL_BWP.mcs_table, sched_ctrl->ul_bler_stats.mcs,
+          nr_get_Qm_ul(sched_ctrl->ul_bler_stats.mcs,UE->current_UL_BWP.mcs_table),
+          UE->mac_stats.NPRB, (sched_ctrl->pusch_snrx10 / 10) + (sched_ctrl->pusch_snrx10 % 10) / 10.0f,
+          stats->dl.total_bytes, stats->ul.total_bytes,
+          stats->dl.lc_bytes[1], stats->ul.lc_bytes[1],
+          stats->dl.lc_bytes[2], stats->ul.lc_bytes[2],
+          stats->dl.lc_bytes[4], stats->ul.lc_bytes[4],
+          stats->dl.lc_bytes[5], stats->ul.lc_bytes[5]);
+
+    // Zero out so only get bytes since last call to dump_mac_stats
+    stats->dl.total_bytes = 0;
+    stats->ul.total_bytes = 0;
+
+    // printf("%s", values);
+    strcat(query, values);
+    ue_idx++;
+  }
+
+  if (ue_idx > 0) {
+    // printf("%s", query);
+    executeClickHouseQuery(query);
+  }
+}
+
+void dump_cell_mac_stats_to_clickhouse(gNB_MAC_INST *gNB) {
+  /* Only execute if metrics_db_url is valid */
+  if (!gNB->radio_config.metrics_db_url || strlen(gNB->radio_config.metrics_db_url) == 0) {
+    return;
+  }
+
+  // Update num_active_ues with the count of connected UEs before dumping
+  gNB->cell_mac_stats.num_active_ues = 0;
+  for (int i = 0; i < MAX_MOBILES_PER_GNB && gNB->UE_info.connected_ue_list[i] != NULL; i++) {
+    gNB->cell_mac_stats.num_active_ues++;
+  }
+
+  char timestamp_ns[64];
+  /* Prepare timestamp value */
+  struct timeval cur_time;
+  gettimeofday(&cur_time, NULL);
+  size_t tns_size = sizeof(timestamp_ns);
+  struct tm *tm_info = gmtime(&cur_time.tv_sec);
+  strftime(timestamp_ns, tns_size, "%Y-%m-%d %H:%M:%S", tm_info);
+  char nanoseconds[32];
+  snprintf(nanoseconds, sizeof(nanoseconds), ".%03ld000000", cur_time.tv_usec / 1000);
+  strncat(timestamp_ns, nanoseconds, tns_size - strlen(timestamp_ns) - 1);
+
+
+  char query[4096];
+  
+  
+  sprintf(query, "INSERT INTO oai.cell_mac_stats ("
+                "TsTaiNs, gNB_ID, "
+                "current_dl_bytes, current_ul_bytes, num_active_ues, "
+                "total_dl_slots, active_dl_slots, "
+                "LCID1_DL_Slots, LCID2_DL_Slots, LCID4_DL_Slots, LCID5_DL_Slots, "
+                "LCID1_DL_Bytes, LCID2_DL_Bytes, LCID4_DL_Bytes, LCID5_DL_Bytes, "
+                "LCID1_UL_Bytes, LCID2_UL_Bytes, LCID4_UL_Bytes, LCID5_UL_Bytes"
+                ") VALUES \n"
+                "('%s', %d, %"PRIu64", %"PRIu64", %d, %"PRIu64", %"PRIu64", "
+                "%"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", "
+                "%"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64", "
+                "%"PRIu64", %"PRIu64", %"PRIu64", %"PRIu64")",
+                timestamp_ns, 
+                (int)gNB->f1_config.setup_req->gNB_DU_id,
+                gNB->cell_mac_stats.current_dl_bytes,
+                gNB->cell_mac_stats.current_ul_bytes,
+                gNB->cell_mac_stats.num_active_ues,
+                gNB->cell_mac_stats.total_dl_slots,
+                gNB->cell_mac_stats.active_dl_slots,
+                gNB->cell_mac_stats.lcid_dl_slots[1],
+                gNB->cell_mac_stats.lcid_dl_slots[2],
+                gNB->cell_mac_stats.lcid_dl_slots[4],
+                gNB->cell_mac_stats.lcid_dl_slots[5],
+                gNB->cell_mac_stats.lcid_dl_bytes[1],
+                gNB->cell_mac_stats.lcid_dl_bytes[2],
+                gNB->cell_mac_stats.lcid_dl_bytes[4],
+                gNB->cell_mac_stats.lcid_dl_bytes[5],
+                gNB->cell_mac_stats.lcid_ul_bytes[1],
+                gNB->cell_mac_stats.lcid_ul_bytes[2],
+                gNB->cell_mac_stats.lcid_ul_bytes[4],
+                gNB->cell_mac_stats.lcid_ul_bytes[5]);
+  executeClickHouseQuery(query);
+  
+  // Reset current interval counters (formerly in reset_cell_mac_stats)
+  gNB->cell_mac_stats.current_dl_bytes = 0;
+  gNB->cell_mac_stats.current_ul_bytes = 0;
+  // Reset LCID DL slots counters for specific LCIDs
+  gNB->cell_mac_stats.lcid_dl_slots[1] = 0;
+  gNB->cell_mac_stats.lcid_dl_slots[2] = 0;
+  gNB->cell_mac_stats.lcid_dl_slots[4] = 0;
+  gNB->cell_mac_stats.lcid_dl_slots[5] = 0;
+  gNB->cell_mac_stats.active_dl_slots =0;
+  gNB->cell_mac_stats.total_dl_slots =0;
+  gNB->cell_mac_stats.lcid_dl_bytes[1]=0;
+  gNB->cell_mac_stats.lcid_dl_bytes[2]=0;
+  gNB->cell_mac_stats.lcid_dl_bytes[4]=0;
+  gNB->cell_mac_stats.lcid_dl_bytes[5]=0;
+  gNB->cell_mac_stats.lcid_ul_bytes[1]=0;
+  gNB->cell_mac_stats.lcid_ul_bytes[2]=0;
+  gNB->cell_mac_stats.lcid_ul_bytes[4]=0;
+  gNB->cell_mac_stats.lcid_ul_bytes[5]=0;
+  // Note: total_dl_slots and active_dl_slots are counted per measurement period 
+  // Note: num_active_ues is not reset as it should reflect the current number of connected UEs
+  
+}
+
 
 static void mac_rrc_init(gNB_MAC_INST *mac, ngran_node_t node_type)
 {

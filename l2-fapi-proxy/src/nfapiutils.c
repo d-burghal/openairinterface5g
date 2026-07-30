@@ -74,6 +74,7 @@ const char *nfapi_nr_get_message_id(const void *msg, size_t length)
     case NFAPI_NR_PHY_MSG_TYPE_RX_DATA_INDICATION: return "RX_DATA_NR";
     case NFAPI_NR_PHY_MSG_TYPE_UCI_INDICATION: return "UCI_NR";
     case NFAPI_NR_PHY_MSG_TYPE_SRS_INDICATION: return "SRS_NR";
+    case NFAPI_NR_PHY_MSG_TYPE_VENDOR_EXT_SLOT_RESPONSE : return "SLOT_RESPONSE";
     case 0: return "Dummy";
     default:
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "Message_id is unknown %u", message_id);
@@ -139,6 +140,7 @@ uint16_t nfapi_get_sfnslot(int mu, const void *msg, size_t length)
     case NFAPI_NR_PHY_MSG_TYPE_RX_DATA_INDICATION:
     case NFAPI_NR_PHY_MSG_TYPE_UCI_INDICATION:
     case NFAPI_NR_PHY_MSG_TYPE_SRS_INDICATION:
+    case NFAPI_NR_PHY_MSG_TYPE_VENDOR_EXT_SLOT_RESPONSE:
     case 0:
         break;
     default:
@@ -148,7 +150,7 @@ uint16_t nfapi_get_sfnslot(int mu, const void *msg, size_t length)
 
     // in = (uint8_t *)msg + sizeof(nfapi_p7_message_header_t); nfapi_nr_p7_message_header_t
     // in = (uint8_t *)msg + sizeof(nfapi_nr_p7_message_header_t);
-    in = (uint8_t *)msg + 18;  // RDF: Taking sizeof(nfapi_nr_p7_message_header_t) doesn't work because of padding.
+    in = (uint8_t *)msg + 18;  // Taking sizeof(nfapi_nr_p7_message_header_t) doesn't work because of padding.
     uint16_t sfn, slot;
     if (!pull16(&in, &sfn, end) ||
         !pull16(&in, &slot, end))

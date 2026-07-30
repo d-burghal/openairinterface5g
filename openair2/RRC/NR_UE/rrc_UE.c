@@ -73,6 +73,206 @@
 #include "openair2/SDAP/nr_sdap/nr_sdap_entity.h"
 
 static NR_UE_RRC_INST_t *NR_UE_rrc_inst;
+
+// Multi-gNB cell selection functions
+
+static int find_or_add_gnb(NR_UE_RRC_INST_t *rrc, uint8_t gnb_id);
+static bool is_cell_suitable(NR_UE_RRC_INST_t *rrc, int cell_index);
+static int perform_cell_selection(NR_UE_RRC_INST_t *rrc);
+static void select_cell(NR_UE_RRC_INST_t *rrc, int selected_cell_id);
+static void nr_rrc_refresh_cell_rsrp_from_mac(NR_UE_RRC_INST_t *rrc, int cell_index);
+static void nr_rrc_start_cell_selection_timer(NR_UE_RRC_INST_t *rrc);
+
+#define L2PROXY_TCELLSELECT_MS 500
+
+
+// Function to select a cell from the detected cells
+
+static void select_cell(NR_UE_RRC_INST_t *rrc, int selected_cell_id) {
+  if (selected_cell_id < 0 || selected_cell_id >= rrc->num_detected_cells) {
+    LOG_E(NR_RRC, "Invalid cell index %d for selection\n", selected_cell_id);
+    return;
+  }
+  
+  // Mark the selected cell
+  rrc->cell_stats[selected_cell_id].selected = true;
+  rrc->selected_gnb_id = rrc->cell_stats[selected_cell_id].gnb_id;
+  rrc->cell_selection_complete = true;
+}
+  
+
+// Function to clear non-selected cells from the list
+/*
+static void clear_non_selected_cells(NR_UE_RRC_INST_t *rrc) {
+  int write_index = 0;
+  
+  for (int i = 0; i < rrc->num_detected_cells; i++) {
+    if (rrc->cell_stats[i].selected) {
+      // Keep the selected cell
+      if (write_index != i) {
+        rrc->cell_stats[write_index] = rrc->cell_stats[i];
+      }
+      write_index++;
+    } else {
+      // Free any allocated memory for non-selected cells
+      if (rrc->cell_stats[i].mib) {
+        ASN_STRUCT_FREE(asn_DEF_NR_MIB, rrc->cell_stats[i].mib);
+      }
+      
+    }
+  }
+  
+  // Update the number of detected cells
+  rrc->num_detected_cells = write_index;
+  LOG_I(NR_RRC, "Cleared non-selected cells, %d cells remaining\n", rrc->num_detected_cells);
+}
+  
+
+// Function to configure RA for the selected gNB
+static void configure_ra_for_selected_gnb(NR_UE_RRC_INST_t *rrc) {
+  // Find the selected gNB
+  int selected_index = -1;
+  for (int i = 0; i < rrc->num_detected_cells; i++) {
+    if (rrc->cell_stats[i].selected) {
+      selected_index = i;
+      break;
+    }
+  }
+  
+  if (selected_index < 0) {
+    LOG_E(NR_RRC, "No selected gNB found for RA configuration\n");
+    return;
+  }
+  
+  // Configure RA parameters based on the selected cell
+  // This is a simplified implementation - in a real system, this would involve
+  // more detailed configuration based on SIB1 and other parameters
+  
+  LOG_I(NR_RRC, "Configuring RA for selected gNB %d\n", rrc->selected_gnb_id);
+  
+  // Trigger RA procedure
+  rrc->ra_trigger = RRC_CONNECTION_SETUP;
+  nr_rrc_prepare_msg3_payload(rrc);
+}
+
+*/
+
+
+
+// Helper function to find or add a gNB in the cell list
+static int find_or_add_gnb(NR_UE_RRC_INST_t *rrc, uint8_t gnb_id) {
+  // First check if this gNB already exists in our list
+  for (int i = 0; i < rrc->num_detected_cells; i++) {
+    if (rrc->cell_stats[i].gnb_id == gnb_id) {
+      return i; // Return existing index
+    }
+  }
+  
+  // If not found and we have space, add new gNB
+  if (rrc->num_detected_cells < MAX_GNBS) {
+    int new_index = rrc->num_detected_cells;
+    rrc->cell_stats[new_index].gnb_id = gnb_id;
+    rrc->cell_stats[new_index].mib_received = false;
+    rrc->cell_stats[new_index].sib1_received = false;
+    rrc->cell_stats[new_index].rsrp = 0;
+    rrc->cell_stats[new_index].rsrq = 0;
+    rrc->cell_stats[new_index].barred = false;
+    rrc->cell_stats[new_index].suitable = false;
+    rrc->cell_stats[new_index].selected = false;
+    rrc->num_detected_cells++;
+
+    return new_index;
+  }
+  
+  return -1; // Error: no space or invalid
+}
+static void nr_rrc_refresh_cell_rsrp_from_mac(NR_UE_RRC_INST_t *rrc, int cell_index)
+{
+  if (!get_softmodem_params()->emulate_l1)
+    return;
+
+  NR_UE_MAC_INST_t *mac = get_mac_inst(rrc->ue_id);
+  const uint8_t gnb_id = rrc->cell_stats[cell_index].gnb_id;
+  if (gnb_id >= MAX_GNBS)
+    return;
+
+  rrc->cell_stats[cell_index].rsrp = mac->cell_list[gnb_id].rsrp_dBm;
+  rrc->cell_stats[cell_index].rsrq = mac->cell_list[gnb_id].rsrq_dBm;
+}
+
+static void nr_rrc_start_cell_selection_timer(NR_UE_RRC_INST_t *rrc)
+{
+  if (!get_softmodem_params()->emulate_l1 || rrc->cell_selection_complete)
+    return;
+
+  NR_UE_Timers_Constants_t *timers = &rrc->timers_and_constants;
+  if (nr_timer_is_active(&timers->TcellSelect))
+    return;
+
+  nr_timer_setup(&timers->TcellSelect, L2PROXY_TCELLSELECT_MS, 10);
+  nr_timer_start(&timers->TcellSelect);
+  LOG_I(NR_RRC, "Started TcellSelect (%d ms) for L2-proxy cell selection\n", L2PROXY_TCELLSELECT_MS);
+}
+
+static bool is_cell_suitable(NR_UE_RRC_INST_t *rrc, int cell_index) {
+  // Check if we have both MIB and SIB1 for this cell
+  if (!rrc->cell_stats[cell_index].mib_received || !rrc->cell_stats[cell_index].sib1_received) {
+    LOG_D(NR_RRC, "  gNB %d: Incomplete info (MIB: %s, SIB1: %s) - skipping\n",
+          rrc->cell_stats[cell_index].gnb_id,
+          rrc->cell_stats[cell_index].mib_received ? "Yes" : "No",
+          rrc->cell_stats[cell_index].sib1_received ? "Yes" : "No");
+    return false;
+  }
+  
+  // Check if cell is barred
+  if (rrc->cell_stats[cell_index].barred) {
+    LOG_D(NR_RRC, "  gNB %d: Barred - skipping\n", rrc->cell_stats[cell_index].gnb_id);
+    return false;
+  }
+  
+  // TODO: Add more cell selection criteria based on SIB1 parameters
+  // For now, we'll consider any non-barred cell with MIB/SIB1 as suitable
+ // LOG_D(NR_RRC, "  gNB %d: RSRP=%d, RSRQ=%d - candidate for selection\n",
+   //     rrc->cell_stats[cell_index].gnb_id, rrc->cell_stats[cell_index].rsrp, rrc->cell_stats[cell_index].rsrq);
+  
+  return true;
+}
+
+static int perform_cell_selection(NR_UE_RRC_INST_t *rrc)
+{
+  int best_cell = -1;
+  float best_srxlev = -1.0e6f;
+
+  LOG_I(NR_RRC, "Performing cell selection among %d detected cells\n", rrc->num_detected_cells);
+
+  for (int i = 0; i < rrc->num_detected_cells; i++) {
+    nr_rrc_refresh_cell_rsrp_from_mac(rrc, i);
+    rrc->cell_stats[i].Srxlev = rrc->cell_stats[i].rsrp
+                                - (rrc->cell_stats[i].q_RxLevMin + rrc->cell_stats[i].q_RxLevMinOffset);
+
+    if (!is_cell_suitable(rrc, i))
+      continue;
+
+    LOG_I(NR_RRC, "  gNB %d: RSRP=%.1f dBm, Srxlev=%.1f\n",
+          rrc->cell_stats[i].gnb_id, rrc->cell_stats[i].rsrp, rrc->cell_stats[i].Srxlev);
+
+    if (rrc->cell_stats[i].Srxlev > best_srxlev) {
+      best_srxlev = rrc->cell_stats[i].Srxlev;
+      best_cell = i;
+    }
+  }
+
+  if (best_cell >= 0) {
+    LOG_I(NR_RRC, "Selected gNB %d with Srxlev %.1f\n",
+          rrc->cell_stats[best_cell].gnb_id, best_srxlev);
+    select_cell(rrc, best_cell);
+  } else {
+    LOG_W(NR_RRC, "No suitable cells found for selection\n");
+  }
+
+  return best_cell;
+}
+
 /* NAS Attach request with IMSI */
 static const char nr_nas_attach_req_imsi_dummy_NSA_case[] = {
     0x07,
@@ -469,13 +669,21 @@ static void get_sib19_schedinfo(NR_UE_RRC_SI_INFO *SI_info, NR_SI_SchedulingInfo
   }
 }
 
-static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_info, NR_SIB1_t *sib1)
+static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_info, NR_SIB1_t *sib1, int cell_index)
 {
   if(g_log->log_component[NR_RRC].level >= OAILOG_DEBUG)
     xer_fprint(stdout, &asn_DEF_NR_SIB1, (const void *) sib1);
   LOG_A(NR_RRC, "SIB1 decoded\n");
   nr_timer_start(&SI_info->sib1_timer);
   SI_info->sib1_validity = true;
+
+  
+  // Store SIB1 in cell_stats for this gNB
+  rrc->cell_stats[cell_index].sib1_received = true;
+  
+
+
+  
   if (rrc->nrRrcState == RRC_STATE_IDLE_NR) {
     rrc->ra_trigger = RRC_CONNECTION_SETUP;
   }
@@ -502,14 +710,88 @@ static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_inf
   nr_rrc_set_sib1_timers_and_constants(&rrc->timers_and_constants, sib1);
   // RRC storage of SIB1 timers and constants (eg needed in re-establishment)
   UPDATE_IE(rrc->timers_and_constants.sib1_TimersAndConstants, sib1->ue_TimersAndConstants, NR_UE_TimersAndConstants_t);
+
+  // Cell Selection: Extract and store SIB1 parameters
+  if (sib1->cellSelectionInfo) {
+    if (sib1->cellSelectionInfo->q_RxLevMin) {
+      rrc->cell_stats[cell_index].q_RxLevMin = (int)(sib1->cellSelectionInfo->q_RxLevMin);
+    } else {
+      rrc->cell_stats[cell_index].q_RxLevMin = -70; // Default value if not present, as per spec
+    }
+
+    if (sib1->cellSelectionInfo->q_RxLevMinOffset) {
+      rrc->cell_stats[cell_index].q_RxLevMinOffset = (int)*sib1->cellSelectionInfo->q_RxLevMinOffset;
+    } else {
+      rrc->cell_stats[cell_index].q_RxLevMinOffset = 0; // Default value
+    }
+
+    if (sib1->cellSelectionInfo->q_QualMin) {
+      rrc->cell_stats[cell_index].q_QualMin = (int)*sib1->cellSelectionInfo->q_QualMin;
+    } else {
+      rrc->cell_stats[cell_index].q_QualMin = -34; // Default value if not present, as per spec
+    }
+
+    if (sib1->cellSelectionInfo->q_QualMinOffset) {
+      rrc->cell_stats[cell_index].q_QualMinOffset = (int)*sib1->cellSelectionInfo->q_QualMinOffset;
+    } else {
+      rrc->cell_stats[cell_index].q_QualMinOffset = 0; // Default value
+    }
+  } else {
+    rrc->cell_stats[cell_index].q_RxLevMin = -70;
+    rrc->cell_stats[cell_index].q_RxLevMinOffset = 0;
+    rrc->cell_stats[cell_index].q_QualMin = -34;
+    rrc->cell_stats[cell_index].q_QualMinOffset = 0;
+  }
+
+  nr_rrc_refresh_cell_rsrp_from_mac(rrc, cell_index);
+  rrc->cell_stats[cell_index].Srxlev = rrc->cell_stats[cell_index].rsrp
+                                       - (rrc->cell_stats[cell_index].q_RxLevMin + rrc->cell_stats[cell_index].q_RxLevMinOffset);
+  rrc->cell_stats[cell_index].Squal = rrc->cell_stats[cell_index].rsrq
+                                      - (rrc->cell_stats[cell_index].q_QualMin + rrc->cell_stats[cell_index].q_QualMinOffset);
+
+  LOG_I(NR_RRC, "Cell %d (gNB %d): RSRP=%.1f dBm, Srxlev=%.1f\n",
+       cell_index, rrc->cell_stats[cell_index].gnb_id,
+       rrc->cell_stats[cell_index].rsrp, rrc->cell_stats[cell_index].Srxlev);
+
+  bool can_start_ra = false;
+  if (!get_softmodem_params()->emulate_l1) {
+    select_cell(rrc, cell_index);
+    can_start_ra = true;
+  } else if (rrc->cell_selection_complete) {
+    can_start_ra = (rrc->selected_gnb_id == rrc->cell_stats[cell_index].gnb_id);
+  } else {
+    int ready_cells = 0;
+    for (int i = 0; i < rrc->num_detected_cells; i++) {
+      if (is_cell_suitable(rrc, i))
+        ready_cells++;
+    }
+
+    if (ready_cells >= 2) {
+      const int selected_cell = perform_cell_selection(rrc);
+      if (selected_cell == cell_index)
+        can_start_ra = true;
+      else if (selected_cell >= 0)
+        nr_rrc_mac_start_ra_after_cell_selection(rrc->ue_id, rrc->selected_gnb_id);
+    } else if (!nr_timer_is_active(&rrc->timers_and_constants.TcellSelect)) {
+      const int selected_cell = perform_cell_selection(rrc);
+      if (selected_cell == cell_index)
+        can_start_ra = true;
+      else if (selected_cell >= 0)
+        nr_rrc_mac_start_ra_after_cell_selection(rrc->ue_id, rrc->selected_gnb_id);
+    }
+  }
+
   MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_SIB1);
   NR_MAC_RRC_CONFIG_SIB1(msg).sib1 = sib1;
-  NR_MAC_RRC_CONFIG_SIB1(msg).can_start_ra = !rrc->is_NTN_UE;
+  NR_MAC_RRC_CONFIG_SIB1(msg).can_start_ra = can_start_ra && !rrc->is_NTN_UE;
+  NR_MAC_RRC_CONFIG_SIB1(msg).selected_gnb_id = rrc->selected_gnb_id;
   itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
 }
 
 static void nr_rrc_process_reconfiguration_v1530(NR_UE_RRC_INST_t *rrc, NR_RRCReconfiguration_v1530_IEs_t *rec_1530, int gNB_index)
 {
+  int cell_idx = find_or_add_gnb(rrc,gNB_index);
+  
   if (rec_1530->fullConfig) {
     // TODO perform the full configuration procedure as specified in 5.3.5.11 of 331
     LOG_E(NR_RRC, "RRCReconfiguration includes fullConfig but this is not implemented yet\n");
@@ -533,7 +815,7 @@ static void nr_rrc_process_reconfiguration_v1530(NR_UE_RRC_INST_t *rrc, NR_RRCRe
     }
     tmp->list.count = 0; // to prevent the automatic free by ASN1_FREE
   }
-  NR_UE_RRC_SI_INFO *SI_info = &rrc->perNB[gNB_index].SInfo;
+  NR_UE_RRC_SI_INFO *SI_info = &rrc->cell_stats[cell_idx].SInfo;
   if (rec_1530->dedicatedSIB1_Delivery) {
     NR_SIB1_t *sib1 = NULL;
     asn_dec_rval_t dec_rval = uper_decode(NULL,
@@ -548,7 +830,7 @@ static void nr_rrc_process_reconfiguration_v1530(NR_UE_RRC_INST_t *rrc, NR_RRCRe
       SEQUENCE_free(&asn_DEF_NR_SIB1, sib1, 1);
     } else {
       // mac layer will free sib1
-      nr_rrc_process_sib1(rrc, SI_info, sib1);
+      nr_rrc_process_sib1(rrc, SI_info, sib1, cell_idx);
     }
   }
   if (rec_1530->dedicatedSystemInformationDelivery) {
@@ -739,6 +1021,7 @@ NR_UE_RRC_INST_t* nr_rrc_init_ue(char* uecap_file, int nb_inst, int num_ant_tx)
   for(int nr_ue = 0; nr_ue < nb_inst; nr_ue++) {
     NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[nr_ue];
     rrc->ue_id = nr_ue;
+    rrc->num_detected_cells = 0;  // Initialize num_detected_cells to 0
     // fill UE-NR-Capability @ UE-CapabilityRAT-Container here.
     rrc->selected_plmn_identity = 1;
     rrc->ra_trigger = RA_NOT_RUNNING;
@@ -922,7 +1205,7 @@ static int check_si_status(NR_UE_RRC_SI_INFO *SI_info)
 
 /*brief decode BCCH-BCH (MIB) message*/
 static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
-                                                 const uint8_t gNB_index,
+                                                 const uint16_t gNB_index,
                                                  const uint32_t phycellid,
                                                  const long ssb_arfcn,
                                                  uint8_t *const bufferP,
@@ -931,7 +1214,6 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
   NR_BCCH_BCH_Message_t *bcch_message = NULL;
   rrc->phyCellID = phycellid;
   rrc->arfcn_ssb = ssb_arfcn;
-
   asn_dec_rval_t dec_rval = uper_decode_complete(NULL,
                                                  &asn_DEF_NR_BCCH_BCH_Message,
                                                  (void **)&bcch_message,
@@ -958,7 +1240,7 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
     // not used
   }
 
-  NR_UE_RRC_SI_INFO *SI_info = &rrc->perNB[gNB_index].SInfo;
+  NR_UE_RRC_SI_INFO *SI_info = &rrc->cell_stats[gNB_index].SInfo;
   int get_sib = 0;
   if (IS_SA_MODE(get_softmodem_params())
       && !SI_info->sib_pending
@@ -970,11 +1252,34 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
     if (get_sib)
       SI_info->sib_pending = true;
   }
+  
+  // Multi-gNB support: Store MIB information for this gNB
   if (bcch_message->message.present == NR_BCCH_BCH_MessageType_PR_mib) {
+    // Find or add this gNB to our cell list
+    int cell_index = find_or_add_gnb(rrc, gNB_index);
+    
+
+    if (cell_index >= 0) {
+      // Store MIB information for this gNB
+      rrc->cell_stats[cell_index].mib = bcch_message->message.choice.mib;
+      rrc->cell_stats[cell_index].mib_received = true;
+      rrc->cell_stats[cell_index].gnb_id = gNB_index;
+      
+      // Update cell barring status from MIB
+      if (bcch_message->message.choice.mib->cellBarred == NR_MIB__cellBarred_barred) {
+        rrc->cell_stats[cell_index].barred = true;
+      }
+    }
+      
+    rrc->cell_selection_complete = false;
+    nr_rrc_start_cell_selection_timer(rrc);
+
+    // Send gNB index to MAC along with cell selection flag
     MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_MIB);
-    // mac will manage the pointer
     NR_MAC_RRC_CONFIG_MIB(msg).bcch = bcch_message;
     NR_MAC_RRC_CONFIG_MIB(msg).get_sib = get_sib;
+    NR_MAC_RRC_CONFIG_MIB(msg).gnb_index = gNB_index;
+    NR_MAC_RRC_CONFIG_MIB(msg).cell_selection_complete = rrc->cell_selection_complete;
     itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
   } else {
     LOG_E(NR_RRC, "RRC-received BCCH message is not a MIB\n");
@@ -1071,7 +1376,17 @@ static void nr_rrc_ue_decode_NR_BCCH_DL_SCH_Message(NR_UE_RRC_INST_t *rrc,
                                                     int frame,
                                                     int slot)
 {
-  NR_UE_RRC_SI_INFO *SI_info = &rrc->perNB[gNB_index].SInfo;
+  
+  int cell_idx = find_or_add_gnb(rrc,gNB_index);
+  if (get_softmodem_params()->emulate_l1) {
+    NR_UE_MAC_INST_t *mac = get_mac_inst(rrc->ue_id);
+    rrc->cell_stats[cell_idx].rsrp = mac->cell_list[gNB_index].rsrp_dBm;
+    rrc->cell_stats[cell_idx].rsrq = mac->cell_list[gNB_index].rsrq_dBm;
+  } else {
+    rrc->cell_stats[cell_idx].rsrp = rsrp;
+    rrc->cell_stats[cell_idx].rsrq = rsrq;
+  }
+  NR_UE_RRC_SI_INFO *SI_info = &rrc->cell_stats[cell_idx].SInfo;
   SI_info->sib_pending = false;
   if (Sdu_len == 0) // decoding failed in L2
     return;
@@ -1100,9 +1415,11 @@ static void nr_rrc_ue_decode_NR_BCCH_DL_SCH_Message(NR_UE_RRC_INST_t *rrc,
   if (bcch_message->message.present == NR_BCCH_DL_SCH_MessageType_PR_c1) {
     switch (bcch_message->message.choice.c1->present) {
       case NR_BCCH_DL_SCH_MessageType__c1_PR_systemInformationBlockType1:
-        nr_rrc_process_sib1(rrc, SI_info, bcch_message->message.choice.c1->choice.systemInformationBlockType1);
+        nr_rrc_process_sib1(rrc, SI_info, bcch_message->message.choice.c1->choice.systemInformationBlockType1, cell_idx);
         // mac layer will free after usage the sib1
         bcch_message->message.choice.c1->choice.systemInformationBlockType1 = NULL;
+        
+
         break;
       case NR_BCCH_DL_SCH_MessageType__c1_PR_systemInformation:
         LOG_I(NR_RRC, "[UE %ld] %d:%d Decoding SI\n", rrc->ue_id, frame, slot);
@@ -2263,8 +2580,8 @@ void *rrc_nrue(void *notUsed)
   case NR_RRC_MAC_BCCH_DATA_IND:
     LOG_D(NR_RRC, "[UE %ld] Received %s: gNB %d\n", rrc->ue_id, ITTI_MSG_NAME(msg_p), NR_RRC_MAC_BCCH_DATA_IND(msg_p).gnb_index);
     NRRrcMacBcchDataInd *bcch = &NR_RRC_MAC_BCCH_DATA_IND(msg_p);
-    if (bcch->is_bch)
-      nr_rrc_ue_decode_NR_BCCH_BCH_Message(rrc, bcch->gnb_index, bcch->phycellid, bcch->ssb_arfcn, bcch->sdu, bcch->sdu_size);
+    if (bcch->is_bch){
+      nr_rrc_ue_decode_NR_BCCH_BCH_Message(rrc, bcch->gnb_index, bcch->phycellid, bcch->ssb_arfcn, bcch->sdu, bcch->sdu_size);}
     else
       nr_rrc_ue_decode_NR_BCCH_DL_SCH_Message(rrc,
                                               bcch->gnb_index,
@@ -2859,12 +3176,21 @@ void nr_rrc_going_to_IDLE(NR_UE_RRC_INST_t *rrc,
   NR_NAS_CONN_RELEASE_IND(msg_p).cause = release_cause;
   itti_send_msg_to_task(TASK_NAS_NRUE, rrc->ue_id, msg_p);
 }
+void handle_tcellselect_expiry(NR_UE_RRC_INST_t *rrc)
+{
+  if (rrc->cell_selection_complete || !get_softmodem_params()->emulate_l1)
+    return;
 
+  const int selected_cell = perform_cell_selection(rrc);
+  if (selected_cell >= 0) {
+    LOG_I(NR_RRC, "TcellSelect expired: selected gNB %d\n", rrc->selected_gnb_id);
+    nr_rrc_mac_start_ra_after_cell_selection(rrc->ue_id, rrc->selected_gnb_id);
+  } else {
+    LOG_W(NR_RRC, "TcellSelect expired but no suitable cell found yet\n");
+  }
+}
 void handle_t300_expiry(NR_UE_RRC_INST_t *rrc)
 {
-  rrc->ra_trigger = RRC_CONNECTION_SETUP;
-  nr_rrc_ue_prepare_RRCSetupRequest(rrc);
-
   // reset MAC, release the MAC configuration
   NR_UE_MAC_reset_cause_t cause = T300_EXPIRY;
   MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_RESET);

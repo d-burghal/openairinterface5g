@@ -50,30 +50,30 @@ queue_t nr_crc_ind_queue;
 queue_t nr_uci_ind_queue;
 queue_t nr_rach_ind_queue;
 
-static void fill_uci_2_3_4(nfapi_nr_uci_pucch_pdu_format_2_3_4_t *pdu_2_3_4,
-                           fapi_nr_ul_config_pucch_pdu *pucch_pdu)
-{
-  NR_UE_MAC_INST_t *mac = get_mac_inst(0);
-  memset(pdu_2_3_4, 0, sizeof(*pdu_2_3_4));
-  pdu_2_3_4->handle = 0;
-  pdu_2_3_4->rnti = pucch_pdu->rnti;
-  pdu_2_3_4->pucch_format = 2;
-  pdu_2_3_4->ul_cqi = 255;
-  pdu_2_3_4->timing_advance = 0;
-  pdu_2_3_4->rssi = 0;
-  // TODO: Eventually check 38.212:Sect.631 to know when to use csi_part2, for now only using csi_part1
-  pdu_2_3_4->pduBitmap = 4;
-  pdu_2_3_4->csi_part1.csi_part1_bit_len = mac->nr_ue_emul_l1.num_csi_reports;
-  int csi_part1_byte_len = (int)((pdu_2_3_4->csi_part1.csi_part1_bit_len / 8) + 1);
-  AssertFatal(!pdu_2_3_4->csi_part1.csi_part1_payload, "pdu_2_3_4->csi_part1.csi_part1_payload != NULL\n");
-  pdu_2_3_4->csi_part1.csi_part1_payload = CALLOC(csi_part1_byte_len,
-                                                  sizeof(pdu_2_3_4->csi_part1.csi_part1_payload));
-  for (int k = 0; k < csi_part1_byte_len; k++)
-  {
-    pdu_2_3_4->csi_part1.csi_part1_payload[k] = (pucch_pdu->payload >> (k * 8)) & 0xff;
-  }
-  pdu_2_3_4->csi_part1.csi_part1_crc = 0;
-}
+// static void fill_uci_2_3_4(nfapi_nr_uci_pucch_pdu_format_2_3_4_t *pdu_2_3_4,
+//                            fapi_nr_ul_config_pucch_pdu *pucch_pdu)
+// {
+//   NR_UE_MAC_INST_t *mac = get_mac_inst(0);
+//   memset(pdu_2_3_4, 0, sizeof(*pdu_2_3_4));
+//   pdu_2_3_4->handle = 0;
+//   pdu_2_3_4->rnti = pucch_pdu->rnti;
+//   pdu_2_3_4->pucch_format = 2;
+//   pdu_2_3_4->ul_cqi = 255;
+//   pdu_2_3_4->timing_advance = 0;
+//   pdu_2_3_4->rssi = 0;
+//   // TODO: Eventually check 38.212:Sect.631 to know when to use csi_part2, for now only using csi_part1
+//   pdu_2_3_4->pduBitmap = 4;
+//   pdu_2_3_4->csi_part1.csi_part1_bit_len = mac->nr_ue_emul_l1.num_csi_reports;
+//   int csi_part1_byte_len = (int)((pdu_2_3_4->csi_part1.csi_part1_bit_len / 8) + 1);
+//   AssertFatal(!pdu_2_3_4->csi_part1.csi_part1_payload, "pdu_2_3_4->csi_part1.csi_part1_payload != NULL\n");
+//   pdu_2_3_4->csi_part1.csi_part1_payload = CALLOC(csi_part1_byte_len,
+//                                                   sizeof(pdu_2_3_4->csi_part1.csi_part1_payload));
+//   for (int k = 0; k < csi_part1_byte_len; k++)
+//   {
+//     pdu_2_3_4->csi_part1.csi_part1_payload[k] = (pucch_pdu->payload >> (k * 8)) & 0xff;
+//   }
+//   pdu_2_3_4->csi_part1.csi_part1_crc = 0;
+// }
 
 static void free_uci_inds(nfapi_nr_uci_indication_t *uci_ind)
 {
@@ -123,7 +123,7 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
           rach_ind->pdu_list[pdu_index].freq_index = prach_pdu->num_ra;
           rach_ind->pdu_list[pdu_index].avg_rssi = 128;
           rach_ind->pdu_list[pdu_index].avg_snr = 0xff; // invalid for now
-          // RDF: The below assertion will always fail.
+          // The below assertion will always fail.
           // const int num_p = rach_ind->pdu_list[pdu_index].num_preamble;
           // AssertFatal(num_p == 1, "can handle only one preamble in preamble_list\n");
           rach_ind->pdu_list[pdu_index].num_preamble = 1;
@@ -230,9 +230,31 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
               uci_ind->uci_list[j].pdu_type = NFAPI_NR_UCI_FORMAT_2_3_4_PDU_TYPE;
               uci_ind->uci_list[j].pdu_size = sizeof(nfapi_nr_uci_pucch_pdu_format_2_3_4_t);
               nfapi_nr_uci_pucch_pdu_format_2_3_4_t *pdu_2_3_4 = &uci_ind->uci_list[j].pucch_pdu_format_2_3_4;
-              fill_uci_2_3_4(pdu_2_3_4, &it->pucch_config_pdu);
+              // fill_uci_2_3_4(pdu_2_3_4, &it->pucch_config_pdu);
+              fapi_nr_ul_config_pucch_pdu *pucch_pdu = &it->pucch_config_pdu;
+              memset(pdu_2_3_4, 0, sizeof(*pdu_2_3_4));
+              pdu_2_3_4->handle = 0;
+              pdu_2_3_4->rnti = pucch_pdu->rnti;
+              pdu_2_3_4->pucch_format = 2;
+              pdu_2_3_4->ul_cqi = 255;
+              pdu_2_3_4->timing_advance = 0;
+              pdu_2_3_4->rssi = 0;
+              
+              if (mac->nr_ue_emul_l1.num_csi_reports > 0) {
+                pdu_2_3_4->pduBitmap |= 4;
+                pdu_2_3_4->csi_part1.csi_part1_bit_len = mac->nr_ue_emul_l1.num_csi_reports;
+                int csi_part1_byte_len = (int)((pdu_2_3_4->csi_part1.csi_part1_bit_len / 8) + 1);
+                AssertFatal(!pdu_2_3_4->csi_part1.csi_part1_payload, "pdu_2_3_4->csi_part1.csi_part1_payload != NULL\n");
+                pdu_2_3_4->csi_part1.csi_part1_payload = CALLOC(csi_part1_byte_len,
+                                                                sizeof(pdu_2_3_4->csi_part1.csi_part1_payload));
+                for (int k = 0; k < csi_part1_byte_len; k++)
+                {
+                  pdu_2_3_4->csi_part1.csi_part1_payload[k] = (pucch_pdu->payload >> (k * 8)) & 0xff;
+                }
+                pdu_2_3_4->csi_part1.csi_part1_crc = 0;
+              }
 
-              // RDF fix
+              // fix
               if (mac->nr_ue_emul_l1.num_harqs > 0) {
                 int harq_index = 0;
                 pdu_2_3_4->pduBitmap |= 2; // (value->pduBitmap >> 1) & 0x01) == HARQ and (value->pduBitmap) & 0x01) == SR
@@ -245,10 +267,14 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
                     mac->nr_ue_emul_l1.harq[k].active = false;
                     harq_pid = k;
                     // AssertFatal(harq_index < pdu_2_3_4->harq.num_harq, "Invalid harq_index %d\n", harq_index);
-                    // RDF: mac->dl_harq_info[k].ack never gets set anywhere, so below will always indicate NACK.
+                    // mac->dl_harq_info[k].ack never gets set anywhere, so below will always indicate NACK.
                     // pdu_2_3_4->harq.harq_list[harq_index].harq_value = !mac->dl_harq_info[k].ack;
                     pdu_2_3_4->harq.harq_crc = 0;
-                    payload[harq_index / 8] |= (1 << (harq_index % 8));
+                    if (mac->nr_ue_emul_l1.harq[k].ack_received && mac->nr_ue_emul_l1.harq[k].ack) {
+                      payload[harq_index / 8] |= (1 << (harq_index % 8));
+                      mac->nr_ue_emul_l1.harq[k].ack_received = false;
+                      mac->nr_ue_emul_l1.harq[k].ack = 0;
+                    }
                     harq_index++;
                   }
                 }
@@ -278,7 +304,7 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
                 pdu_0_1->sr.sr_indication = 1;
                 pdu_0_1->sr.sr_confidence_level = 0;
               }
-              // RDF fix
+              // fix
               if (mac->nr_ue_emul_l1.num_harqs > 0) {
                 int harq_index = 0;
                 pdu_0_1->pduBitmap |= 2; // (value->pduBitmap >> 1) & 0x01) == HARQ and (value->pduBitmap) & 0x01) == SR
@@ -292,9 +318,13 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
                     mac->nr_ue_emul_l1.harq[k].active = false;
                     harq_pid = k;
                     AssertFatal(harq_index < pdu_0_1->harq.num_harq, "Invalid harq_index %d\n", harq_index);
-                    // RDF: mac->dl_harq_info[k].ack never gets set anywhere, so below will always indicate NACK.
+                    // mac->dl_harq_info[k].ack never gets set anywhere, so below will always indicate NACK.
                     // pdu_0_1->harq.harq_list[harq_index].harq_value = !mac->dl_harq_info[k].ack;
-                    pdu_0_1->harq.harq_list[harq_index].harq_value = 0;
+                    if (mac->nr_ue_emul_l1.harq[k].ack_received) {
+                      pdu_0_1->harq.harq_list[harq_index].harq_value = !mac->nr_ue_emul_l1.harq[k].ack;
+                      mac->nr_ue_emul_l1.harq[k].ack_received = false;
+                      mac->nr_ue_emul_l1.harq[k].ack = 0;
+                    }
                     harq_index++;
                   }
                 }
@@ -307,7 +337,7 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
           NR_UL_IND_t ul_info = {
               .uci_ind = *uci_ind,
           };
-          send_nsa_standalone_msg(&ul_info, uci_ind->header.message_id);
+          send_nsa_standalone_msg(&ul_info, uci_ind->header.message_id, mac->selected_gnb_id + 1);
           free_uci_inds(uci_ind);
           break;
         }
@@ -318,6 +348,7 @@ int8_t nr_ue_scheduled_response_stub(nr_scheduled_response_t *scheduled_response
       }
       it++;
     }
+    LOG_D(NR_MAC, "Calling release_ul_config from nr_ue_scheduled_response_stub for UL config PDU %p privateNBpdus %p \n", (void*)it, (void*)it->privateNBpdus);
     release_ul_config(it, true);
   }
   return 0;
@@ -604,6 +635,7 @@ static void nr_ue_scheduled_response_ul(PHY_VARS_NR_UE *phy, fapi_nr_ul_config_r
   }
 
   LOG_D(PHY, "clear ul_config\n");
+  LOG_D(NR_MAC, "Calling release_ul_config from nr_ue_scheduled_response_ul\n");
   release_ul_config(pdu, true);
 }
 

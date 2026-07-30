@@ -30,6 +30,7 @@
  * \warning
  */
 
+#define _GNU_SOURCE
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -45,11 +46,26 @@
 #include "openair2/GNB_APP/gnb_paramdef.h"
 #include "radio/ETHERNET/if_defs.h"
 #include <stdio.h>
+#include <time.h>
 #include "openair2/GNB_APP/MACRLC_nr_paramdef.h"
 #include "nfapi/open-nFAPI/common/public_inc/debug.h"
 
-#define MU 1  // RDF: Only support numerology 1 for L2 Proxy mode
+// UDP wrapper header for gNB identification (used in both DL and UL)
+// These must match the definitions in l2-fapi-proxy/src/nfapi_pnf.h
+#define WRAPPER_MAGIC 0x4E47   // "NG" in ASCII
+#define WRAPPER_SIZE 6
+
+typedef struct __attribute__((packed)) {
+    uint16_t magic;     // 0x4E47 ("NG") - identifies wrapper
+    uint16_t gnb_id;    // gNB identifier (1, 2, 3...)
+    uint16_t msg_len;   // Length of nFAPI message
+} udp_wrapper_header_t;
+
+
 #define MAX_IF_MODULES 100
+#define MU 1 // Hardcode 
+
+int nr_ul_tti_req_queue_size_last = 0;
 
 UL_IND_t *UL_INFO = NULL;
 
@@ -67,6 +83,8 @@ queue_t nr_tx_req_queue;
 queue_t nr_ul_dci_req_queue;
 queue_t nr_ul_tti_req_queue;
 static void save_pdsch_pdu_for_crnti(nfapi_nr_dl_tti_request_t *dl_tti_request);
+
+static slot_response_t slot_response[NUM_NFAPI_SLOT];
 
 void print_ue_mac_stats(const module_id_t mod, const int frame_rx, const int slot_rx)
 {
@@ -192,12 +210,53 @@ void nrue_init_standalone_socket(int tx_port, int rx_port)
         tx_port, rx_port, stub_eth_params.remote_addr);
 }
 
-void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id)
+void send_slot_response(uint16_t frame, uint16_t slot)
+{
+  NR_UE_MAC_INST_t *mac = get_mac_inst(0);
+  slot_response_t * resp = &slot_response[slot];
+
+  nfapi_nr_slot_response_t msg;
+  msg.header.phy_id = 0;
+  msg.header.message_id = NFAPI_NR_PHY_MSG_TYPE_VENDOR_EXT_SLOT_RESPONSE;
+  msg.sfn = frame;
+  msg.slot = slot;
+  // msg.rnti = mac->state == UE_CONNECTED ? mac->crnti : 0xFFFF;
+  if (mac->ra.ra_state == nrRA_WAIT_RAR)
+    msg.rnti = mac->ra.ra_rnti;
+  else if (mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION)
+    msg.rnti = mac->ra.t_crnti;
+  else if (mac->ra.ra_state == nrRA_SUCCEEDED)
+    msg.rnti = mac->crnti;
+  else
+    msg.rnti = 0xFFFF;
+
+  msg.message_types = (uint16_t)resp->rach | ((uint16_t)resp->crc << 1) | ((uint16_t)resp->rx_data << 2)  | ((uint16_t)resp->uci << 3);
+
+  char buffer[NFAPI_MAX_PACKED_MESSAGE_SIZE];
+  int encoded_size = nfapi_nr_p7_message_pack(&msg, buffer, sizeof(buffer), NULL);
+
+  // memcpy(buffer, &resp_msg, encoded_size);
+
+  resp->rach = 0;
+  resp->crc = 0;
+  resp->rx_data = 0;
+  resp->uci = 0;
+
+  LOG_D(NR_MAC, "Slot response sent to proxy for frame %d slot %d\n", frame, slot);
+  if (send(ue_tx_sock_descriptor, buffer, encoded_size, 0) < 0)
+  {
+    LOG_E(NR_MAC, "Send Proxy NR_UE failed\n");
+    return;
+  }
+}
+
+void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id, uint16_t gnb_id)
 {
   switch(msg_id)
   {
     case NFAPI_NR_PHY_MSG_TYPE_RACH_INDICATION:
     {
+        slot_response[UL_INFO->rach_ind.slot].rach = true;
         char buffer[NFAPI_MAX_PACKED_MESSAGE_SIZE];
         LOG_T(NR_MAC, "RACH header id :%d\n", UL_INFO->rach_ind.header.message_id);
         int encoded_size = nfapi_nr_p7_message_pack(&UL_INFO->rach_ind, buffer, sizeof(buffer), NULL);
@@ -206,10 +265,17 @@ void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id)
                 LOG_E(NR_MAC, "nfapi_nr_p7_message_pack has failed. Encoded size = %d\n", encoded_size);
                 return;
         }
-
         LOG_D(NR_MAC, "NR_RACH_IND sent to Proxy, Size: %d Frame %d Slot %d Num PDUS %d\n", encoded_size,
                 UL_INFO->rach_ind.sfn, UL_INFO->rach_ind.slot, UL_INFO->rach_ind.number_of_pdus);
-        if (send(ue_tx_sock_descriptor, buffer, encoded_size, 0) < 0)
+        // Prepend UDP wrapper header
+        char wrapped_buffer[NFAPI_MAX_PACKED_MESSAGE_SIZE + WRAPPER_SIZE];
+        udp_wrapper_header_t wrapper;
+        wrapper.magic = htons(WRAPPER_MAGIC);
+        wrapper.gnb_id = htons(gnb_id);
+        wrapper.msg_len = htons(encoded_size);
+        memcpy(wrapped_buffer, &wrapper, WRAPPER_SIZE);
+        memcpy(wrapped_buffer + WRAPPER_SIZE, buffer, encoded_size);
+        if (send(ue_tx_sock_descriptor, wrapped_buffer, encoded_size + WRAPPER_SIZE, 0) < 0)
         {
                 LOG_E(NR_MAC, "Send Proxy NR_UE failed\n");
                 return;
@@ -218,6 +284,7 @@ void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id)
     }
     case NFAPI_NR_PHY_MSG_TYPE_RX_DATA_INDICATION:
     {
+        slot_response[UL_INFO->rx_ind.slot].rx_data = true;
         char buffer[NFAPI_MAX_PACKED_MESSAGE_SIZE];
         LOG_T(NR_MAC, "RX header id :%d\n", UL_INFO->rx_ind.header.message_id);
         int encoded_size = nfapi_nr_p7_message_pack(&UL_INFO->rx_ind, buffer, sizeof(buffer), NULL);
@@ -229,7 +296,15 @@ void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id)
 
         LOG_D(NR_MAC, "NR_RX_IND sent to Proxy, Size: %d Frame %d Slot %d Num PDUS %d\n", encoded_size,
                 UL_INFO->rx_ind.sfn, UL_INFO->rx_ind.slot, UL_INFO->rx_ind.number_of_pdus);
-        if (send(ue_tx_sock_descriptor, buffer, encoded_size, 0) < 0)
+        // Prepend UDP wrapper header
+        char wrapped_buffer[NFAPI_MAX_PACKED_MESSAGE_SIZE + WRAPPER_SIZE];
+        udp_wrapper_header_t wrapper;
+        wrapper.magic = htons(WRAPPER_MAGIC);
+        wrapper.gnb_id = htons(gnb_id);
+        wrapper.msg_len = htons(encoded_size);
+        memcpy(wrapped_buffer, &wrapper, WRAPPER_SIZE);
+        memcpy(wrapped_buffer + WRAPPER_SIZE, buffer, encoded_size);
+        if (send(ue_tx_sock_descriptor, wrapped_buffer, encoded_size + WRAPPER_SIZE, 0) < 0)
         {
                 LOG_E(NR_MAC, "Send Proxy NR_UE failed\n");
                 return;
@@ -238,6 +313,7 @@ void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id)
     }
     case NFAPI_NR_PHY_MSG_TYPE_CRC_INDICATION:
     {
+        slot_response[UL_INFO->crc_ind.slot].crc = true;
         char buffer[NFAPI_MAX_PACKED_MESSAGE_SIZE];
         LOG_T(NR_MAC, "CRC header id :%d\n", UL_INFO->crc_ind.header.message_id);
         int encoded_size = nfapi_nr_p7_message_pack(&UL_INFO->crc_ind, buffer, sizeof(buffer), NULL);
@@ -249,7 +325,15 @@ void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id)
 
         LOG_D(NR_MAC, "NR_CRC_IND sent to Proxy, Size: %d Frame %d Slot %d Num PDUS %d\n", encoded_size,
                 UL_INFO->crc_ind.sfn, UL_INFO->crc_ind.slot, UL_INFO->crc_ind.number_crcs);
-        if (send(ue_tx_sock_descriptor, buffer, encoded_size, 0) < 0)
+        // Prepend UDP wrapper header
+        char wrapped_buffer[NFAPI_MAX_PACKED_MESSAGE_SIZE + WRAPPER_SIZE];
+        udp_wrapper_header_t wrapper;
+        wrapper.magic = htons(WRAPPER_MAGIC);
+        wrapper.gnb_id = htons(gnb_id);
+        wrapper.msg_len = htons(encoded_size);
+        memcpy(wrapped_buffer, &wrapper, WRAPPER_SIZE);
+        memcpy(wrapped_buffer + WRAPPER_SIZE, buffer, encoded_size);
+        if (send(ue_tx_sock_descriptor, wrapped_buffer, encoded_size + WRAPPER_SIZE, 0) < 0)
         {
                 LOG_E(NR_MAC, "Send Proxy NR_UE failed\n");
                 return;
@@ -258,6 +342,7 @@ void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id)
     }
     case NFAPI_NR_PHY_MSG_TYPE_UCI_INDICATION:
     {
+        slot_response[UL_INFO->uci_ind.slot].uci = true;
         char buffer[NFAPI_MAX_PACKED_MESSAGE_SIZE];
         LOG_D(NR_MAC, "UCI header id :%d\n", UL_INFO->uci_ind.header.message_id);
         int encoded_size = nfapi_nr_p7_message_pack(&UL_INFO->uci_ind, buffer, sizeof(buffer), NULL);
@@ -269,7 +354,15 @@ void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id)
 
         LOG_D(NR_MAC, "NR_UCI_IND sent to Proxy, Size: %d Frame %d Slot %d Num PDUS %d\n", encoded_size,
                 UL_INFO->uci_ind.sfn, UL_INFO->uci_ind.slot, UL_INFO->uci_ind.num_ucis);
-        if (send(ue_tx_sock_descriptor, buffer, encoded_size, 0) < 0)
+        // Prepend UDP wrapper header
+        char wrapped_buffer[NFAPI_MAX_PACKED_MESSAGE_SIZE + WRAPPER_SIZE];
+        udp_wrapper_header_t wrapper;
+        wrapper.magic = htons(WRAPPER_MAGIC);
+        wrapper.gnb_id = htons(gnb_id);
+        wrapper.msg_len = htons(encoded_size);
+        memcpy(wrapped_buffer, &wrapper, WRAPPER_SIZE);
+        memcpy(wrapped_buffer + WRAPPER_SIZE, buffer, encoded_size);
+        if (send(ue_tx_sock_descriptor, wrapped_buffer, encoded_size + WRAPPER_SIZE, 0) < 0)
         {
                 LOG_E(NR_MAC, "Send Proxy NR_UE failed\n");
                 return;
@@ -282,6 +375,66 @@ void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id)
     break;
   }
 }
+
+
+
+// PM: SFN_lsot_gnb_matcher
+
+bool sfn_slot_gnb_matcher(void *sfn_slot_gnb_s, void *candidate)
+{
+    nfapi_p7_message_header_t *msg = candidate;
+    const struct sfn_slot_gnb_s *sfn_slot_gnb = (const struct sfn_slot_gnb_s *)sfn_slot_gnb_s;
+
+    switch (msg->message_id)
+    {
+        case NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST:
+        {
+            nfapi_nr_dl_tti_request_t *ind = candidate;
+            return (sfn_slot_gnb->sfn == ind->SFN && 
+                    sfn_slot_gnb->slot == ind->Slot && 
+                    sfn_slot_gnb->gnb_id == ind->header.phy_id);
+        }
+
+        case NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST:
+        {
+            nfapi_nr_tx_data_request_t *ind = candidate;
+            return (sfn_slot_gnb->sfn == ind->SFN && 
+                    sfn_slot_gnb->slot == ind->Slot && 
+                    sfn_slot_gnb->gnb_id == ind->header.phy_id);
+        }
+
+        // Add similar cases for other message types as needed
+        case NFAPI_NR_PHY_MSG_TYPE_RACH_INDICATION:
+        {
+            nfapi_nr_rach_indication_t *ind = candidate;
+            return (sfn_slot_gnb->sfn == ind->sfn && 
+                    sfn_slot_gnb->slot == ind->slot && 
+                    sfn_slot_gnb->gnb_id == ind->header.phy_id);
+        }
+
+        case NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST:
+        {
+            nfapi_nr_ul_tti_request_t *ind = candidate;
+            return (sfn_slot_gnb->sfn == ind->SFN && 
+                    sfn_slot_gnb->slot == ind->Slot && 
+                    sfn_slot_gnb->gnb_id == ind->header.phy_id);
+        }
+
+        case NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST:
+        {
+            nfapi_nr_ul_dci_request_t *ind = candidate;
+            return (sfn_slot_gnb->sfn == ind->SFN && 
+                    sfn_slot_gnb->slot == ind->Slot && 
+                    sfn_slot_gnb->gnb_id == ind->header.phy_id);
+        }
+
+        default:
+            LOG_E(NR_MAC, "sfn_slot_gnb_match bad ID: %d\n", msg->message_id);
+    }
+
+    return false;
+}
+
 
 bool sfn_slot_matcher(void *sfn_slot_s, void *candidate)
 {
@@ -379,7 +532,7 @@ static void fill_mib_in_rx_ind(NR_UE_MAC_INST_t *mac, nfapi_nr_dl_tti_request_pd
   rx_ind->rx_indication_body[pdu_idx].ssb_pdu.rsrp_dBm = ssb_pdu->ssbRsrp;
   rx_ind->rx_indication_body[pdu_idx].ssb_pdu.ssb_index = ssb_pdu->SsbBlockIndex;
   rx_ind->rx_indication_body[pdu_idx].ssb_pdu.ssb_length = pdu_list->PDUSize;
-  // RDF: Erroneous setting: rx_ind->rx_indication_body[pdu_idx].ssb_pdu.ssb_start_subcarrier = ssb_pdu->SsbSubcarrierOffset;
+  // Erroneous setting: rx_ind->rx_indication_body[pdu_idx].ssb_pdu.ssb_start_subcarrier = ssb_pdu->SsbSubcarrierOffset;
   // Should be computed as: ssb_start_subcarrier = (12 * prb_offset + sc_offset);
   const int scs = 1;
   AssertFatal(mac->frequency_range == FR1, "Only FR1 frequency range supported with emulated L1 mode.");
@@ -391,7 +544,8 @@ static void fill_mib_in_rx_ind(NR_UE_MAC_INST_t *mac, nfapi_nr_dl_tti_request_pd
   rx_ind->number_pdus = pdu_idx + 1;
 }
 
-static bool is_my_dci(NR_UE_MAC_INST_t *mac, nfapi_nr_dl_dci_pdu_t *received_pdu)
+// static bool is_my_dci(NR_UE_MAC_INST_t *mac, nfapi_nr_dl_dci_pdu_t *received_pdu)
+static bool is_my_dci(NR_UE_MAC_INST_t *mac, uint16_t rnti)
 {
   /* For multiple UEs, we need to be able to filter the rx'd messages by
      the RNTI. The filtering is different between NSA mode and SA mode.
@@ -405,29 +559,30 @@ static bool is_my_dci(NR_UE_MAC_INST_t *mac, nfapi_nr_dl_dci_pdu_t *received_pdu
      already. Only once the RA procedure succeeds is the CRNTI value updated
      to the TC_RNTI. */
   if (get_softmodem_params()->nsa) {
-    if (received_pdu->RNTI != mac->crnti && (received_pdu->RNTI != mac->ra.ra_rnti))
+    if (rnti != mac->crnti && (rnti != mac->ra.ra_rnti))
       return false;
   }
   if (IS_SA_MODE(get_softmodem_params())) {
     if (mac->state == UE_NOT_SYNC)
       return false;
-    // RDF: This results in SIB never being received.
-    // if (received_pdu->RNTI == 0xFFFF)
-    //   return false;
-    if (received_pdu->RNTI != mac->crnti && mac->ra.ra_state == nrRA_SUCCEEDED)
+    // This results in SIB never being received.
+    // if (rnti == 0xFFFF)
+    if (rnti == 0xFFFF && mac->ra.ra_state >= nrRA_GENERATE_PREAMBLE)
       return false;
-    if (received_pdu->RNTI != mac->ra.t_crnti && mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION)
+    if (rnti != mac->crnti && mac->ra.ra_state == nrRA_SUCCEEDED)
       return false;
-    // if (received_pdu->RNTI != 0x10b && mac->ra.ra_state == nrRA_WAIT_RAR)
-    if (received_pdu->RNTI != mac->ra.ra_rnti && mac->ra.ra_state == nrRA_WAIT_RAR)
+    if (rnti != mac->ra.t_crnti && mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION)
       return false;
-    if (received_pdu->RNTI != 0xFFFF && mac->ra.ra_state <= nrRA_GENERATE_PREAMBLE)
+    // if (rnti != 0x10b && mac->ra.ra_state == nrRA_WAIT_RAR)
+    if (rnti != mac->ra.ra_rnti && mac->ra.ra_state == nrRA_WAIT_RAR)
+      return false;
+    if (rnti != 0xFFFF && mac->ra.ra_state <= nrRA_GENERATE_PREAMBLE)
       return false;
   }
   return true;
 }
 
-static void copy_dl_tti_req_to_dl_info(nr_downlink_indication_t *dl_info, nfapi_nr_dl_tti_request_t *dl_tti_request)
+static void copy_dl_tti_req_to_dl_info(nr_downlink_indication_t *dl_info, nfapi_nr_dl_tti_request_t *dl_tti_request, uint16_t gnb_id)
 {
     NR_UE_MAC_INST_t *mac = get_mac_inst(dl_info->module_id);
     mac->nr_ue_emul_l1.expected_sib = false;
@@ -465,12 +620,15 @@ static void copy_dl_tti_req_to_dl_info(nr_downlink_indication_t *dl_info, nfapi_
                 }
                 dl_info->dci_ind->SFN = dl_tti_request->SFN;
                 dl_info->dci_ind->slot = dl_tti_request->Slot;
+                // WRAPPER: Use wrapper gnb_id if available, else fall back to phy_id in message
+                uint16_t effective_gnb_id = gnb_id > 0 ? gnb_id : dl_tti_request->header.phy_id;
+                dl_info->gNB_index = (effective_gnb_id > 0) ? (effective_gnb_id - 1) : 0;
                 AssertFatal(num_dcis <= sizeof(dl_info->dci_ind->dci_list) / sizeof(dl_info->dci_ind->dci_list[0]),
                             "The number of DCIs is greater than dci_list");
                 for (int j = 0; j < num_dcis; j++)
                 {
                     nfapi_nr_dl_dci_pdu_t *dci_pdu_list = &pdu_list->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[j];
-                    if (is_my_dci(mac, dci_pdu_list))
+                    if (is_my_dci(mac, dci_pdu_list->RNTI))
                     {
                     if (mac->ra.ra_state > nrRA_UE_IDLE) {
                         fill_dl_info_with_pdcch(dl_info->dci_ind, dci_pdu_list, valid_pdu_idx);
@@ -478,19 +636,19 @@ static void copy_dl_tti_req_to_dl_info(nr_downlink_indication_t *dl_info, nfapi_
                     if (dci_pdu_list->RNTI == 0xffff)
                     {
                         mac->nr_ue_emul_l1.expected_sib = true;
-                          mac->nr_ue_emul_l1.index_has_sib[pdu_idx] = true;
+                        mac->nr_ue_emul_l1.index_has_sib[pdu_idx] = true;
                         LOG_T(NR_MAC, "Setting index_has_sib[%d] = true\n", j);
                     }
                     else if (dci_pdu_list->RNTI == mac->ra.ra_rnti)
                     {
                         mac->nr_ue_emul_l1.expected_rar = true;
-                          mac->nr_ue_emul_l1.index_has_rar[pdu_idx] = true;
+                        mac->nr_ue_emul_l1.index_has_rar[pdu_idx] = true;
                         LOG_T(NR_MAC, "Setting index_has_rar[%d] = true\n", j);
                     }
                     else
                     {
                         mac->nr_ue_emul_l1.expected_dci = true;
-                          mac->nr_ue_emul_l1.index_has_dci[pdu_idx] = true;
+                        mac->nr_ue_emul_l1.index_has_dci[pdu_idx] = true;
                         LOG_T(NR_MAC, "Setting index_has_dci[%d] = true\n", j);
                     }
                     valid_pdu_idx++;
@@ -515,12 +673,17 @@ static void copy_dl_tti_req_to_dl_info(nr_downlink_indication_t *dl_info, nfapi_
             fapi_nr_rx_indication_t *rx_ind = dl_info->rx_ind;
             rx_ind->sfn = dl_tti_request->SFN;
             rx_ind->slot = dl_tti_request->Slot;
+                // WRAPPER: Use wrapper gnb_id if available, else fall back to phy_id in message
+                uint16_t effective_gnb_id = gnb_id > 0 ? gnb_id : dl_tti_request->header.phy_id;
+                dl_info->gNB_index = (effective_gnb_id > 0) ? (effective_gnb_id - 1) : 0;
             fill_mib_in_rx_ind(mac, pdu_list, rx_ind, 0, FAPI_NR_RX_PDU_TYPE_SSB);
             nr_ue_dl_indication(&mac->dl_info);
         }
     }
     dl_info->slot = dl_tti_request->Slot;
     dl_info->frame = dl_tti_request->SFN;
+    uint16_t effective_gnb_id = gnb_id > 0 ? gnb_id : dl_tti_request->header.phy_id;
+    dl_info->gNB_index = (effective_gnb_id > 0) ? (effective_gnb_id - 1) : 0;
 }
 
 static void fill_rx_ind(nfapi_nr_pdu_t *pdu_list, fapi_nr_rx_indication_t *rx_ind, int pdu_idx, int pdu_type)
@@ -574,7 +737,6 @@ static void copy_tx_data_req_to_dl_info(nr_downlink_indication_t *dl_info, nfapi
     rx_ind->slot = tx_data_request->Slot;
 
     int pdu_idx = 0;
-
     for (int i = 0; i < num_pdus; i++)
     {
         nfapi_nr_pdu_t *pdu_list = &tx_data_request->pdu_list[i];
@@ -599,7 +761,6 @@ static void copy_tx_data_req_to_dl_info(nr_downlink_indication_t *dl_info, nfapi
         {
             LOG_T(NR_MAC, "mac->nr_ue_emul_l1.index_has_dci[%d] = 0, so this index contained a DCI for a different UE\n", i);
         }
-
     }
     dl_info->slot = tx_data_request->Slot;
     dl_info->frame = tx_data_request->SFN;
@@ -669,16 +830,17 @@ static bool send_crc_ind_and_rx_ind(int sfn, int slot)
     NR_UL_IND_t UL_INFO = {
       .crc_ind = *crc_ind,
     };
-    send_nsa_standalone_msg(&UL_INFO, crc_ind->header.message_id);
+    send_nsa_standalone_msg(&UL_INFO, crc_ind->header.message_id, mac->selected_gnb_id + 1);
     free(crc_ind->crc_list);
     free(crc_ind);
   }
   if (rx_ind && rx_ind->number_of_pdus > 0)
   {
+    NR_UE_MAC_INST_t *mac = get_mac_inst(0);
     NR_UL_IND_t UL_INFO = {
       .rx_ind = *rx_ind,
     };
-    send_nsa_standalone_msg(&UL_INFO, rx_ind->header.message_id);
+    send_nsa_standalone_msg(&UL_INFO, rx_ind->header.message_id, mac->selected_gnb_id + 1);
     free(rx_ind->pdu_list);
     free(rx_ind);
   }
@@ -698,7 +860,7 @@ static void copy_ul_tti_data_req_to_dl_info(nr_downlink_indication_t *dl_info, n
 
     if (!send_crc_ind_and_rx_ind(ul_tti_req->SFN, ul_tti_req->Slot))
     {
-        LOG_T(NR_MAC, "CRC_RX ind not sent\n");
+        LOG_D(NR_MAC, "CRC_RX ind not sent\n");
         if (!put_queue(&nr_ul_tti_req_queue, ul_tti_req))
         {
             LOG_E(NR_PHY, "put_queue failed for ul_tti_req.\n");
@@ -773,7 +935,8 @@ static void fill_dci_from_dl_config(nr_downlink_indication_t*dl_ind, fapi_nr_dl_
 void check_and_process_dci(nfapi_nr_dl_tti_request_t *dl_tti_request,
                            nfapi_nr_tx_data_request_t *tx_data_request,
                            nfapi_nr_ul_dci_request_t *ul_dci_request,
-                           nfapi_nr_ul_tti_request_t *ul_tti_request)
+                           nfapi_nr_ul_tti_request_t *ul_tti_request,
+                           uint16_t dl_gnb_id)
 {
     frame_t frame = 0;
     int slot = 0;
@@ -785,7 +948,7 @@ void check_and_process_dci(nfapi_nr_dl_tti_request_t *dl_tti_request,
         frame = dl_tti_request->SFN;
         slot = dl_tti_request->Slot;
         LOG_D(NR_PHY, "[%d, %d] dl_tti_request\n", frame, slot);
-        copy_dl_tti_req_to_dl_info(&mac->dl_info, dl_tti_request);
+        copy_dl_tti_req_to_dl_info(&mac->dl_info, dl_tti_request, dl_gnb_id);
     }
     /* This checks if the previously recevied DCI matches our current RNTI
        value. The assumption is that if the DCI matches our RNTI, then the
@@ -842,6 +1005,8 @@ void check_and_process_dci(nfapi_nr_dl_tti_request_t *dl_tti_request,
                                         .frame = slot + slot_ahead >= slots_per_frame ? (frame + 1) % 1024 : frame};
       nr_ue_ul_scheduler(mac, &ul_info);
     }
+
+    // send_slot_response(frame, slot);
 }
 
 void save_nr_measurement_info(nfapi_nr_dl_tti_request_t *dl_tti_request)
@@ -881,7 +1046,7 @@ void save_nr_measurement_info(nfapi_nr_dl_tti_request_t *dl_tti_request)
     LOG_A(NR_RRC, "Populated NR_UE_RRC_MEASUREMENT information and sent to LTE UE\n");
 }
 
-static void enqueue_nr_nfapi_msg(void *buffer, ssize_t len, nfapi_p7_message_header_t header)
+static void enqueue_nr_nfapi_msg(void *buffer, ssize_t len, nfapi_p7_message_header_t header, uint16_t wrapper_gnb_id)
 {
     NR_UE_MAC_INST_t *mac = get_mac_inst(0);
     switch (header.message_id)
@@ -889,23 +1054,29 @@ static void enqueue_nr_nfapi_msg(void *buffer, ssize_t len, nfapi_p7_message_hea
         case NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST:
         {
             nfapi_nr_dl_tti_request_t *dl_tti_request = malloc16(sizeof(*dl_tti_request));
+
             if (nfapi_nr_p7_message_unpack(buffer, len, dl_tti_request,
                                             sizeof(*dl_tti_request), NULL) < 0)
             {
                 LOG_E(NR_PHY, "Message dl_tti_request failed to unpack\n");
                 break;
             }
-            LOG_D(NR_PHY, "Received an NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST message in sfn/slot %d %d. \n",
-                    dl_tti_request->SFN, dl_tti_request->Slot);
+            // NOTE: We do NOT modify phy_id. gnb_id travels via nfapi_queue_item_t metadata.
+            // This preserves the distinction from the in-band phy_id approach.
 
             if (is_channel_modeling())
                 save_pdsch_pdu_for_crnti(dl_tti_request);
 
-            if (!put_queue(&nr_dl_tti_req_queue, dl_tti_request))
+            // Create metadata item: pack gnb_id alongside message pointer
+            nfapi_queue_item_t *item = malloc(sizeof(*item));
+            item->msg = dl_tti_request;
+            item->gnb_id = wrapper_gnb_id;
+
+            if (!put_queue(&nr_dl_tti_req_queue, item))
             {
                 LOG_E(NR_PHY, "put_queue failed for dl_tti_request.\n");
                 free(dl_tti_request);
-                dl_tti_request = NULL;
+                free(item);
             }
             break;
         }
@@ -966,19 +1137,32 @@ static void enqueue_nr_nfapi_msg(void *buffer, ssize_t len, nfapi_p7_message_hea
                NFAPI_NR_UL_CONFIG_PUSCH_PDU_TYPE. If we have not yet completed the CBRA/
                CFRA procedure, we need to queue all UL_TTI_REQs. */
             for (int i = 0; i < ul_tti_request->n_pdus; i++) {
-              if (ul_tti_request->pdus_list[i].pdu_type == NFAPI_NR_UL_CONFIG_PUSCH_PDU_TYPE
-                  && mac->ra.ra_state >= nrRA_SUCCEEDED) {
+              uint16_t pdu_type = ul_tti_request->pdus_list[i].pdu_type;
+              if (mac->ra.ra_state < nrRA_SUCCEEDED || 
+                  (pdu_type == NFAPI_NR_UL_CONFIG_PUSCH_PDU_TYPE && mac->ra.ra_state >= nrRA_SUCCEEDED)) {
+
+                uint16_t rnti = 0xffff;
+                if (pdu_type == NFAPI_NR_UL_CONFIG_PUSCH_PDU_TYPE) {
+                  rnti = ul_tti_request->pdus_list[i].pusch_pdu.rnti;
+                }
+                else if (pdu_type == NFAPI_NR_UL_CONFIG_PUCCH_PDU_TYPE) {
+                  rnti = ul_tti_request->pdus_list[i].pucch_pdu.rnti;
+                }
+                else if (pdu_type == NFAPI_NR_UL_CONFIG_SRS_PDU_TYPE) {
+                  rnti = ul_tti_request->pdus_list[i].srs_pdu.rnti;
+                }
+
+                if (rnti != 0xffff && !is_my_dci(mac, rnti))
+                  continue;
+                
                 if (!put_queue(&nr_ul_tti_req_queue, ul_tti_request)) {
                   LOG_D(NR_PHY, "put_queue failed for ul_tti_request, calling put_queue_replace.\n");
                   nfapi_nr_ul_tti_request_t *evicted_ul_tti_req = put_queue_replace(&nr_ul_tti_req_queue, ul_tti_request);
                   free(evicted_ul_tti_req);
                 }
-                break;
-              } else if (mac->ra.ra_state < nrRA_SUCCEEDED) {
-                if (!put_queue(&nr_ul_tti_req_queue, ul_tti_request)) {
-                  LOG_D(NR_PHY, "put_queue failed for ul_tti_request, calling put_queue_replace.\n");
-                  nfapi_nr_ul_tti_request_t *evicted_ul_tti_req = put_queue_replace(&nr_ul_tti_req_queue, ul_tti_request);
-                  free(evicted_ul_tti_req);
+                if (nr_ul_tti_req_queue.num_items > nr_ul_tti_req_queue_size_last + 10) {
+                  nr_ul_tti_req_queue_size_last = nr_ul_tti_req_queue.num_items;
+                  LOG_W(NR_PHY, "Size of nr_ul_tti_req_queue = %d\n", nr_ul_tti_req_queue_size_last);
                 }
                 break;
               }
@@ -1040,7 +1224,7 @@ void *nrue_standalone_pnf_task(void *context)
   int sd = ue_rx_sock_descriptor;
   assert(sd > 0);
 
-  char buffer[NFAPI_MAX_PACKED_MESSAGE_SIZE];
+  char buffer[NFAPI_MAX_PACKED_MESSAGE_SIZE + WRAPPER_SIZE];
 
   LOG_I(NR_RRC, "Successfully started %s.\n", __FUNCTION__);
 
@@ -1057,13 +1241,65 @@ void *nrue_standalone_pnf_task(void *context)
       LOG_E(NR_PHY, "%s(%d). Message truncated. %zd\n", __FUNCTION__, __LINE__, len);
       continue;
     }
+
+    // WRAPPER: Check for wrapper and extract gNB ID
+    uint8_t *msg_start = (uint8_t *)buffer;
+    size_t msg_len = len;
+    bool local_wrapper_detected = false;
+    uint16_t local_wrapper_gnb_id = 0;
+    
+      // [WRAPPER_DEBUG] Log raw buffer before processing
+      // DISABLED: LOG_I(NR_PHY, "[WRAPPER_DEBUG] RECV_START: total_len=%zd buffer_ptr=%p\n", len, buffer);
+    
+    if (len >= WRAPPER_SIZE) {
+      udp_wrapper_header_t *wrapper = (udp_wrapper_header_t *)buffer;
+      uint16_t magic = ntohs(wrapper->magic);
+      uint16_t wrapper_gnb_id = ntohs(wrapper->gnb_id);
+      uint16_t wrapper_msg_len = ntohs(wrapper->msg_len);
+
+      if (magic == WRAPPER_MAGIC) {
+        /* Validate msg_len before trusting the wrapper header to prevent
+           spurious magic matches on non-nFAPI packets (e.g. channel info). */
+        if (wrapper_msg_len == 0 || wrapper_msg_len > (size_t)(len - WRAPPER_SIZE)) {
+          LOG_W(NR_PHY, "Wrapper msg_len=%d invalid (len=%zd), treating as non-wrapper\n",
+                wrapper_msg_len, len);
+        } else {
+        local_wrapper_gnb_id = wrapper_gnb_id;
+        local_wrapper_detected = true;
+        msg_start = (uint8_t *)buffer + WRAPPER_SIZE;
+        msg_len = wrapper_msg_len;
+        
+        // [WRAPPER_DEBUG] Log pointer arithmetic and alignment
+        // DISABLED: LOG_I(NR_PHY, "[WRAPPER_DEBUG] WRAPPER_STRIP: buffer=%p + WRAPPER_SIZE=%d = msg_start=%p msg_len=%zu\n", buffer, WRAPPER_SIZE, msg_start, msg_len);
+        
+        // [WRAPPER_DEBUG] Log first 16 bytes of message after wrapper (hex dump)
+        // DISABLED: for (int i = 0; i < 16 && i < (int)msg_len; i++) { printf("%02X ", msg_start[i]); } printf("\n");
+        
+        // [WRAPPER_DEBUG] Log thread info for race condition detection
+        // DISABLED: LOG_I(NR_PHY, "[WRAPPER_DEBUG] THREAD_STATE: thread=%lu wrapper_detected=%d current_wrapper_gnb_id=%d\n", (unsigned long)pthread_self(), wrapper_detected, current_wrapper_gnb_id);
+        
+        // [DT_DEBUG] UE WRAPPER_RECV gnb_id=X msg_len=Y
+        LOG_I(NR_PHY, "[DT_DEBUG] UE WRAPPER_RECV gnb_id=%d msg_len=%zu\n", 
+              local_wrapper_gnb_id, msg_len);
+        }
+      } else {
+        // [WRAPPER_DEBUG] No wrapper magic found
+        // DISABLED: LOG_I(NR_PHY, "[WRAPPER_DEBUG] NO_WRAPPER: magic mismatch (got 0x%04X, expected 0x%04X)\n", magic, WRAPPER_MAGIC);
+      }
+    } else {
+      // [WRAPPER_DEBUG] Message too short for wrapper
+      // DISABLED: LOG_I(NR_PHY, "[WRAPPER_DEBUG] NO_WRAPPER: len=%zd < WRAPPER_SIZE=%d\n", len, WRAPPER_SIZE);
+    }
+    
     if (len == sizeof(uint16_t))
     {
       uint16_t *sfn_slot = CALLOC(1, sizeof(*sfn_slot));
       memcpy(sfn_slot, buffer, sizeof(*sfn_slot));
 
+      uint16_t sfn = NFAPI_SFNSLOTDEC2SFN(MU, *sfn_slot);
+      uint16_t slot = NFAPI_SFNSLOTDEC2SLOT(MU, *sfn_slot);
       NFAPI_TRACE(NFAPI_TRACE_DEBUG, "%s: Handling NR SLOT Indication\n", __FUNCTION__);
-      LOG_D(NR_PHY, "Received from proxy sfn_slot %d.%d\n", NFAPI_SFNSLOTDEC2SFN(MU, *sfn_slot), NFAPI_SFNSLOTDEC2SLOT(MU, *sfn_slot));
+      LOG_D(NR_PHY, "Received from proxy sfn_slot %d.%d\n", sfn, slot);
 
       if (!put_queue(&nr_sfn_slot_queue, sfn_slot))
       {
@@ -1085,15 +1321,20 @@ void *nrue_standalone_pnf_task(void *context)
         LOG_W(NR_PHY, "Expecting only one CSI report.\n");
 
       // TODO: Update sinr field of slot_rnti_mcs to be array.
-      for (int i = 0; i < ch_info->nb_of_csi; ++i)
-      {
-        int mu = 1; // NR-UE emul-L1 is hardcoded to 30kHZ, see check_and_process_dci()
-        int frame = NFAPI_SFNSLOTDEC2SFN(mu, ch_info->sfn_slot);
-        int slot = NFAPI_SFNSLOTDEC2SLOT(mu, ch_info->sfn_slot);
-        slot_rnti_mcs[slot].sinr = ch_info->csi[i].sinr;
-        slot_rnti_mcs[slot].area_code = ch_info->csi[i].area_code;
+      int frame = NFAPI_SFNSLOTDEC2SFN(MU, ch_info->sfn_slot);
+      int slot = NFAPI_SFNSLOTDEC2SLOT(MU, ch_info->sfn_slot);
+      // for (int i = 0; i < ch_info->nb_of_csi; ++i)
+      // {
+        // int mu = 1; // NR-UE emul-L1 is hardcoded to 30kHZ, see check_and_process_dci()
+      slot_rnti_mcs[slot].sinr = ch_info->csi[0].sinr;
+      slot_rnti_mcs[slot].area_code = ch_info->csi[0].area_code;
 
-        LOG_D(NR_PHY, "Received_SINR[%d] = %f, sfn:slot %d:%d\n", i, ch_info->csi[i].sinr, frame, slot);
+      LOG_D(NR_PHY, "Received_SINR[%d] = %f, sfn:slot %d:%d\n", 0, ch_info->csi[0].sinr, frame, slot);
+      // }
+
+      if (frame % 100 == 0 && slot == 0) {
+        LOG_D(NR_PHY, "Updating channel trace for slot %d.%d: SINR=%.3f\tRSRP=%.3f\n", 
+          frame, slot,  ch_info->csi[0].sinr, ch_info->csi[0].rsrp);
       }
 
       if (!put_queue(&nr_chan_param_queue, ch_info))
@@ -1110,12 +1351,13 @@ void *nrue_standalone_pnf_task(void *context)
     else
     {
       nfapi_p7_message_header_t header;
-      if (nfapi_p7_message_header_unpack(buffer, len, &header, sizeof(header), NULL) < 0)
+      // Use msg_start/msg_len (wrapper-stripped if wrapper detected, else original buffer)
+      if (nfapi_p7_message_header_unpack(msg_start, msg_len, &header, sizeof(header), NULL) < 0)
       {
         LOG_E(NR_PHY, "Header unpack failed for nrue_standalone pnf\n");
         continue;
       }
-      enqueue_nr_nfapi_msg(buffer, len, header);
+      enqueue_nr_nfapi_msg(msg_start, msg_len, header, local_wrapper_detected ? local_wrapper_gnb_id : 0);
     }
   } //while(true)
 }
@@ -1142,6 +1384,8 @@ static int handle_bcch_bch(NR_UE_MAC_INST_t *mac,
   else
     mac->frequency_range = FR1;
   //  fixed 3 bytes MIB PDU
+  LOG_I(NR_MAC, "[VERIFY_MIB] MIB->RRC: gNB_index=%d cell_id=%d ssb_index=%d (should differ per gNB: 0,1,...)\n",
+        gNB_index, cell_id, ssb_index);
   nr_mac_rrc_data_ind_ue(mac->ue_id, cc_id, gNB_index, 0, 0, 0, cell_id, ssb_arfcn, NR_BCCH_BCH, (uint8_t *) pduP, 3);
   return 0;
 }
@@ -1238,6 +1482,8 @@ void update_harq_status(NR_UE_MAC_INST_t *mac, uint8_t harq_pid, uint8_t ack_nac
     else {
       current_harq->ack = ack_nack;
       current_harq->ack_received = true;
+      mac->nr_ue_emul_l1.harq[harq_pid].ack_received = true;
+      mac->nr_ue_emul_l1.harq[harq_pid].ack = ack_nack;
     }
   }
   else if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, harq_pid)) {

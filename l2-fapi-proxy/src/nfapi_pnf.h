@@ -1,4 +1,4 @@
-/*
+    /*
  * Licensed to the OpenAirInterface (OAI) Software Alliance under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
@@ -50,14 +50,55 @@ extern "C" {
 #include <pthread.h>
 #include <errno.h>
 #include "nfapi_interface.h"
-
 #include "fapi_stub.h"
+#include "proxy.h"
+#include "queue.h"
+
+// UDP wrapper header for gNB identification (used in both DL and UL)
+#define WRAPPER_MAGIC 0x4E47   // "NG" in ASCII
+#define WRAPPER_SIZE 6
+
+typedef struct __attribute__((packed)) {
+    uint16_t magic;     // 0x4E47 ("NG") - identifies wrapper
+    uint16_t gnb_id;    // gNB identifier (1, 2, 3...)
+    uint16_t msg_len;   // Length of nFAPI message
+} udp_wrapper_header_t;
 
 // UE NEM IDs are consecutive starting at MIN_UE_NEM_ID.
 // i.e., in the range [MIN_UE_NEM_ID..MIN_UE_NEM_ID+num_ues-1]
 #define MIN_UE_NEM_ID 2
 #define MAX_SUBFRAME_MSGS 8
-#define MAX_SLOT_MSGS 8
+#define MAX_SLOT_MSGS 1024
+#define MAX_GNBS 8
+#define MAX_UES 64
+#define MU 1 // Hardcode 
+#define SLOT_TIME_US 500
+
+typedef struct {
+  int ue_id;
+  int trace_idx;
+  float rssi_dBm;
+  float rsrp_dBm;
+  float rsrq_dB;
+  float sinr_dB;
+  int gnb_id;
+  int time_index;
+} ch_trace_elem_t;
+
+typedef struct {
+  uint16_t rnti;
+  bool rach_recvd;
+  bool rach_exp;
+  bool rx_data_recvd;
+  bool rx_data_exp;
+  bool crc_recvd;
+  bool crc_exp;
+  bool uci_recvd;
+  bool uci_exp;
+  bool slot_resp_recvd; 
+  uint16_t sfn_slot_recvd;
+  int valid_dci_inds[20][32];  // NR_MAX_HARQ_PROCESSES
+} ue_slot_info_t;
 
 //typedef int64_t openair0_timestamp;
 
@@ -152,8 +193,8 @@ typedef struct
     uint8_t shared_pa;
     int16_t max_total_power;
     uint8_t oui;
-
     uint8_t wireshark_test_mode;
+    uint16_t gnb_id;  // For multi-gNB simulation mode
 
 } pnf_info;
 
@@ -172,6 +213,7 @@ typedef struct message_buffer_t
     size_t length;              // number of valid bytes in .data[]
     // uint8_t data[NFAPI_RX_IND_DATA_MAX];
     uint8_t *data;
+    uint16_t gnb_id;            // gNB ID from UDP wrapper (0 = legacy/unset)
 } message_buffer_t;
 
 // subframe_msgs_t holds all of the messages
@@ -197,18 +239,18 @@ int oai_nfapi_cqi_indication(nfapi_cqi_indication_t *ind);
 int oai_nfapi_rx_ind(nfapi_rx_indication_t *ind);
 int oai_nfapi_sr_indication(nfapi_sr_indication_t *ind);
 
-int oai_nfapi_nr_rach_indication(nfapi_nr_rach_indication_t *ind);
-int oai_nfapi_nr_rx_data_indication(nfapi_nr_rx_data_indication_t *ind);
-int oai_nfapi_nr_crc_indication(nfapi_nr_crc_indication_t *ind);
-int oai_nfapi_nr_srs_indication(nfapi_nr_srs_indication_t *ind);
-int oai_nfapi_nr_uci_indication(nfapi_nr_uci_indication_t *ind);
+int oai_nfapi_nr_rach_indication(nfapi_nr_rach_indication_t *ind, uint16_t gnb_id);
+int oai_nfapi_nr_rx_data_indication(nfapi_nr_rx_data_indication_t *ind, uint16_t gnb_id);
+int oai_nfapi_nr_crc_indication(nfapi_nr_crc_indication_t *ind, uint16_t gnb_id);
+int oai_nfapi_nr_srs_indication(nfapi_nr_srs_indication_t *ind, uint16_t gnb_id);
+int oai_nfapi_nr_uci_indication(nfapi_nr_uci_indication_t *ind, uint16_t gnb_id);
 
 void oai_subframe_ind(uint16_t sfn, uint16_t sf);
 void oai_slot_ind(uint16_t sfn, uint16_t slot);
 
 void configure_nfapi_pnf(char *vnf_ip_addr, int vnf_p5_port, char *pnf_ip_addr, int pnf_p7_port,
                          int vnf_p7_port);
-void configure_nr_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port);
+void configure_nr_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port, int phy_id);
 
 void init_eNB_afterRU(void);
 void init_UE_stub(int nb_inst, int, int);
@@ -247,8 +289,10 @@ void oai_subframe_handle_msg_from_ue(const void *msg, size_t len, uint16_t nem_i
 void oai_slot_handle_msg_from_ue(const void *msg, size_t len, uint16_t nem_id);
 
 void transfer_downstream_nfapi_msg_to_proxy(void *msg);
-void transfer_downstream_nfapi_msg_to_nr_proxy(void *msg);
-void transfer_downstream_sfn_sf_to_proxy(uint16_t sfn_sf);
+void transfer_downstream_nfapi_msg_to_nr_proxy(void *msg, uint16_t msg_id);
+void enqueue_downlink_nfapi_msg(void *msg_buf, int msg_len, uint16_t msg_id, uint16_t gnb_id);
+void send_sfn_slot_to_ues(uint16_t sfn_sf);
+void send_sfn_slot_ch_info_to_ues(nr_phy_channel_params_t *ch_info, int ue_idx);
 void transfer_downstream_sfn_slot_to_proxy(uint16_t sfn_slot);
 
 uint16_t sfn_sf_add(uint16_t a, uint16_t add_val);
@@ -262,9 +306,17 @@ uint16_t sfn_sf_subtract(uint16_t a, uint16_t sub_val);
 bool dequeue_ue_msgs(subframe_msgs_t *subframe_msgs, uint16_t sfn_sf_tx);
 void add_sleep_time(uint64_t start, uint64_t poll, uint64_t send, uint64_t agg);
 
-extern int num_ues;
+void *ch_trace_task(void* context);
 
-#define MAX_UES 64
+extern int num_ues;
+extern ue_slot_info_t ue_slot_info[MAX_UES];
+
+typedef struct {
+    bool init;
+    queue_t free_pool;
+} mempool_t;
+
+extern mempool_t recv_buf_pool;
 
 #ifdef __cplusplus
 }

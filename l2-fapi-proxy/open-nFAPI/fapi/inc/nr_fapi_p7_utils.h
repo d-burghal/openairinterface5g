@@ -58,10 +58,14 @@ void free_srs_indication(nfapi_nr_srs_indication_t *msg);
 void free_rach_indication(nfapi_nr_rach_indication_t *msg);
 
 void copy_dl_tti_request(const nfapi_nr_dl_tti_request_t *src, nfapi_nr_dl_tti_request_t *dst);
+void copy_dl_tti_request_for_rnti(const nfapi_nr_dl_tti_request_t *src, nfapi_nr_dl_tti_request_t *dst, uint16_t rnti, int* valid_pdu_inds);
 void copy_ul_tti_request(const nfapi_nr_ul_tti_request_t *src, nfapi_nr_ul_tti_request_t *dst);
+void copy_ul_tti_request_for_rnti(const nfapi_nr_ul_tti_request_t *src, nfapi_nr_ul_tti_request_t *dst, uint16_t rnti);
 void copy_slot_indication(const nfapi_nr_slot_indication_scf_t *src, nfapi_nr_slot_indication_scf_t *dst);
 void copy_ul_dci_request(const nfapi_nr_ul_dci_request_t *src, nfapi_nr_ul_dci_request_t *dst);
+void copy_ul_dci_request_for_rnti(const nfapi_nr_ul_dci_request_t *src, nfapi_nr_ul_dci_request_t *dst, uint16_t rnti);
 void copy_tx_data_request(const nfapi_nr_tx_data_request_t *src, nfapi_nr_tx_data_request_t *dst);
+void copy_tx_data_request_for_rnti(const nfapi_nr_tx_data_request_t *src, nfapi_nr_tx_data_request_t *dst, int *valid_pdu_inds);
 void copy_rx_data_indication(const nfapi_nr_rx_data_indication_t *src, nfapi_nr_rx_data_indication_t *dst);
 void copy_crc_indication(const nfapi_nr_crc_indication_t *src, nfapi_nr_crc_indication_t *dst);
 void copy_uci_indication(const nfapi_nr_uci_indication_t *src, nfapi_nr_uci_indication_t *dst);

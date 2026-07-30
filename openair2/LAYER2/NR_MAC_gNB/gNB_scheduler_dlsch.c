@@ -942,6 +942,9 @@ void nr_schedule_ue_spec(module_id_t module_id,
 
   const NR_BWP_t *initialDL = &scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters;
   gNB_mac->mac_stats.total_prb_aggregate += NRRIV2BW(initialDL->locationAndBandwidth, MAX_BWP_SIZE);
+  
+  // Track total DL slots (any slot where DL transmission could happen)
+  gNB_mac->cell_mac_stats.total_dl_slots++;
 
   UE_iterator(UE_info->connected_ue_list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -1335,6 +1338,7 @@ void nr_schedule_ue_spec(module_id_t module_id,
           }
 
           UE->mac_stats.dl.lc_bytes[lcid] += lcid_bytes;
+          gNB_mac->cell_mac_stats.lcid_dl_bytes[lcid] += lcid_bytes;
         }
       } else if (get_softmodem_params()->phy_test || get_softmodem_params()->do_ra) {
         /* we will need the large header, phy-test typically allocates all
@@ -1377,10 +1381,30 @@ void nr_schedule_ue_spec(module_id_t module_id,
       UE->mac_stats.dl.total_bytes += TBS;
       UE->mac_stats.dl.current_bytes = TBS;
       UE->mac_stats.dl.total_rbs += sched_pdsch->rbSize;
-      UE->mac_stats.dl.num_mac_sdu += sdus;
       UE->mac_stats.dl.current_rbs = sched_pdsch->rbSize;
+      UE->mac_stats.dl.num_mac_sdu += sdus;
       UE->mac_stats.dl.total_sdu_bytes += dlsch_total_bytes;
       gNB_mac->mac_stats.used_prb_aggregate += sched_pdsch->rbSize;
+      
+      // Update cell-level MAC statistics
+      gNB_mac->cell_mac_stats.current_dl_bytes += TBS;
+      
+      // Update number of active DL slots (slots with actual DL data transmission)
+      if (TBS > 0) {
+        gNB_mac->cell_mac_stats.active_dl_slots++;
+      }
+      
+      // Track DL slots with data per LCID and update LCID-specific total bytes
+      for (int i = 0; i < seq_arr_size(&sched_ctrl->lc_config); ++i) {
+        const nr_lc_config_t *c = seq_arr_at(&sched_ctrl->lc_config, i);
+        const int lcid = c->lcid;
+        
+        if (sched_ctrl->rlc_status[lcid].bytes_in_buffer > 0) {
+          gNB_mac->cell_mac_stats.lcid_dl_slots[lcid]++;
+          
+        }
+      }
+      
 
       /* save retransmission information */
       harq->sched_pdsch = *sched_pdsch;

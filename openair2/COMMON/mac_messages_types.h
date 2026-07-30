@@ -120,7 +120,7 @@ typedef struct NRRrcMacBcchDataInd_s {
   uint8_t   slot;
   uint32_t  sdu_size;
   uint8_t   sdu[BCCH_SDU_SIZE];
-  uint8_t   gnb_index;
+  uint16_t   gnb_index;
   bool      is_bch;
   uint8_t   rsrq;
   uint8_t   rsrp;

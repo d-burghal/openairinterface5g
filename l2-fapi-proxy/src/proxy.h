@@ -32,6 +32,11 @@ typedef enum softmodem_mode_t
 } softmodem_mode_t;
 
 typedef struct {
+  softmodem_mode_t softmodem_mode;
+  const char* ch_trace_path;
+} l2_proxy_config_t;
+
+typedef struct {
   char *remote_addr;
   //! remote port number for Ethernet interface (control)
   uint16_t remote_portc;
@@ -50,6 +55,30 @@ typedef struct {
   //! compression enable (0: No comp/ 1: A-LAW)
   uint8_t if_compress;
 } eth_params_t;
+
+typedef struct {
+  float sinr;
+  float rsrp;
+  float rsrq;
+  uint8_t source;
+  uint8_t pmi;
+  uint8_t ri;
+  uint8_t cqi;
+  uint8_t area_code;
+} nr_channel_status;
+
+typedef struct {
+  uint8_t gnb_index;
+  nr_channel_status csi[1];
+} nr_gnb_measurements_t;
+
+typedef struct nr_phy_channel_params_t {
+  uint16_t sfn_slot;
+  uint16_t message_id;
+  uint16_t nb_of_csi;       
+  nr_gnb_measurements_t measurements[8];  // Up to 8 gNB measurements per UE
+  nr_channel_status csi[1];  // CSI for the serving cell/gNB (copy from measurements)
+} nr_phy_channel_params_t;
 
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assert);
 

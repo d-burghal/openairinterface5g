@@ -45,6 +45,7 @@
 #include "common/utils/time_manager/time_manager.h"
 #include "log.h"
 #include "nfapi/open-nFAPI/common/public_inc/debug.h"
+#include "openair2/UTIL/OMV/structures.h"
 
 /*
  *  NR SLOT PROCESSING SEQUENCE
@@ -219,9 +220,22 @@ void init_nrUE_standalone_thread(int ue_idx)
 static void process_queued_nr_nfapi_msgs(NR_UE_MAC_INST_t *mac, int sfn, int slot)
 {
   struct sfn_slot_s sfn_slot = {.sfn = sfn, .slot = slot};
+  // PM : Use gnbid from mac to get conencted gnb? or leave rach indication to just snf slot matching?
+  // struct sfn_slot_gnb_s sfn_slot_gnb = {.sfn = sfn, .slot = slot,.gnb_id = mac->connected-gnb};
   nfapi_nr_rach_indication_t *rach_ind = unqueue_matching(&nr_rach_ind_queue, MAX_QUEUE_SIZE, sfn_slot_matcher, &sfn_slot);
-  nfapi_nr_dl_tti_request_t *dl_tti_request = get_queue(&nr_dl_tti_req_queue);
+  // Dequeue metadata wrapper: gnb_id travels with the message through the queue
+  nfapi_queue_item_t *dl_item = get_queue(&nr_dl_tti_req_queue);
+  nfapi_nr_dl_tti_request_t *dl_tti_request = NULL;
+  uint16_t dl_gnb_id = 0;
+  if (dl_item) {
+      dl_tti_request = (nfapi_nr_dl_tti_request_t *)dl_item->msg;
+      dl_gnb_id = dl_item->gnb_id;
+      free(dl_item);
+  }
+
   nfapi_nr_ul_dci_request_t *ul_dci_request = get_queue(&nr_ul_dci_req_queue);
+
+  nfapi_nr_ul_tti_request_t *ul_tti_request_crc_curr_slot = unqueue_matching(&nr_ul_tti_req_queue, MAX_QUEUE_SIZE, sfn_slot_matcher, &sfn_slot);
 
   for (int i = 0; i < NR_MAX_HARQ_PROCESSES; i++) {
     LOG_T(NR_MAC,
@@ -230,36 +244,73 @@ static void process_queued_nr_nfapi_msgs(NR_UE_MAC_INST_t *mac, int sfn, int slo
           slot,
           nr_ul_tti_req_queue.num_items);
     struct sfn_slot_s sfn_sf = {.sfn = mac->nr_ue_emul_l1.harq[i].active_ul_harq_sfn, .slot = mac->nr_ue_emul_l1.harq[i].active_ul_harq_slot };
-    nfapi_nr_ul_tti_request_t *ul_tti_request_crc = unqueue_matching(&nr_ul_tti_req_queue, MAX_QUEUE_SIZE, sfn_slot_matcher, &sfn_sf);
+    nfapi_nr_ul_tti_request_t *ul_tti_request_crc;
+    if (ul_tti_request_crc_curr_slot && ul_tti_request_crc_curr_slot->n_pdus > 0 && sfn_sf.sfn == sfn && sfn_sf.slot == slot) {
+      ul_tti_request_crc = ul_tti_request_crc_curr_slot;
+    } else {
+      ul_tti_request_crc = unqueue_matching(&nr_ul_tti_req_queue, MAX_QUEUE_SIZE, sfn_slot_matcher, &sfn_sf);
+    }
+    
     if (ul_tti_request_crc && ul_tti_request_crc->n_pdus > 0) {
-      LOG_T(NR_MAC, "Got ul_tti_req for sfn/slot %d.%d\n", sfn, slot);
-      check_and_process_dci(NULL, NULL, NULL, ul_tti_request_crc);
+      LOG_D(NR_MAC, "Got ul_tti_req for sfn/slot %d.%d\n", sfn, slot);
+      check_and_process_dci(NULL, NULL, NULL, ul_tti_request_crc, 0);
       free_and_zero(ul_tti_request_crc);
     }
   }
+
 
   if (rach_ind && rach_ind->number_of_pdus > 0) {
       NR_UL_IND_t UL_INFO = {
         .rach_ind = *rach_ind,
       };
-      send_nsa_standalone_msg(&UL_INFO, rach_ind->header.message_id);
+      send_nsa_standalone_msg(&UL_INFO, rach_ind->header.message_id, get_mac_inst(0)->selected_gnb_id + 1);
       free_and_zero(rach_ind->pdu_list);
       free_and_zero(rach_ind);
   }
   if (dl_tti_request) {
-    struct sfn_slot_s sfn_slot = {.sfn = dl_tti_request->SFN, .slot = dl_tti_request->Slot};
-    nfapi_nr_tx_data_request_t *tx_data_request = unqueue_matching(&nr_tx_req_queue, MAX_QUEUE_SIZE, sfn_slot_matcher, &sfn_slot);
-    if (!tx_data_request) {
-      LOG_E(NR_MAC, "[%d.%d] No corresponding tx_data_request for given dl_tti_request sfn/slot\n",
-            dl_tti_request->SFN, dl_tti_request->Slot);
-      if (get_softmodem_params()->nsa)
-        save_nr_measurement_info(dl_tti_request);
-      free_and_zero(dl_tti_request);
+    // PM : use the new defined struct that includes gnb_id
+    struct sfn_slot_gnb_s dl_tti_sfn_slot_gnb = {.sfn = dl_tti_request->SFN, .slot = dl_tti_request->Slot,
+      .gnb_id = dl_tti_request->header.phy_id  // Extract gNB ID from DL TTI request
+      };
+
+    // struct sfn_slot_s sfn_slot = {.sfn = dl_tti_request->SFN, .slot = dl_tti_request->Slot};
+    nfapi_nr_tx_data_request_t *tx_data_request = NULL;
+    int try_ctr = 10;
+    int sleep_time = 0;
+    while (try_ctr-- > 0) {
+      tx_data_request = unqueue_matching(&nr_tx_req_queue, MAX_QUEUE_SIZE, sfn_slot_gnb_matcher, &dl_tti_sfn_slot_gnb);
+      if (tx_data_request)
+        break;
+      usleep(200);
+      sleep_time += 200;
     }
+
+    if (!tx_data_request) {
+            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[%d.%d] No corresponding tx_data_request for given dl_tti_request sfn/slot from gNB %d\n",
+                  dl_tti_request->SFN, dl_tti_request->Slot, dl_tti_request->header.phy_id);
+            LOG_E(NR_MAC, "[%d.%d] No corresponding tx_data_request for given dl_tti_request sfn/slot from gNB %d\n",
+                  dl_tti_request->SFN, dl_tti_request->Slot, dl_tti_request->header.phy_id);
+            if (get_softmodem_params()->nsa)
+                save_nr_measurement_info(dl_tti_request);
+            free_and_zero(dl_tti_request);
+        }
+    //if (!tx_data_request) {
+    //  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[%d.%d] No corresponding tx_data_request for given dl_tti_request sfn/slot\n",
+    //        dl_tti_request->SFN, dl_tti_request->Slot);
+    //  LOG_E(NR_MAC, "[%d.%d] No corresponding tx_data_request for given dl_tti_request sfn/slot\n",
+    //        dl_tti_request->SFN, dl_tti_request->Slot);
+    //  if (get_softmodem_params()->nsa)
+    //    save_nr_measurement_info(dl_tti_request);
+    //  free_and_zero(dl_tti_request);
+    //}
     else if (dl_tti_request->dl_tti_request_body.nPDUs > 0 && tx_data_request->Number_of_PDUs > 0) {
+      // if (sleep_time > 0) {
+      //   LOG_E(NR_MAC, "[%d.%d] Had to wait for %d us for tx_data_request for sfn/slot\n",
+      //       dl_tti_request->SFN, dl_tti_request->Slot, sleep_time);
+      // }
       if (get_softmodem_params()->nsa)
         save_nr_measurement_info(dl_tti_request);
-      check_and_process_dci(dl_tti_request, tx_data_request, NULL, NULL);
+      check_and_process_dci(dl_tti_request, tx_data_request, NULL, NULL, dl_gnb_id);
       free_and_zero(dl_tti_request);
       free_and_zero(tx_data_request);
     }
@@ -269,7 +320,7 @@ static void process_queued_nr_nfapi_msgs(NR_UE_MAC_INST_t *mac, int sfn, int slo
     }
   }
   if (ul_dci_request && ul_dci_request->numPdus > 0) {
-    check_and_process_dci(NULL, NULL, ul_dci_request, NULL);
+    check_and_process_dci(NULL, NULL, ul_dci_request, NULL, 0);
     free_and_zero(ul_dci_request);
   }
 }
@@ -314,7 +365,7 @@ static void *NRUE_phy_stub_standalone_pnf_task(void *arg)
     }
     else if (ch_info) {
       sfn_slot = ch_info->sfn_slot;
-      free_and_zero(ch_info);
+      // free_and_zero(ch_info);
     }
 
     int mu = 1; // NR-UE emul-L1 is hardcoded to 30kHZ, see check_and_process_dci()
@@ -327,6 +378,12 @@ static void *NRUE_phy_stub_standalone_pnf_task(void *arg)
     }
     last_sfn_slot = sfn_slot;
 
+    // Trigger RRC timers (TcellSelect, T300, T301, etc.) once per frame.
+    // In emulate-l1 / L2-proxy mode, the RRC timer tick comes from the slot
+    // indication loop rather than the RF hardware path (see nr-ue.c:1334).
+    if (slot == 0)
+      nr_ue_rrc_timer_trigger(mod_id, frame, 0);
+
     int ret = pthread_mutex_lock(&mac->if_mutex);
     AssertFatal(!ret, "mutex failed %d\n", ret);
     update_mac_ul_timers(mac);
@@ -336,6 +393,34 @@ static void *NRUE_phy_stub_standalone_pnf_task(void *arg)
 
     LOG_D(NR_MAC, "Received sfn/slot indication [%d %d] from proxy\n",
           frame, slot);
+
+    // Apply channel-info measurements to cell_list BEFORE the dl_indication that
+    // triggers SIB1 -> cell selection, so selection reads fresh RSRP. Only update
+    // when ch_info is present; the default-init else-branch is kept below inside
+    // the existing mutex region to preserve original behavior.
+    if (ch_info) {
+      if (pthread_mutex_lock(&mac->mutex_dl_info)) abort();
+      for (int i = 0; i < 8; i++) {
+        uint8_t gnb_index = ch_info->measurements[i].gnb_index;
+        if (gnb_index < MAX_GNBS) {
+          mac->cell_list[gnb_index].rsrp_dBm = ch_info->measurements[i].csi[0].rsrp;
+          mac->cell_list[gnb_index].rsrq_dBm = ch_info->measurements[i].csi[0].rsrq;
+          mac->cell_list[gnb_index].pmi = ch_info->measurements[i].csi[0].pmi;
+          mac->cell_list[gnb_index].ri = ch_info->measurements[i].csi[0].ri;
+          mac->cell_list[gnb_index].cqi = ch_info->measurements[i].csi[0].cqi;
+
+          if (mac->selected_gnb_id == gnb_index || mac->selected_gnb_id < 0) {
+            ch_info->csi[0] = ch_info->measurements[i].csi[0];
+            mac->nr_ue_emul_l1.pmi = ch_info->measurements[i].csi[0].pmi;
+            mac->nr_ue_emul_l1.ri = ch_info->measurements[i].csi[0].ri;
+            mac->nr_ue_emul_l1.cqi = ch_info->measurements[i].csi[0].cqi;
+            mac->nr_ue_emul_l1.rsrp_dBm = ch_info->measurements[i].csi[0].rsrp;
+            mac->nr_ue_emul_l1.rsrq_dBm = ch_info->measurements[i].csi[0].rsrq;
+          }
+        }
+      }
+      if (pthread_mutex_unlock(&mac->mutex_dl_info)) abort();
+    }
 
     if (IS_SA_MODE(get_softmodem_params()) && mac->mib == NULL) {
       LOG_D(NR_MAC, "We haven't gotten MIB. Lets see if we received it\n");
@@ -356,10 +441,17 @@ static void *NRUE_phy_stub_standalone_pnf_task(void *arg)
     if (pthread_mutex_lock(&mac->mutex_dl_info)) abort();
 
     if (ch_info) {
-      mac->nr_ue_emul_l1.pmi = ch_info->csi[0].pmi;
-      mac->nr_ue_emul_l1.ri = ch_info->csi[0].ri;
-      mac->nr_ue_emul_l1.cqi = ch_info->csi[0].cqi;
       free_and_zero(ch_info);
+    }
+    else {
+      // Initialize all cell list measurements to default values
+      for (int i = 0; i < MAX_GNBS; i++) {
+        mac->cell_list[i].rsrp_dBm = -44;
+        mac->cell_list[i].rsrq_dBm = -44;
+        mac->cell_list[i].pmi = 0;
+        mac->cell_list[i].ri = 0;
+        mac->cell_list[i].cqi = 0;
+      }
     }
 
     if (is_dl_slot(slot, &mac->frame_structure)) {
@@ -381,6 +473,8 @@ static void *NRUE_phy_stub_standalone_pnf_task(void *arg)
       nr_ue_ul_scheduler(mac, &ul_info);
     }
     process_queued_nr_nfapi_msgs(mac, frame, slot);
+
+    send_slot_response(frame, slot);
   }
   return NULL;
 }

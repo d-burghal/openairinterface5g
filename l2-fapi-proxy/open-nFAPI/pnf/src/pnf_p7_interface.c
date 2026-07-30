@@ -84,6 +84,9 @@ int nfapi_nr_pnf_p7_start(nfapi_pnf_p7_config_t* config)
 
 	NFAPI_TRACE(NFAPI_TRACE_INFO, "%s\n", __FUNCTION__);
 
+	_this->rx_message_buffer = realloc(_this->rx_message_buffer, NFAPI_MAX_PACKED_MESSAGE_SIZE);
+    _this->rx_message_buffer_size = NFAPI_MAX_PACKED_MESSAGE_SIZE;
+
 	pnf_nr_p7_message_pump(_this);
 
 	return 0;

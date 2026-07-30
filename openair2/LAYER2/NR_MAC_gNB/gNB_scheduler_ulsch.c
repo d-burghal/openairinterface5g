@@ -398,6 +398,9 @@ static int nr_process_mac_pdu(instance_t module_idP,
 
           UE->mac_stats.ul.total_sdu_bytes += mac_len;
           UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
+
+          // Update cell-level LCID-specific UL bytes
+          RC.nrmac[module_idP]->cell_mac_stats.lcid_ul_bytes[lcid] += mac_len;
         }
         break;
 
@@ -416,6 +419,9 @@ static int nr_process_mac_pdu(instance_t module_idP,
           LOG_I(NR_MAC, "RNTI %04x LCID %d: ignoring %d bytes\n", UE->rnti, lcid, mac_len);
         } else {
           UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
+
+          // Update cell-level LCID-specific UL bytes
+          RC.nrmac[module_idP]->cell_mac_stats.lcid_ul_bytes[lcid] += mac_len;
 
           nr_mac_rlc_data_ind(module_idP, UE->rnti, true, lcid, (char *)(pduP + mac_subheader_len), mac_len);
 
@@ -843,6 +849,14 @@ static void _nr_rx_sdu(const module_id_t gnb_mod_idP,
         T_BUFFER(sduP, sdu_lenP));
 
     UE->mac_stats.ul.total_bytes += sdu_lenP;
+    
+    // Update cell-level UL total bytes using actual received data
+    gNB_mac->cell_mac_stats.current_ul_bytes += sdu_lenP;
+    
+    // Update LCID-specific UL bytes
+    // Note: For UL, we don't have direct access to LCID information here
+    // This would need to be handled in the nr_process_mac_pdu function where LCID is known
+    
     LOG_D(NR_MAC, "[gNB %d][PUSCH %d] CC_id %d %d.%d Received ULSCH sdu from PHY (rnti %04x) ul_cqi %d TA %d sduP %p, rssi %d\n",
           gnb_mod_idP,
           harq_pid,
@@ -1958,9 +1972,15 @@ static void pf_ul(module_id_t module_id,
       sched_pusch->mcs = get_mcs_from_bler(bo, stats, &sched_ctrl->ul_bler_stats, max_mcs, frame);
       LOG_D(NR_MAC, "%d.%d starting mcs %d bler %f\n", frame, slot, sched_pusch->mcs, sched_ctrl->ul_bler_stats.bler);
     }
+
+    if (do_sched)
+      sched_ctrl->pending_sr_ctr++;
+
     /* Schedule UE on SR or UL inactivity and no data (otherwise, will be scheduled
      * based on data to transmit) */
-    if (B == 0 && do_sched) {
+    const int max_slot_wait = 48; // To prevent blocking, make sure UE is scheduled at least once every 32 slots
+    
+    if (do_sched && (B == 0 || sched_ctrl->pending_sr_ctr > max_slot_wait)) {
       /* if no data, pre-allocate 5RB */
       /* Find a free CCE */
       int CCEIndex = get_cce_index(nrmac,
@@ -2018,6 +2038,8 @@ static void pf_ul(module_id_t module_id,
       sched_ctrl->cce_index = CCEIndex;
       fill_pdcch_vrb_map(nrmac, CC_id, &sched_ctrl->sched_pdcch, CCEIndex, sched_ctrl->aggregation_level, dci_beam.idx);
 
+      sched_ctrl->pending_sr_ctr = 0;
+
       NR_sched_pusch_t *sched_pusch = &sched_ctrl->sched_pusch;
       update_ul_ue_R_Qm(sched_pusch->mcs, current_BWP->mcs_table, current_BWP->pusch_Config, &sched_pusch->R, &sched_pusch->Qm);
       sched_pusch->rbStart = rbStart;
@@ -2042,6 +2064,7 @@ static void pf_ul(module_id_t module_id,
                                                         sched_pusch->dmrs_info.N_PRB_DMRS * sched_pusch->dmrs_info.num_dmrs_symb,
                                                         deltaMCS,
                                                         false);
+      
       LOG_D(NR_MAC,
             "pf_ul %d.%d UE %x Scheduling PUSCH (no data) nrb %d mcs %d tbs %d bits phr_txpower %d\n",
             frame,
@@ -2065,6 +2088,7 @@ static void pf_ul(module_id_t module_id,
     /* Calculate coefficient*/
     const uint32_t tbs = ul_pf_tbs[current_BWP->mcs_table][sched_pusch->mcs];
     float coeff_ue = (float) tbs / UE->ul_thr_ue;
+    
     LOG_D(NR_MAC, "[UE %04x][%4d.%2d] b %d, ul_thr_ue %f, tbs %d, coeff_ue %f\n",
           UE->rnti,
           frame,
@@ -2234,6 +2258,8 @@ static void pf_ul(module_id_t module_id,
     sched_ctrl->cce_index = CCEIndex;
     fill_pdcch_vrb_map(nrmac, CC_id, &sched_ctrl->sched_pdcch, CCEIndex, sched_ctrl->aggregation_level, dci_beam.idx);
 
+    sched_ctrl->pending_sr_ctr = 0;
+
     n_rb_sched[beam.idx] -= sched_pusch->rbSize;
     for (int rb = bwpStart; rb < sched_ctrl->sched_pusch.rbSize; rb++)
       rballoc_mask[rb + sched_ctrl->sched_pusch.rbStart] |= slbitmap;
@@ -2269,6 +2295,7 @@ static bool nr_ulsch_preprocessor(module_id_t module_id, frame_t frame, slot_t s
   int len[num_beams];
   for (int i = 0; i < num_beams; i++)
     len[i] = bw;
+
 
   int average_agg_level = 4; // TODO find a better estimation
   int max_sched_ues = bw / (average_agg_level * NR_NB_REG_PER_CCE);
@@ -2420,6 +2447,7 @@ void nr_schedule_ulsch(module_id_t module_id, frame_t frame, slot_t slot, nfapi_
     UE->mac_stats.ul.current_rbs = sched_pusch->rbSize;
     sched_ctrl->last_ul_frame = sched_pusch->frame;
     sched_ctrl->last_ul_slot = sched_pusch->slot;
+    
 
     LOG_D(NR_MAC,
           "ULSCH/PUSCH: %4d.%2d RNTI %04x UL sched %4d.%2d DCI L %d start %2d RBS %3d startSymbol %2d nb_symbol %2d dmrs_pos %x MCS Table %2d MCS %2d nrOfLayers %2d num_dmrs_cdm_grps_no_data %2d TBS %4d HARQ PID %2d round %d RV %d NDI %d est %6d sched %6d est BSR %6d TPC %d\n",

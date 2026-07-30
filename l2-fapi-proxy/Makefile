@@ -1,9 +1,13 @@
 CC = gcc
-CFLAGS = -g -O2 -Wall -Werror
+
+CFLAGS = -g -O0 -Wall -Werror -DDEBUG
+CXX = g++ -O0 -std=c++11
+CXXFLAGS = -g -O0 -Wall -Wextra -Werror -DDEBUG
+
+# CXX = g++  -std=c++11
 # CFLAGS = -g -Wall #-Werror
-CXX = g++ -std=c++11
-CXXFLAGS = -g -O3 -Wall -Wextra -Werror
 # CXXFLAGS = -g -Wall -Wextra #-Werror
+
 
 BUILD_DIR = ./build
 TARGET_EXEC = $(BUILD_DIR)/proxy
@@ -33,6 +37,7 @@ LIB_SOURCES = \
   $(LIB_DIR)/open-nFAPI/fapi/src/nr_fapi.c \
   $(LIB_DIR)/open-nFAPI/fapi/src/nr_fapi_p5.c \
   $(LIB_DIR)/open-nFAPI/fapi/src/nr_fapi_p7.c \
+  $(LIB_DIR)/open-nFAPI/fapi/src/nr_fapi_p7_utils.c \
   $(LIB_DIR)/open-nFAPI/pnf/src/pnf_interface.c \
   $(LIB_DIR)/open-nFAPI/pnf/src/pnf_p7_interface.c \
   $(LIB_DIR)/open-nFAPI/pnf/src/pnf.c \
@@ -40,7 +45,6 @@ LIB_SOURCES = \
   $(LIB_DIR)/open-nFAPI/common/src/debug.c \
   $(LIB_DIR)/open-nFAPI/common/src/nfapi.c \
   
-
 SRCS = \
 	$(SRC_DIR)/proxy.cc \
 	$(SRC_DIR)/nr_proxy.cc \

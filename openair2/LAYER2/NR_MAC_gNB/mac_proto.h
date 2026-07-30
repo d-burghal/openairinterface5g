@@ -427,6 +427,8 @@ void beam_selection_procedures(gNB_MAC_INST *mac, NR_UE_info_t *UE);
 void nr_sr_reporting(gNB_MAC_INST *nrmac, frame_t frameP, slot_t slotP);
 
 size_t dump_mac_stats(gNB_MAC_INST *gNB, char *output, size_t strlen, bool reset_rsrp);
+void dump_mac_stats_to_clickhouse(gNB_MAC_INST *gNB);
+void dump_cell_mac_stats_to_clickhouse(gNB_MAC_INST *gNB);
 
 long get_lcid_from_drbid(int drb_id);
 long get_lcid_from_srbid(int srb_id);

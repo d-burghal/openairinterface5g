@@ -31,13 +31,12 @@ extern "C" {
 #include "proxy.h"
 #include <inttypes.h>
 #include <assert.h>
+#include <math.h>
 
 #ifdef NDEBUG
 #  warning assert is disabled
 #endif
 
-#define MU 1 // RDF Hardcode 
-// #define DISABLE_UE 1
 
 /*
 #include "common/ran_context.h"
@@ -69,16 +68,23 @@ nfapi_nr_pdu_t *tx_data_request[1023][20][10]; //[frame][slot][max_num_pdus]
 nfapi_ue_release_request_body_t release_rntis;
 nfapi_pnf_param_response_t g_pnf_param_resp;
 nfapi_pnf_p7_config_t *p7_config_g = NULL;
-nfapi_pnf_p7_config_t *p7_nr_config_g = NULL;
+nfapi_pnf_p7_config_t *p7_nr_config_g[MAX_GNBS] = {NULL};
+int num_pnf_p7_conn = 0;
 
 uint8_t tx_pdus[32][8][4096];
 uint8_t nr_tx_pdus[32][16][4096];
 uint16_t phy_antenna_capability_values[] = { 1, 2, 4, 8, 16 };
 
 static pnf_info pnf;
-static pnf_info pnf_nr;
+static pnf_info pnf_nr[MAX_GNBS];  // Fixed array for up to 2 gNBs
+static bool pnf_nr_initialized[MAX_GNBS] = {false};  // Track initialization
 static pthread_t pnf_start_pthread;
 static pthread_t pnf_nr_start_pthread;
+
+static FILE *ch_trace_fp;
+static queue_t ch_trace_queue[MAX_UES];
+ue_slot_info_t ue_slot_info[MAX_UES];
+mempool_t recv_buf_pool = {.init=false};
 
 void *pnf_allocate(size_t size)
 {
@@ -143,7 +149,24 @@ void *pnf_p7_thread_start(void *ptr)
 
 void *pnf_nr_p7_thread_start(void *ptr) {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] P7 THREAD %s\n", __FUNCTION__);
-//   pnf_set_thread_priority(79);
+  // pnf_set_thread_priority(79);
+  bool init_pool = false;
+  if (pthread_mutex_lock(&recv_buf_pool.free_pool.mutex) == 0) { 
+    if(!recv_buf_pool.init) {
+      init_pool = true;
+      recv_buf_pool.init = true;
+    }
+    pthread_mutex_unlock(&recv_buf_pool.free_pool.mutex);
+  }
+
+  if (init_pool) {
+    for (int i = 0; i < 512; ++i) {
+      uint8_t *buf = malloc(NFAPI_MAX_PACKED_MESSAGE_SIZE);
+      put_queue(&recv_buf_pool.free_pool, buf);
+    }
+    recv_buf_pool.init = true;
+  }
+
   nfapi_pnf_p7_config_t *config = (nfapi_pnf_p7_config_t *)ptr;
   nfapi_nr_pnf_p7_start(config);
   return 0;
@@ -391,8 +414,14 @@ int pnf_nr_config_request(nfapi_pnf_config_t *config, nfapi_nr_pnf_config_reques
   NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] pnf config request\n");
   pnf_info *pnf = (pnf_info *)(config->user_data);
   phy_info *phy = pnf->phys;
-  phy->id = req->pnf_phy_rf_config.phy_rf_config[0].phy_id;
-  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] pnf config request assigned phy_id %d to phy_config_index %d\n", phy->id, req->pnf_phy_rf_config.phy_rf_config[0].phy_config_index);
+  // if (phy->id == 0 ){
+    phy->id = req->pnf_phy_rf_config.phy_rf_config[0].phy_id;
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] pnf config request assigned phy_id %d to phy_config_index %d\n", phy->id, req->pnf_phy_rf_config.phy_rf_config[0].phy_config_index);
+
+  // }else {
+  //       NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] pnf config request assigned phy_id %d phy_config_index %d but ignored \n", phy->id, req->pnf_phy_rf_config.phy_rf_config[0].phy_config_index);
+  // }
+  
   nfapi_nr_pnf_config_response_t resp;
   memset(&resp, 0, sizeof(resp));
   resp.header.message_id = NFAPI_NR_PHY_MSG_TYPE_PNF_CONFIG_RESPONSE;
@@ -1932,6 +1961,10 @@ int start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfapi
 
 int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy,  nfapi_nr_start_request_scf_t *req) {
   NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] Received NFAPI_START_REQ phy_id:%d\n", req->header.phy_id);
+  if (num_pnf_p7_conn == MAX_GNBS) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "Cannot accept additional gNB P7 connections.\n");
+      return -1;
+  }
   pnf_info *pnf = (pnf_info *)(config->user_data);
   phy_info *phy_info = pnf->phys;
   nfapi_pnf_p7_config_t *p7_config = nfapi_pnf_p7_config_create();
@@ -1943,7 +1976,9 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy,  n
   //DJP p7_config->local_p7_addr = (char*)phy_info->local_addr.c_str();
   p7_config->local_p7_addr = phy_info->local_addr;
   NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] P7 remote:%s:%d local:%s:%d\n", p7_config->remote_p7_addr, p7_config->remote_p7_port, p7_config->local_p7_addr, p7_config->local_p7_port);
-  p7_config->user_data = phy_info;
+  // p7_config->user_data = phy_info;
+  p7_config->user_data = config->user_data;
+  
   //p7_config->user_data = phy_info;
   p7_config->malloc = &pnf_allocate;
   p7_config->free = &pnf_deallocate;
@@ -2011,7 +2046,7 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy,  n
   //l1_north_init_gNB();
 
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] DJP - HACK - Set p7_config global ready for subframe ind\n");
-  p7_nr_config_g = p7_config;
+  p7_nr_config_g[num_pnf_p7_conn++] = p7_config;
 
   /*
   // Need to wait for main thread to create RU structures
@@ -2440,50 +2475,78 @@ void *pnf_nr_start_thread(void *ptr) {
   return (void *)0;
 }
 
-void configure_nr_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port) {
-  nfapi_pnf_config_t *config = nfapi_pnf_config_create();
-  config->vnf_ip_addr = vnf_ip_addr;
-  config->vnf_p5_port = vnf_p5_port;
-  pnf_nr.phys[0].udp.enabled = 1;
-  pnf_nr.phys[0].udp.rx_port = pnf_p7_port;
-  pnf_nr.phys[0].udp.tx_port = vnf_p7_port;
-  strcpy(pnf_nr.phys[0].udp.tx_addr, vnf_ip_addr);
-  strcpy(pnf_nr.phys[0].local_addr, pnf_ip_addr);
-  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+void configure_nr_nfapi_pnf(const char *vnf_ip_addr, int vnf_p5_port, const char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port, int gnb_index) {
+    
+    // Bounds checking
+    if (gnb_index >= MAX_GNBS) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "gnb_index %d exceeds MAX_GNBS %d\n", gnb_index, MAX_GNBS);
+        return;
+    }
+
+    // Initialize this gNB's pnf_info if not already done
+    if (!pnf_nr_initialized[gnb_index]) {
+        memset(&pnf_nr[gnb_index], 0, sizeof(pnf_info));
+        pnf_nr_initialized[gnb_index] = true;
+    }
+    
+    nfapi_pnf_config_t *config = nfapi_pnf_config_create();
+    config->vnf_ip_addr = vnf_ip_addr;
+    config->vnf_p5_port = vnf_p5_port;
+    
+    // Each gNB gets its own isolated configuration
+    pnf_nr[gnb_index].gnb_id = gnb_index + 1;
+    // pnf_nr[gnb_index].phys[0].id = gnb_index + 1;  // Unique phy_id: 1, 2, 3, ...
+    pnf_nr[gnb_index].phys[0].udp.enabled = 1;
+    pnf_nr[gnb_index].phys[0].udp.rx_port = pnf_p7_port + gnb_index;  // PNF port (50810, 50811, etc.)
+    pnf_nr[gnb_index].phys[0].udp.tx_port = vnf_p7_port;              // VNF port (50611 for both gNBs)
+    strcpy(pnf_nr[gnb_index].phys[0].udp.tx_addr, vnf_ip_addr);       // VNF IP address
+    strcpy(pnf_nr[gnb_index].phys[0].local_addr, pnf_ip_addr);        // PNF IP address
+    
+    // Print configuration for debugging
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG, "CONFIG gNB %d: phy_id=%d, rx_port=%d, tx_port=%d, tx_addr=%s, local_addr=%s\n", 
+           gnb_index, pnf_nr[gnb_index].phys[0].id, 
+           pnf_nr[gnb_index].phys[0].udp.rx_port, 
+           pnf_nr[gnb_index].phys[0].udp.tx_port,
+           pnf_nr[gnb_index].phys[0].udp.tx_addr,
+           pnf_nr[gnb_index].phys[0].local_addr);
+    
+    config->user_data = &pnf_nr[gnb_index];  // Point to correct isolated instance
+
+    
+    // Rest of the existing function remains the same...
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG,
          "%s() VNF:%s:%d PNF_PHY[addr:%s UDP:tx_addr:%s:%d rx:%d]\n",
          __FUNCTION__,config->vnf_ip_addr, config->vnf_p5_port,
-         pnf_nr.phys[0].local_addr,
-         pnf_nr.phys[0].udp.tx_addr, pnf_nr.phys[0].udp.tx_port,
-         pnf_nr.phys[0].udp.rx_port);
-  config->cell_search_req = &cell_search_request;
-
-  //config->pnf_nr_param_req = &pnf_nr_param_request;
-  config->pnf_nr_param_req = &pnf_nr_param_request;
-  config->pnf_nr_config_req = &pnf_nr_config_request;
-  config->pnf_nr_start_req = &pnf_nr_start_request;
-  config->pnf_stop_req = &pnf_stop_request;
-  config->nr_param_req = &nr_param_request;
-  config->nr_config_req = &nr_config_request;
-  config->nr_start_req = &nr_start_request;
-  config->measurement_req = &measurement_request;
-  config->rssi_req = &rssi_request;
-  config->broadcast_detect_req = &broadcast_detect_request;
-  config->system_information_schedule_req = &system_information_schedule_request;
-  config->system_information_req = &system_information_request;
-  config->nmm_stop_req = &nmm_stop_request;
-  config->vendor_ext = &vendor_ext;
-  config->user_data = &pnf_nr;
-  // To allow custom vendor extentions to be added to nfapi
-  config->codec_config.unpack_vendor_extension_tlv = &pnf_sim_unpack_vendor_extension_tlv;
-  config->codec_config.pack_vendor_extension_tlv = &pnf_sim_pack_vendor_extention_tlv;
-  config->allocate_p4_p5_vendor_ext = &pnf_sim_allocate_p4_p5_vendor_ext;
-  config->deallocate_p4_p5_vendor_ext = &pnf_sim_deallocate_p4_p5_vendor_ext;
-  config->codec_config.unpack_p4_p5_vendor_extension = &pnf_sim_unpack_p4_p5_vendor_extension;
-  config->codec_config.pack_p4_p5_vendor_extension = &pnf_sim_pack_p4_p5_vendor_extension;
-  NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] Creating PNF NFAPI start thread %s\n", __FUNCTION__);
-  pthread_create(&pnf_nr_start_pthread, NULL, &pnf_nr_start_thread, config);
-  pthread_setname_np(pnf_nr_start_pthread, "NFAPI_PNF");
-
+         pnf_nr[gnb_index].phys[0].local_addr,
+         pnf_nr[gnb_index].phys[0].udp.tx_addr, pnf_nr[gnb_index].phys[0].udp.tx_port,
+         pnf_nr[gnb_index].phys[0].udp.rx_port);
+    
+    // ... rest of existing configuration code
+    config->cell_search_req = &cell_search_request;
+    config->pnf_nr_param_req = &pnf_nr_param_request;
+    config->pnf_nr_config_req = &pnf_nr_config_request;
+    config->pnf_nr_start_req = &pnf_nr_start_request;
+    config->pnf_stop_req = &pnf_stop_request;
+    config->nr_param_req = &nr_param_request;
+    config->nr_config_req = &nr_config_request;
+    config->nr_start_req = &nr_start_request;
+    config->measurement_req = &measurement_request;
+    config->rssi_req = &rssi_request;
+    config->broadcast_detect_req = &broadcast_detect_request;
+    config->system_information_schedule_req = &system_information_schedule_request;
+    config->system_information_req = &system_information_request;
+    config->nmm_stop_req = &nmm_stop_request;
+    config->vendor_ext = &vendor_ext;
+    // To allow custom vendor extentions to be added to nfapi
+    config->codec_config.unpack_vendor_extension_tlv = &pnf_sim_unpack_vendor_extension_tlv;
+    config->codec_config.pack_vendor_extension_tlv = &pnf_sim_pack_vendor_extention_tlv;
+    config->allocate_p4_p5_vendor_ext = &pnf_sim_allocate_p4_p5_vendor_ext;
+    config->deallocate_p4_p5_vendor_ext = &pnf_sim_deallocate_p4_p5_vendor_ext;
+    config->codec_config.unpack_p4_p5_vendor_extension = &pnf_sim_unpack_p4_p5_vendor_extension;
+    config->codec_config.pack_p4_p5_vendor_extension = &pnf_sim_pack_p4_p5_vendor_extension;
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] Creating PNF NFAPI start thread %s\n", __FUNCTION__);
+    pthread_create(&pnf_nr_start_pthread, NULL, &pnf_nr_start_thread, config);
+    pthread_setname_np(pnf_nr_start_pthread, "NFAPI_PNF");
 }
 
 void configure_nfapi_pnf(char *vnf_ip_addr, int vnf_p5_port, char *pnf_ip_addr, int pnf_p7_port,
@@ -2574,41 +2637,42 @@ void oai_subframe_ind(uint16_t sfn, uint16_t sf)
 
 void oai_slot_ind(uint16_t sfn, uint16_t slot)
 {
-    //TODO FIXME - HACK - DJP - using a global to bodge it in
-    if (p7_nr_config_g != NULL)
+    uint16_t sfn_slot_tx = sfn<<6 | slot; 
+    if ((sfn % 100 == 0) && slot == 0)
     {
-        uint16_t sfn_slot_tx = sfn<<6 | slot; 
-        if ((sfn % 100 == 0) && slot == 0)
-        {
-            struct timespec ts;
-            clock_gettime(CLOCK_MONOTONIC, &ts);
-            // NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] %ld.%ld (sfn:%u slot:%u) SFN/SLOT(TX):%u\n", 
-            //             ts.tv_sec, ts.tv_nsec, sfn, slot, NFAPI_SFNSLOT2DEC(sfn, slot));
-        }
-
-        nfapi_nr_slot_indication_scf_t ind;
-        ind.sfn = sfn;
-        ind.slot = slot;
-        ind.header.phy_id = p7_nr_config_g->phy_id;
-        ind.header.message_id = NFAPI_NR_PHY_MSG_TYPE_SLOT_INDICATION;
-        pnf_p7_t* pnf_p7 = (pnf_p7_t*)(p7_nr_config_g);
-        pnf_p7->sfn = sfn;
-        pnf_p7->slot = slot;
-        int slot_ret = nfapi_pnf_p7_nr_slot_ind(p7_nr_config_g, &ind);
-
-        if (slot_ret < 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] (frame:%u slot:%u) SFN/SLOT(TX):%u - PROBLEM with pnf_p7_slot_ind()\n", 
-                        sfn, slot, sfn_slot_tx);
-        }
-        else
-        {
-            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] Sent slot indication from PNF to VNF in oai_slot_ind %4d.%2d\n", 
-                        sfn, slot);
-        }
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        // NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] %ld.%ld (sfn:%u slot:%u) SFN/SLOT(TX):%u\n", 
+        //             ts.tv_sec, ts.tv_nsec, sfn, slot, NFAPI_SFNSLOT2DEC(sfn, slot));
     }
-    else
+
+    nfapi_nr_slot_indication_scf_t ind;
+    ind.sfn = sfn;
+    ind.slot = slot;
+    ind.header.message_id = NFAPI_NR_PHY_MSG_TYPE_SLOT_INDICATION;
+
+    for (int gnb_idx = 0; gnb_idx < num_pnf_p7_conn; gnb_idx++)
     {
+      nfapi_pnf_p7_config_t *config = p7_nr_config_g[gnb_idx];
+      if (p7_nr_config_g != NULL)
+      {
+            pnf_p7_t* pnf_p7 = (pnf_p7_t*)(config);
+            pnf_p7->sfn = sfn;
+            pnf_p7->slot = slot;
+            ind.header.phy_id = config->phy_id;
+            int slot_ret = nfapi_pnf_p7_nr_slot_ind(config, &ind);
+
+            if (slot_ret < 0)
+            {
+                NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] (frame:%u slot:%u) SFN/SLOT(TX):%u - PROBLEM with pnf_p7_slot_ind()\n", 
+                            sfn, slot, sfn_slot_tx);
+            }
+            else
+            {
+                NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[PNF] Sent slot indication from PNF to VNF in oai_slot_ind %4d.%2d\n", 
+                            sfn, slot);
+            }
+        }
     }
 }
 
@@ -2621,6 +2685,129 @@ void oai_subframe_init()
     for (int i = 0; i < num_ues; i++)
     {
         init_queue(&msgs_from_ue[i]);
+    }
+}
+
+int get_ch_trace_lines(FILE* ch_trace_fp, int num_lines) {
+    char line[256];
+    char *token, *ret;
+    int line_idx = 0;
+
+    while (line_idx < num_lines) {
+        ch_trace_elem_t* elem = malloc(sizeof(ch_trace_elem_t));
+        ret = fgets(line, 256, ch_trace_fp);
+        if (!ret) {
+          if (ferror(ch_trace_fp)) {
+              printf("ERROR: Failed to read line from channel trace file.");
+              return -1;
+          }
+          else if (feof(ch_trace_fp)) {
+            rewind(ch_trace_fp);
+            ret = fgets(line, 256, ch_trace_fp);
+          }
+        }
+        
+        // Parse the new multi-gNB trace format:
+        // UE_ID,Trace_Index,RSSI_dBm,SINR_dB,RSRP_dBm,gnb_id,time_index,gnb_name
+        token = strtok(line, ",\n\r");
+        // Skip header / blank / malformed lines: if first field is NULL or
+        // non-numeric (e.g. "UE_ID"), strtol returns endp == token.
+        if (token == NULL) { free(elem); continue; }
+        char *endp;
+        long val = strtol(token, &endp, 10);
+        if (endp == token) { free(elem); continue; }  // no digits → header/garbage
+        elem->ue_id = (int)val;
+        token = strtok(NULL, ",\n\r");
+        if (!token) { free(elem); continue; }
+        elem->trace_idx = (int)atof(token);  // Trace_Index is float but we convert to int
+        token = strtok(NULL, ",\n\r");
+        if (!token) { free(elem); continue; }
+        elem->rssi_dBm = (float)atof(token);
+        token = strtok(NULL, ",\n\r");
+        if (!token) { free(elem); continue; }
+        elem->sinr_dB = (float)atof(token);
+        token = strtok(NULL, ",\n\r");
+        if (!token) { free(elem); continue; }
+        elem->rsrp_dBm = (float)atof(token);
+        token = strtok(NULL, ",\n\r");
+        if (!token) { free(elem); continue; }
+        elem->gnb_id = atoi(token);
+        token = strtok(NULL, ",\n\r");
+        if (!token) { free(elem); continue; }
+        elem->time_index = atoi(token);
+
+        // Skip gnb_name (8th field) as we don't need it for processing
+        elem->rsrq_dB = NAN;  // Will be calculated from SINR if needed
+        
+        if (elem->ue_id < 0 || elem->ue_id >= MAX_UES) {
+            printf("ERROR: UE ID %d out of range [0,%d].\n", elem->ue_id, MAX_UES-1);
+            free(elem);
+        }
+        else if (!put_queue(&ch_trace_queue[elem->ue_id], elem)) {
+            printf("ERROR: Failed to insert channel trace element.\n");
+            free(elem);
+        }
+        ++line_idx;
+    }
+    return 0;
+}
+
+static void apply_ch_trace_to_ue_info(nr_phy_channel_params_t *info, const ch_trace_elem_t *ch_trace)
+{
+  const int gnb_index = ch_trace->gnb_id;
+  if (gnb_index < 0 || gnb_index >= MAX_GNBS)
+    return;
+
+  info->measurements[gnb_index].gnb_index = gnb_index;
+  info->measurements[gnb_index].csi[0].sinr = ch_trace->sinr_dB;
+  info->measurements[gnb_index].csi[0].rsrp = ch_trace->rsrp_dBm;
+
+  if (isnan(ch_trace->rsrq_dB)) {
+    const float sinr_linear = powf(10.0f, ch_trace->sinr_dB / 10.0f);
+    const float rsrq_linear = sinr_linear / (12.0f * (1.0f + sinr_linear));
+    info->measurements[gnb_index].csi[0].rsrq = 10.0f * log10f(rsrq_linear);
+  } else {
+    info->measurements[gnb_index].csi[0].rsrq = ch_trace->rsrq_dB;
+  }
+}
+
+static void update_ue_ch_trace_from_queue(int ue_index, nr_phy_channel_params_t *info, int max_rows)
+{
+  int updated = 0;
+  ch_trace_elem_t *ch_trace;
+
+  while (updated < max_rows && (ch_trace = get_queue(&ch_trace_queue[ue_index])) != NULL) {
+    apply_ch_trace_to_ue_info(info, ch_trace);
+    free(ch_trace);
+    updated++;
+  }
+}
+
+void *ch_trace_task(void *context)
+{
+    const char* ch_trace_path = (const char*)context;
+
+    for (int i = 0; i < num_ues; i++)
+      init_queue(&ch_trace_queue[i]);
+
+    if (ch_trace_path != NULL && strcmp(ch_trace_path, "") != 0) {
+        // Initialize trace file
+        ch_trace_fp = fopen(ch_trace_path, "r");
+        if (ch_trace_fp == NULL || ferror(ch_trace_fp)) {
+            printf("ERROR: Failed to open channel trace file %s.", ch_trace_path);
+            return NULL;
+        }
+        get_ch_trace_lines(ch_trace_fp, 256);
+    }
+
+    while(true) {
+        for (int i = 0; i < num_ues; i++) {
+            if (ch_trace_queue[i].num_items < 64) {
+                // Refill queues
+                get_ch_trace_lines(ch_trace_fp, 128);
+            }
+        }
+        usleep(500000);
     }
 }
 
@@ -2704,6 +2891,7 @@ static bool get_sfnslot(message_buffer_t *msg, uint16_t *sfnslot)
     case NFAPI_NR_PHY_MSG_TYPE_RX_DATA_INDICATION:
     case NFAPI_NR_PHY_MSG_TYPE_UCI_INDICATION:
     case NFAPI_NR_PHY_MSG_TYPE_SRS_INDICATION:
+    case NFAPI_NR_PHY_MSG_TYPE_VENDOR_EXT_SLOT_RESPONSE:
         break;
     default:
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "Message_id is unknown %u", message_id);
@@ -2711,7 +2899,7 @@ static bool get_sfnslot(message_buffer_t *msg, uint16_t *sfnslot)
     }
 
     // in = msg->data + sizeof(nfapi_p7_message_header_t);
-    in = (uint8_t *)msg->data + 18; // RDF: Taking sizeof(nfapi_nr_p7_message_header_t) doesn't work because of padding.
+    in = (uint8_t *)msg->data + 18; // Taking sizeof(nfapi_nr_p7_message_header_t) doesn't work because of padding.
     uint16_t sfn, slot;
     if (!pull16(&in, &sfn, end) ||
         !pull16(&in, &slot, end))
@@ -2869,7 +3057,8 @@ static void oai_slot_aggregate_rach_ind(slot_msgs_t *msgs)
             NFAPI_TRACE(NFAPI_TRACE_ERROR,  "nr rach unpack failed");
             continue;
         }
-        oai_nfapi_nr_rach_indication(&ind);
+        
+        oai_nfapi_nr_rach_indication(&ind, msg->gnb_id);
     }
 }
 
@@ -2983,53 +3172,69 @@ typedef struct
 static void oai_slot_aggregate_crc_ind(slot_msgs_t *msgs)
 {
     assert(msgs->num_msgs > 0);
-    nfapi_nr_crc_indication_t agg;
-    memset(&agg, 0, sizeof(agg));
-    agg.crc_list = calloc(NFAPI_NR_CRC_IND_MAX_PDU, sizeof(nfapi_nr_crc_t));
-    assert(agg.crc_list);
 
-    size_t pduIndex = 0;
-    for (size_t n = 0; n < msgs->num_msgs; ++n)
+    // Aggregate and route per gNB
+    for (int gnb_idx = 0; gnb_idx < num_pnf_p7_conn; gnb_idx++)
     {
-        nfapi_nr_crc_indication_t ind;
-        message_buffer_t *msg = msgs->msgs[n];
-        // assert(msg->length <= sizeof(msg->data));
-        if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "nr_crc indication unpack failed, msg[%zu]", n);
-            free(agg.crc_list);
-            return;
-        }
+        uint16_t target_gnb_id = gnb_idx + 1;
+        nfapi_nr_crc_indication_t agg;
+        memset(&agg, 0, sizeof(agg));
+        agg.crc_list = calloc(NFAPI_NR_CRC_IND_MAX_PDU, sizeof(nfapi_nr_crc_t));
+        assert(agg.crc_list);
 
-        // Header, sfn, and slot assumed to be same across msgs
-        if (n != 0)
-        {
-            warn_if_different_slots(__func__, &agg.header, &ind.header, agg.sfn, ind.sfn, agg.slot, ind.slot);
-        }
-        agg.header = ind.header;
-        agg.sfn = ind.sfn;
-        agg.slot = ind.slot;
-        agg.number_crcs += ind.number_crcs;
+        size_t pduIndex = 0;
+        bool found_any = false;
 
-        for (size_t i = 0; i < ind.number_crcs; ++i)
+        for (size_t n = 0; n < msgs->num_msgs; ++n)
         {
+            message_buffer_t *msg = msgs->msgs[n];
+            if (msg->gnb_id != target_gnb_id)
+                continue;
+
+            found_any = true;
+            nfapi_nr_crc_indication_t ind;
+            if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
+            {
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "nr_crc indication unpack failed, msg[%zu]", n);
+                free(agg.crc_list);
+                continue;
+            }
+
+            if (pduIndex == 0)
+            {
+                agg.header = ind.header;
+                agg.sfn = ind.sfn;
+                agg.slot = ind.slot;
+            }
+            else
+            {
+                warn_if_different_slots(__func__, &agg.header, &ind.header, agg.sfn, ind.sfn, agg.slot, ind.slot);
+            }
+            agg.number_crcs += ind.number_crcs;
+
+            for (size_t i = 0; i < ind.number_crcs; ++i)
+            {
+                if (pduIndex == NFAPI_NR_CRC_IND_MAX_PDU)
+                {
+                    NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
+                    break;
+                }
+                agg.crc_list[pduIndex] = ind.crc_list[i];
+                pduIndex++;
+            }
+            free(ind.crc_list);
             if (pduIndex == NFAPI_NR_CRC_IND_MAX_PDU)
             {
-                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
                 break;
             }
-            agg.crc_list[pduIndex] = ind.crc_list[i];
-            pduIndex++;
         }
-        free(ind.crc_list);
-        if (pduIndex == NFAPI_NR_CRC_IND_MAX_PDU)
-        {
-            break;
-        }
-    }
 
-    oai_nfapi_nr_crc_indication(&agg);
-    free(agg.crc_list);
+        if (found_any && pduIndex > 0)
+        {
+            oai_nfapi_nr_crc_indication(&agg, target_gnb_id);
+        }
+        free(agg.crc_list);
+    }
 }
 
 /*
@@ -3225,93 +3430,93 @@ typedef struct
 
 static void oai_slot_aggregate_rx_data_ind(slot_msgs_t *msgs)
 {
-
     assert(msgs->num_msgs > 0);
-    nfapi_nr_rx_data_indication_t agg;
-    memset(&agg, 0, sizeof(agg));    //To Do Items : Need to check whether MAX_PDU is okay ?
-    agg.pdu_list = calloc(NFAPI_NR_RX_DATA_IND_MAX_PDU, sizeof(nfapi_nr_rx_data_pdu_t));
-    assert(agg.pdu_list);
 
-    size_t pduIndex = 0;
-
-    if (msgs->num_msgs > 1)
+    // Aggregate and route per gNB
+    for (int gnb_idx = 0; gnb_idx < num_pnf_p7_conn; gnb_idx++)
     {
-        uint16_t sfn_slot_val;
-        message_buffer_t *first_msg = msgs->msgs[0];
-        if (!get_sfnslot(first_msg, &sfn_slot_val))
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "Something went very wrong");
-            abort();
-        }
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "We are aggregating %zu rx_data_ind's for SFN.SLOT %u.%u "
-                   "trying to aggregate",
-                   msgs->num_msgs, sfn_slot_val >> 6,
-                   sfn_slot_val & 0x3F);
-    }
+        uint16_t target_gnb_id = gnb_idx + 1;
+        nfapi_nr_rx_data_indication_t agg;
+        memset(&agg, 0, sizeof(agg));
+        agg.pdu_list = calloc(NFAPI_NR_RX_DATA_IND_MAX_PDU, sizeof(nfapi_nr_rx_data_pdu_t));
+        assert(agg.pdu_list);
 
-    for (size_t n = 0; n < msgs->num_msgs; ++n)
-    {
-        nfapi_nr_rx_data_indication_t ind;
-        message_buffer_t *msg = msgs->msgs[n];
-        // assert(msg->length <= sizeof(msg->data));
-        if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "rx indication unpack failed, msg[%zu]", n);
-            free(agg.pdu_list);
-            return;
-        }
+        size_t pduIndex = 0;
+        bool found_any = false;
 
-        if (ind.number_of_pdus == 0)
+        for (size_t n = 0; n < msgs->num_msgs; ++n)
         {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "empty rx message");
-            abort();
-        }
+            message_buffer_t *msg = msgs->msgs[n];
+            if (msg->gnb_id != target_gnb_id)
+                continue;
 
-        int rnti = ind.pdu_list[0].rnti;
-        bool found = false;
-        for (int i = 0; i < agg.number_of_pdus; ++i)
-        {
-            int rnti_i = agg.pdu_list[i].rnti;
-            if (rnti == rnti_i)
+            found_any = true;
+            nfapi_nr_rx_data_indication_t ind;
+            if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
             {
-                found = true;
-                break;
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "rx indication unpack failed, msg[%zu]", n);
+                free(agg.pdu_list);
+                continue;
             }
-        }
-        if (found)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "two rx for single UE rnti: %x", rnti);
-        }
 
-        // Header, sfn, and slot assumed to be same across msgs
-        if (n != 0)
-        {
-            warn_if_different_slots(__func__, &agg.header, &ind.header, agg.sfn, ind.sfn, agg.slot, ind.slot);
-        }
-        agg.header = ind.header;
-        agg.sfn = ind.sfn;
-        agg.slot = ind.slot;
-        agg.number_of_pdus += ind.number_of_pdus;
+            if (ind.number_of_pdus == 0)
+            {
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "empty rx message");
+                free(ind.pdu_list);
+                continue;
+            }
 
-        for (size_t i = 0; i < ind.number_of_pdus; ++i)
-        {
+            int rnti = ind.pdu_list[0].rnti;
+            bool found = false;
+            for (int i = 0; i < (int)agg.number_of_pdus; ++i)
+            {
+                int rnti_i = agg.pdu_list[i].rnti;
+                if (rnti == rnti_i)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (found)
+            {
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "two rx for single UE rnti: %x", rnti);
+            }
+
+            if (pduIndex == 0)
+            {
+                agg.header = ind.header;
+                agg.sfn = ind.sfn;
+                agg.slot = ind.slot;
+            }
+            else
+            {
+                warn_if_different_slots(__func__, &agg.header, &ind.header, agg.sfn, ind.sfn, agg.slot, ind.slot);
+            }
+            agg.number_of_pdus += ind.number_of_pdus;
+
+            for (size_t i = 0; i < ind.number_of_pdus; ++i)
+            {
+                if (pduIndex == NFAPI_NR_RX_DATA_IND_MAX_PDU)
+                {
+                    NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
+                    break;
+                }
+                agg.pdu_list[pduIndex] = ind.pdu_list[i];
+                pduIndex++;
+            }
+            free(ind.pdu_list);
             if (pduIndex == NFAPI_NR_RX_DATA_IND_MAX_PDU)
             {
-                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
                 break;
             }
-            agg.pdu_list[pduIndex] = ind.pdu_list[i];
-            pduIndex++;
         }
-        free(ind.pdu_list);
-        if (pduIndex == NFAPI_NR_RX_DATA_IND_MAX_PDU)
-        {
-            break;
-        }
-    }
 
-    oai_nfapi_nr_rx_data_indication(&agg);
-    free(agg.pdu_list);
+        if (found_any && pduIndex > 0)
+        {
+            oai_nfapi_nr_rx_data_indication(&agg, target_gnb_id);
+        }
+        free(agg.pdu_list);
+    }
 }
 
 /*
@@ -3540,84 +3745,101 @@ static int get_nr_uci_rnti(nfapi_nr_uci_t *pdu, uint16_t pdu_type)
 static void oai_slot_aggregate_uci_ind(slot_msgs_t *msgs)
 {
     assert(msgs->num_msgs > 0);
-    nfapi_nr_uci_indication_t agg;
-    memset(&agg, 0, sizeof(agg));
-    agg.uci_list = calloc(NFAPI_NR_UCI_IND_MAX_PDU, sizeof(nfapi_nr_uci_t));
-    assert(agg.uci_list);
-    size_t pduIndex = 0;
 
-    for (size_t n = 0; n < msgs->num_msgs; ++n)
+    // Aggregate and route per gNB
+    for (int gnb_idx = 0; gnb_idx < num_pnf_p7_conn; gnb_idx++)
     {
-        nfapi_nr_uci_indication_t ind;
-        message_buffer_t *msg = msgs->msgs[n];
-        // assert(msg->length <= sizeof(msg->data));
-        if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "uci indication unpack failed, msg[%zu]", n);
-            free(agg.uci_list);
-            return;
-        }
+        uint16_t target_gnb_id = gnb_idx + 1;
+        nfapi_nr_uci_indication_t agg;
+        memset(&agg, 0, sizeof(agg));
+        agg.uci_list = calloc(NFAPI_NR_UCI_IND_MAX_PDU, sizeof(nfapi_nr_uci_t));
+        assert(agg.uci_list);
+        size_t pduIndex = 0;
+        bool found_any = false;
 
-        if (ind.num_ucis == 0)
+        for (size_t n = 0; n < msgs->num_msgs; ++n)
         {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "empty uci message");
-            abort();
-        }
+            message_buffer_t *msg = msgs->msgs[n];
+            if (msg->gnb_id != target_gnb_id)
+                continue;
 
-        uint16_t pdu_type = ind.uci_list[0].pdu_type;
-        int rnti = get_nr_uci_rnti(&ind.uci_list[0], pdu_type);
-        if (rnti == -1)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "Invalid rnti value in uci indication");
-            abort();
-        }
-
-        bool found = false;
-        for (int i = 0; i < agg.num_ucis; ++i)
-        {
-            int rnti_i = get_nr_uci_rnti(&agg.uci_list[i], pdu_type);
-
-            if (rnti == rnti_i)
+            found_any = true;
+            nfapi_nr_uci_indication_t ind;
+            if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
             {
-                found = true;
-                break;
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "uci indication unpack failed, msg[%zu]", n);
+                free(agg.uci_list);
+                continue;
             }
-        }
-        if (found)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "two uci for single UE rnti: %x", rnti);
-        }
 
-        // Header, sfn, and slot assumed to be same across msgs
-        if (n != 0)
-        {
-            warn_if_different_slots(__func__, &agg.header, &ind.header, agg.sfn, ind.sfn, agg.slot, ind.slot);
-        }
-        agg.header = ind.header;
-        agg.sfn = ind.sfn;
-        agg.slot = ind.slot;
-        agg.num_ucis += ind.num_ucis;
+            if (ind.num_ucis == 0)
+            {
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "empty uci message");
+                free(ind.uci_list);
+                continue;
+            }
 
-        for (size_t i = 0; i < ind.num_ucis; ++i)
-        {
+            uint16_t pdu_type = ind.uci_list[0].pdu_type;
+            int rnti = get_nr_uci_rnti(&ind.uci_list[0], pdu_type);
+            if (rnti == -1)
+            {
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Invalid rnti value in uci indication");
+                free(ind.uci_list);
+                continue;
+            }
+
+            bool found = false;
+            for (int i = 0; i < (int)agg.num_ucis; ++i)
+            {
+                int rnti_i = get_nr_uci_rnti(&agg.uci_list[i], pdu_type);
+
+                if (rnti == rnti_i)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (found)
+            {
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "two uci for single UE rnti: %x", rnti);
+            }
+
+            if (pduIndex == 0)
+            {
+                agg.header = ind.header;
+                agg.sfn = ind.sfn;
+                agg.slot = ind.slot;
+            }
+            else
+            {
+                warn_if_different_slots(__func__, &agg.header, &ind.header, agg.sfn, ind.sfn, agg.slot, ind.slot);
+            }
+            agg.num_ucis += ind.num_ucis;
+
+            for (size_t i = 0; i < ind.num_ucis; ++i)
+            {
+                if (pduIndex == NFAPI_NR_UCI_IND_MAX_PDU)
+                {
+                    NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
+                    break;
+                }
+
+                agg.uci_list[pduIndex] = ind.uci_list[i];
+                pduIndex++;
+            }
+            free(ind.uci_list); // Should actually be nfapi_vnf_p7_release_msg
             if (pduIndex == NFAPI_NR_UCI_IND_MAX_PDU)
             {
-                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
                 break;
             }
-
-            agg.uci_list[pduIndex] = ind.uci_list[i];
-            pduIndex++;
         }
-        free(ind.uci_list); // Should actually be nfapi_vnf_p7_release_msg
-        if (pduIndex == NFAPI_NR_UCI_IND_MAX_PDU)
+
+        if (found_any && pduIndex > 0)
         {
-            break;
+            oai_nfapi_nr_uci_indication(&agg, target_gnb_id);
         }
+        free(agg.uci_list); // Should actually be nfapi_vnf_p7_release_msg
     }
-
-    oai_nfapi_nr_uci_indication(&agg);
-    free(agg.uci_list); // Should actually be nfapi_vnf_p7_release_msg
 }
 
 /*
@@ -3871,53 +4093,69 @@ typedef struct
 static void oai_slot_aggregate_srs_ind(slot_msgs_t *msgs)
 {
     assert(msgs->num_msgs > 0);
-    nfapi_nr_srs_indication_t agg;
-    memset(&agg, 0, sizeof(agg));
-    agg.pdu_list = calloc(NFAPI_NR_SRS_IND_MAX_PDU, sizeof(nfapi_nr_srs_indication_t));
-    assert(agg.pdu_list);
 
-    size_t pduIndex = 0;
-    for (size_t n = 0; n < msgs->num_msgs; ++n)
+    // Aggregate and route per gNB
+    for (int gnb_idx = 0; gnb_idx < num_pnf_p7_conn; gnb_idx++)
     {
-        nfapi_nr_srs_indication_t ind;
-        message_buffer_t *msg = msgs->msgs[n];
-        // assert(msg->length <= sizeof(msg->data));
-        if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
-        {
-            NFAPI_TRACE(NFAPI_TRACE_ERROR, "srs indication unpack failed, msg[%zu]", n);
-            free(agg.pdu_list);
-            return;
-        }
+        uint16_t target_gnb_id = gnb_idx + 1;
+        nfapi_nr_srs_indication_t agg;
+        memset(&agg, 0, sizeof(agg));
+        agg.pdu_list = calloc(NFAPI_NR_SRS_IND_MAX_PDU, sizeof(nfapi_nr_srs_indication_pdu_t));
+        assert(agg.pdu_list);
 
-        // Header, sfn, and slot assumed to be same across msgs
-        if (n != 0)
-        {
-            warn_if_different_slots(__func__, &agg.header, &ind.header, agg.sfn, ind.sfn, agg.slot, ind.slot);
-        }
-        agg.header = ind.header;
-        agg.sfn = ind.sfn;
-        agg.slot = ind.slot;
-        agg.number_of_pdus += ind.number_of_pdus;
+        size_t pduIndex = 0;
+        bool found_any = false;
 
-        for (size_t i = 0; i < ind.number_of_pdus; ++i)
+        for (size_t n = 0; n < msgs->num_msgs; ++n)
         {
+            message_buffer_t *msg = msgs->msgs[n];
+            if (msg->gnb_id != target_gnb_id)
+                continue;
+
+            found_any = true;
+            nfapi_nr_srs_indication_t ind;
+            if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &ind, sizeof(ind), NULL) < 0)
+            {
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "srs indication unpack failed, msg[%zu]", n);
+                free(agg.pdu_list);
+                continue;
+            }
+
+            if (pduIndex == 0)
+            {
+                agg.header = ind.header;
+                agg.sfn = ind.sfn;
+                agg.slot = ind.slot;
+            }
+            else
+            {
+                warn_if_different_slots(__func__, &agg.header, &ind.header, agg.sfn, ind.sfn, agg.slot, ind.slot);
+            }
+            agg.number_of_pdus += ind.number_of_pdus;
+
+            for (size_t i = 0; i < ind.number_of_pdus; ++i)
+            {
+                if (pduIndex == NFAPI_NR_SRS_IND_MAX_PDU)
+                {
+                    NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
+                    break;
+                }
+                agg.pdu_list[pduIndex] = ind.pdu_list[i];
+                pduIndex++;
+            }
+            free(ind.pdu_list); // Should actually be nfapi_vnf_p7_release_msg
             if (pduIndex == NFAPI_NR_SRS_IND_MAX_PDU)
             {
-                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many PDUs to aggregate");
                 break;
             }
-            agg.pdu_list[pduIndex] = ind.pdu_list[i];
-            pduIndex++;
         }
-        free(ind.pdu_list); // Should actually be nfapi_vnf_p7_release_msg
-        if (pduIndex == NFAPI_NR_SRS_IND_MAX_PDU)
-        {
-            break;
-        }
-    }
 
-    oai_nfapi_nr_srs_indication(&agg);
-    free(agg.pdu_list); // Should actually be nfapi_vnf_p7_release_msg
+        if (found_any && pduIndex > 0)
+        {
+            oai_nfapi_nr_srs_indication(&agg, target_gnb_id);
+        }
+        free(agg.pdu_list); // Should actually be nfapi_vnf_p7_release_msg
+    }
 }
 
 // static void oai_subframe_aggregate_message_id(uint16_t msg_id, subframe_msgs_t *msgs)
@@ -4262,64 +4500,173 @@ bool dequeue_ue_slot_msgs(slot_msgs_t *slot_msgs, uint16_t sfn_slot_tx)
     // Dequeue for all UE responses, and discard any with the wrong sfn/sf value.
     // There might be multiple messages from a given UE with the same sfn/sf value.
     bool are_queues_empty = true;
+
     uint16_t master_sfn_slot = 0xFFFF;
-    for (int i = 0; i < num_ues; i++)
+
+    for (int i = 0; i < num_ues; ++i) {
+      ue_slot_info[i].crc_recvd = false;
+      ue_slot_info[i].rx_data_recvd = false;
+      // ue_slot_info[i].sfn_slot_recvd = 0xFFFF;
+      ue_slot_info[i].slot_resp_recvd = false;
+    }
+ 
+    int max_wait_us = 500;
+    int wait_time = 0;
+    bool done = false;
+    while (!done)
     {
-        for (;;)
-        {
-            message_buffer_t *msg = get_queue(&msgs_from_nr_ue[i]);
-            if (!msg)
-            {
-                break;
-            }
-            assert(msg->magic == MESSAGE_BUFFER_MAGIC);
-            if (msg->length == 4)
-            {
-                msg->magic = 0;
-                free(msg);
-                continue;
-            }
-            uint16_t msg_sfn_slot;
-            if (!get_sfnslot(msg, &msg_sfn_slot))
-            {
-                msg->magic = 0;
-                free(msg);
-                continue;
-            }
-            if (master_sfn_slot == 0xFFFF)
-            {
-                master_sfn_slot  = msg_sfn_slot;
-            }
-            if (master_sfn_slot != msg_sfn_slot)
-            {
-                if (!requeue(&msgs_from_nr_ue[i], msg))
-                {
-                    msg->magic = 0;
-                    free(msg);
-                }
-                are_queues_empty = false;
-                break;
-            }
-            int slot_delta = get_slot_delta(sfn_slot_tx, msg_sfn_slot);
-            if (slot_delta > 400)
-            {
-                NFAPI_TRACE(NFAPI_TRACE_ERROR, "sfn_slot not correct %u.%u - %u.%u = %d message id: %d", sfn_slot_tx >> 6,
-                            sfn_slot_tx & 0X3F, msg_sfn_slot >> 6, msg_sfn_slot & 0X3F, slot_delta, get_message_id(msg));
-                msg->magic = 0;
-                free(msg);
-                continue;
-            }
-            slot_msgs_t *p = &slot_msgs[i];
-            if (p->num_msgs == MAX_SLOT_MSGS)
-            {
-                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many msgs from ue");
-                msg->magic = 0;
-                free(msg);
-                continue;
-            }
-            p->msgs[p->num_msgs++] = msg;
-            NFAPI_TRACE(NFAPI_TRACE_INFO, "p->num_msgs = %zu", p->num_msgs);
-        }
+      bool slot_msgs_pending = false;
+      for (int i = 0; i < num_ues; i++)
+      {
+          ue_slot_info_t *ue_info = &ue_slot_info[i];
+  
+          for (;;)
+          {
+              message_buffer_t *msg = get_queue(&msgs_from_nr_ue[i]);
+              if (!msg)
+              {
+                  break;
+              }
+              assert(msg->magic == MESSAGE_BUFFER_MAGIC);
+              if (msg->length == 4)
+              {
+                  msg->magic = 0;
+                  free(msg);
+                  continue;
+              }
+
+              uint16_t msg_sfn_slot;
+              if (!get_sfnslot(msg, &msg_sfn_slot))
+              {
+                  msg->magic = 0;
+                  free(msg);
+                  continue;
+              }
+
+              uint16_t msg_id = get_message_id(msg);
+              uint16_t msg_frame = NFAPI_SFNSLOTDEC2SFN(MU, msg_sfn_slot);
+              uint16_t msg_slot = NFAPI_SFNSLOTDEC2SLOT(MU, msg_sfn_slot);
+
+              if (msg_id == NFAPI_NR_PHY_MSG_TYPE_VENDOR_EXT_SLOT_RESPONSE) {
+                  nfapi_nr_slot_response_t resp_msg_tmp;
+                  if (ue_info->slot_resp_recvd) {
+                      NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Slot response already received for the current UE slot (msg frame %d slot %d).", msg_frame, msg_slot);
+                      continue;
+                  }
+                  if (nfapi_nr_p7_message_unpack(msg->data, msg->length, &resp_msg_tmp, sizeof(resp_msg_tmp), NULL) < 0) {
+                      NFAPI_TRACE(NFAPI_TRACE_ERROR, "Slot response unpack failed");
+                      free(msg);
+                      continue;
+                  }
+              
+                  ue_info->slot_resp_recvd = true;
+                  // ue_info->rach_exp = resp_msg_tmp.message_types & 0x1;
+                  // ue_info->crc_exp = (resp_msg_tmp.message_types >> 1) & 0x1;
+                  // ue_info->rx_data_exp = (resp_msg_tmp.message_types >> 2) & 0x1;
+                  // ue_info->uci_exp = (resp_msg_tmp.message_types >> 3) & 0x1;
+                  
+                  if (resp_msg_tmp.rnti != 0xFFFF && ue_info->rnti != resp_msg_tmp.rnti) {
+                    ue_info->rnti = resp_msg_tmp.rnti;
+                    printf("UE %d CRNTI detected as %d\n", i, ue_info->rnti);
+                  }
+
+                  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Received slot response for frame %d slot %d. Expecting rach=%d, crc=%d, rx_data=%d, uci=%d\n", 
+                      msg_frame, msg_slot, (int)ue_info->rach_exp, (int)ue_info->crc_exp, (int)ue_info->rx_data_exp, (int)ue_info->uci_exp);
+                  continue;
+              }
+
+              if (master_sfn_slot == 0xFFFF)
+              {
+                  master_sfn_slot = msg_sfn_slot;
+              }
+              // if ((ue_info->sfn_slot_recvd != msg_sfn_slot && msg_id != NFAPI_NR_PHY_MSG_TYPE_VENDOR_EXT_SLOT_RESPONSE) ||
+              //     (msg_id == NFAPI_NR_PHY_MSG_TYPE_VENDOR_EXT_SLOT_RESPONSE && ue_info->slot_resp_recvd))
+              // if(master_sfn_slot != msg_sfn_slot)
+              if (master_sfn_slot != msg_sfn_slot)
+              {
+                  if (!requeue(&msgs_from_nr_ue[i], msg))
+                  {
+                      msg->magic = 0;
+                      free(msg);
+                  }
+                  are_queues_empty = false;
+                  break;
+              }
+              int slot_delta = get_slot_delta(sfn_slot_tx, msg_sfn_slot);
+              if (slot_delta > 400)
+              {
+                  NFAPI_TRACE(NFAPI_TRACE_ERROR, "sfn_slot not correct %u.%u - %u.%u = %d message id: %d", sfn_slot_tx >> 6,
+                              sfn_slot_tx & 0X3F, msg_sfn_slot >> 6, msg_sfn_slot & 0X3F, slot_delta, get_message_id(msg));
+                  msg->magic = 0;
+                  free(msg);
+                  continue;
+              }
+              slot_msgs_t *p = &slot_msgs[i];
+              if (p->num_msgs == MAX_SLOT_MSGS)
+              {
+                  NFAPI_TRACE(NFAPI_TRACE_ERROR, "Too many msgs from ue");
+                  msg->magic = 0;
+                  free(msg);
+                  continue;
+              }
+
+              if (msg_id) {
+                p->msgs[p->num_msgs++] = msg;
+                NFAPI_TRACE(NFAPI_TRACE_INFO, "p->num_msgs = %zu", p->num_msgs);
+              }
+
+              switch (msg_id)
+              {            
+              case NFAPI_NR_PHY_MSG_TYPE_RACH_INDICATION:
+                  ue_info->rach_recvd = true;
+                  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Received RACH IND for frame %d slot %d.\n", msg_frame, msg_slot);
+                  break;
+              case NFAPI_NR_PHY_MSG_TYPE_CRC_INDICATION:
+                  ue_info->crc_recvd = true;
+                  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Received CRC IND for frame %d slot %d.\n", msg_frame, msg_slot);
+                  break;
+              case NFAPI_NR_PHY_MSG_TYPE_RX_DATA_INDICATION:
+                  ue_info->rx_data_recvd = true;
+                  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Received RX_DATA IND for frame %d slot %d.\n", msg_frame, msg_slot);
+                  break;
+              case NFAPI_NR_PHY_MSG_TYPE_UCI_INDICATION:
+                  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Received UCI IND for frame %d slot %d.\n", msg_frame, msg_slot);
+                  ue_info->uci_recvd = true;
+                  break;
+              case NFAPI_NR_PHY_MSG_TYPE_SRS_INDICATION:
+                  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Received SRS IND for frame %d slot %d.\n", msg_frame, msg_slot);
+                  // ue_info->srs_recvd = true;
+                  break;
+              default:
+                  NFAPI_TRACE(NFAPI_TRACE_WARN, "Received unknown FAPI message id %d from UE for frame %d slot %d.\n", msg_id, msg_frame, msg_slot);
+                  break;
+              }
+          }
+          // if ( ue_info->msg_recvd && !(ue_info->slot_resp_recvd &&
+          //       ue_info->rach_exp == ue_info->rach_recvd && 
+          //       ue_info->crc_exp == ue_info->crc_recvd && 
+          //       ue_info->rx_data_exp == ue_info->rx_data_recvd) )
+          // {
+          //   slot_msgs_pending = true;
+          // }
+
+          if (ue_info->crc_recvd && ! ue_info->rx_data_recvd) {
+            slot_msgs_pending = true;
+          }
+      }
+      bool wait_time_exceeded = wait_time >= max_wait_us;
+      if (!slot_msgs_pending) {
+        done = true;
+      }
+      else if (wait_time_exceeded) {
+        // NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Wait time exceeded while waiting on UL messages from UEs");
+        printf("Wait time exceeded while waiting on UL messages from UEs\n");
+        done = true;
+      }
+      else {
+        usleep(100);
+        wait_time += 100;
+      }
     }
 
     return are_queues_empty;
@@ -4356,14 +4703,14 @@ void add_nr_sleep_time(uint64_t start, uint64_t poll, uint64_t send, uint64_t ag
     /* See how long this iteration of this loop took, and sleep for the
         balance of the 1ms subframe */
     uint64_t elapsed_usec = agg - start;
-    if (elapsed_usec <= 500)
+    if (elapsed_usec <= SLOT_TIME_US)
     {
-        usleep(500 - elapsed_usec);
+        usleep(SLOT_TIME_US - elapsed_usec);
     }
     else
     {
         NFAPI_TRACE(NFAPI_TRACE_INFO, "Slot loop took too long by %" PRIu64 "usec",
-                    elapsed_usec - 500);
+                    elapsed_usec - SLOT_TIME_US);
     }
 }
 
@@ -4483,21 +4830,40 @@ void *oai_slot_task(void *context)
     // pnf_set_thread_priority(79);
     uint16_t sfn = 0;
     uint16_t slot = 0;
-    #ifndef DISABLE_UE
     bool are_queues_empty = true;
-    #endif
-    softmodem_mode_t softmodem_mode = (softmodem_mode_t) context;
+    // softmodem_mode_t softmodem_mode = (softmodem_mode_t) context;
     NFAPI_TRACE(NFAPI_TRACE_INFO, "Slot Task thread");
-    uint16_t slot_tick = 0;
+    // uint16_t slot_tick = 0;
+
+    // Initialize channel info for each UE
+    nr_phy_channel_params_t *ch_info = malloc(sizeof(nr_phy_channel_params_t)*num_ues);
+    for (int i = 0; i < num_ues; ++i) {
+        ch_info[i].message_id = htons(0x0FFF);  // 0x0FFF : channel info identifier
+        ch_info[i].sfn_slot = 0;
+        ch_info[i].nb_of_csi = 1;  
+        
+        // Initialize default measurements for each gNB index
+        for (int g = 0; g < MAX_GNBS; ++g) {
+            ch_info[i].measurements[g].gnb_index = g;
+            ch_info[i].measurements[g].csi[0].sinr = 40;
+            ch_info[i].measurements[g].csi[0].rsrp = -70;
+            ch_info[i].measurements[g].csi[0].rsrq = NAN;
+        }
+
+        // Preload trace rows for all gNBs before cell selection starts
+        update_ue_ch_trace_from_queue(i, &ch_info[i], MAX_GNBS);
+
+        // Initialize UE info
+        memset (&ue_slot_info[i], 0, sizeof(ue_slot_info_t));
+        ue_slot_info[i].rnti = 0xFFFF;
+        memset (&ue_slot_info[i].valid_dci_inds, -1, sizeof(ue_slot_info[i].valid_dci_inds));
+    }
 
     while (true)
     {
         uint16_t sfn_slot_tx = sfn_slot_counter(MU, &sfn, &slot);//Need to update it.
-
-        #ifndef DISABLE_UE
-
         uint64_t iteration_start = clock_usec();
-        #endif
+
         /* Previously we would sleep to ensure that the 500us contraint (per slot)
            was met, although the sleep time was 312us, which is pretty arbitrary.
            As we push higher throughputs, we see that the PNF (proxy) is
@@ -4508,63 +4874,71 @@ void *oai_slot_task(void *context)
            arrive to the OAI UE, that the slot will arrive AFTER the TX_DATA_REQ. The relationship
            between slot indications and TX_DATA_REQs are critical to the ACK/nACK procedure.
            This is a temporary fix until will can concretely sync the PNF and VNF. */
-        // usleep(1000);
-        transfer_downstream_sfn_slot_to_proxy(sfn_slot_tx); // send to oai UE
+        usleep(200);
+        
+        // Refresh trace measurements every 10 frames (~100 ms) during cell selection
+        for (int i = 0; i < num_ues; i++) {
+            if (sfn % 10 == 0 && slot == 0) {
+                update_ue_ch_trace_from_queue(i, &ch_info[i], MAX_GNBS);
+            }
+            ch_info[i].sfn_slot = sfn_slot_tx;
+            send_sfn_slot_ch_info_to_ues(&ch_info[i], i);
+        }
+
+        // send_sfn_slot_to_ues(sfn_slot_tx); // send to oai UE
+      
         NFAPI_TRACE(NFAPI_TRACE_INFO, "Frame %u Slot %u sent to OAI ue", NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot_tx),
                    NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot_tx));
 
-        #ifndef DISABLE_UE
         uint64_t poll_end = clock_usec();
         oai_slot_ind(sfn, slot);
         uint64_t slot_sent = clock_usec();
-        
+        usleep(200);
+
         /*
             Dequeue, collect and aggregate the messages with the same message ID.
         */
         slot_msgs_t slot_msgs[MAX_UES];
         memset(slot_msgs, 0, sizeof(slot_msgs));
         are_queues_empty = dequeue_ue_slot_msgs(slot_msgs, sfn_slot_tx);
-
         oai_slot_aggregate_messages(slot_msgs);
-        #else
-        oai_slot_ind(sfn, slot);
-        #endif
 
-        if (++slot_tick == NR_PROXY_DONE && softmodem_mode == SOFTMODEM_NSA)
-        {
-            if (pthread_mutex_lock(&lock) != 0)
-                errExit("failed to lock mutex");
+        // if (++slot_tick == NR_PROXY_DONE && softmodem_mode == SOFTMODEM_NSA)
+        // {
+        //     if (pthread_mutex_lock(&lock) != 0)
+        //         errExit("failed to lock mutex");
 
-            sf_slot_tick |= NR_PROXY_DONE;
-            if (sf_slot_tick == BOTH_LTE_NR_DONE)
-            {
-                if (pthread_cond_broadcast(&cond_sf_slot) != 0)
-                    errExit("failed to broadcast on the condition");
-            }
-            else{
-                while ( sf_slot_tick != BOTH_LTE_NR_DONE)
-                {
-                    if (pthread_cond_wait(&cond_sf_slot, &lock) != 0)
-                        errExit("failed to wait on the condition");
-                }
-                sf_slot_tick = 0;
-            }
+        //     sf_slot_tick |= NR_PROXY_DONE;
+        //     if (sf_slot_tick == BOTH_LTE_NR_DONE)
+        //     {
+        //         if (pthread_cond_broadcast(&cond_sf_slot) != 0)
+        //             errExit("failed to broadcast on the condition");
+        //     }
+        //     else{
+        //         while ( sf_slot_tick != BOTH_LTE_NR_DONE)
+        //         {
+        //             if (pthread_cond_wait(&cond_sf_slot, &lock) != 0)
+        //                 errExit("failed to wait on the condition");
+        //         }
+        //         sf_slot_tick = 0;
+        //     }
 
-            if (pthread_mutex_unlock(&lock)!= 0)
-                errExit("failed to unlock mutex");
+        //     if (pthread_mutex_unlock(&lock)!= 0)
+        //         errExit("failed to unlock mutex");
 
-            slot_tick = 0;
-        }
+        //     slot_tick = 0;
+        // }
 
-        #ifndef DISABLE_UE
+
         uint64_t aggregation_done = clock_usec();
 
         if (true || are_queues_empty)
         {
             add_nr_sleep_time(iteration_start, poll_end, slot_sent, aggregation_done);
         }
-        #endif
     }
+
+
 }
 
 void oai_subframe_handle_msg_from_ue(const void *msg, size_t len, uint16_t nem_id)
@@ -4604,9 +4978,35 @@ void oai_slot_handle_msg_from_ue(const void *msg, size_t len, uint16_t nem_id)
     {
         return;
     }
-    uint16_t sfn_slot = nfapi_get_sfnslot(MU, msg, len);
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "(Proxy) Adding %s uplink message to queue prior to sending to gNB. Frame: %d, Slot: %d",
-                nfapi_nr_get_message_id(msg, len), NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot), NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot));
+
+    // Strip UDP wrapper header if present
+    const uint8_t *msg_data = (const uint8_t *)msg;
+    size_t msg_len = len;
+    uint16_t gnb_id = 0;
+
+    if (len >= WRAPPER_SIZE)
+    {
+        udp_wrapper_header_t *wrapper = (udp_wrapper_header_t *)msg_data;
+        uint16_t magic = ntohs(wrapper->magic);
+        if (magic == WRAPPER_MAGIC)
+        {
+            uint16_t wrapper_msg_len = ntohs(wrapper->msg_len);
+            /* Validate msg_len before trusting the wrapper header to prevent
+               spurious magic matches on non-nFAPI packets (e.g. channel info). */
+            if (wrapper_msg_len == 0 || wrapper_msg_len > (size_t)(len - WRAPPER_SIZE)) {
+                NFAPI_TRACE(NFAPI_TRACE_WARN, "Wrapper msg_len=%d invalid (len=%zd), treating as non-wrapper",
+                            wrapper_msg_len, len);
+            } else {
+                gnb_id = ntohs(wrapper->gnb_id);
+                msg_data += WRAPPER_SIZE;
+                msg_len = wrapper_msg_len;
+            }
+        }
+    }
+
+    uint16_t sfn_slot = nfapi_get_sfnslot(MU, msg_data, msg_len);
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "(Proxy) Adding %s uplink message to queue prior to sending to gNB. Frame: %d, Slot: %d, gnb_id: %d",
+                nfapi_nr_get_message_id(msg_data, msg_len), NFAPI_SFNSLOTDEC2SFN(MU, sfn_slot), NFAPI_SFNSLOTDEC2SLOT(MU, sfn_slot), gnb_id);
 
     int i = (int)nem_id - MIN_UE_NEM_ID;
     if (i < 0 || i >= num_ues)
@@ -4615,13 +5015,13 @@ void oai_slot_handle_msg_from_ue(const void *msg, size_t len, uint16_t nem_id)
         return;
     }
 
-    message_buffer_t *p = malloc(sizeof(message_buffer_t)+sizeof(uint8_t)*len);
+    message_buffer_t *p = malloc(sizeof(message_buffer_t)+sizeof(uint8_t)*msg_len);
     assert(p != NULL);
     p->magic = MESSAGE_BUFFER_MAGIC;
-    p->length = len;
+    p->length = msg_len;
+    p->gnb_id = gnb_id;
     p->data = (uint8_t*)p + sizeof(message_buffer_t);
-    //assert(len < sizeof(p->data));
-    memcpy(p->data, msg, len);
+    memcpy(p->data, msg_data, msg_len);
 
     if (!put_queue(&msgs_from_nr_ue[i], p))
     {
@@ -4655,7 +5055,7 @@ void handle_nr_slot_ind(uint16_t sfn, uint16_t slot) {
 int oai_nfapi_rach_ind(nfapi_rach_indication_t *rach_ind)
 {
 
-    rach_ind->header.phy_id = 1; // DJP HACK TODO FIXME - need to pass this around!!!!
+    rach_ind->header.phy_id = 1;
 
     NFAPI_TRACE(NFAPI_TRACE_INFO, "Sent the rach to eNB sf: %u sfn : %u num of preambles: %u",
                rach_ind->sfn_sf & 0xF, rach_ind->sfn_sf >> 4, rach_ind->rach_indication_body.number_of_preambles);
@@ -4665,7 +5065,7 @@ int oai_nfapi_rach_ind(nfapi_rach_indication_t *rach_ind)
 
 int oai_nfapi_harq_indication(nfapi_harq_indication_t *harq_ind)
 {
-    harq_ind->header.phy_id = 1; // DJP HACK TODO FIXME - need to pass this around!!!!
+    harq_ind->header.phy_id = 1;
     harq_ind->header.message_id = NFAPI_HARQ_INDICATION;
     NFAPI_TRACE(NFAPI_TRACE_INFO, "sfn_sf:%d number_of_harqs:%d\n", NFAPI_SFNSF2DEC(harq_ind->sfn_sf),
                harq_ind->harq_indication_body.number_of_harqs);
@@ -4684,7 +5084,7 @@ int oai_nfapi_harq_indication(nfapi_harq_indication_t *harq_ind)
 int oai_nfapi_crc_indication(nfapi_crc_indication_t *crc_ind) // msg 3
 {
 
-    crc_ind->header.phy_id = 1; // DJP HACK TODO FIXME - need to pass this around!!!!
+    crc_ind->header.phy_id = 1;
     crc_ind->header.message_id = NFAPI_CRC_INDICATION;
 
     return nfapi_pnf_p7_crc_ind(p7_config_g, crc_ind);
@@ -4692,7 +5092,7 @@ int oai_nfapi_crc_indication(nfapi_crc_indication_t *crc_ind) // msg 3
 
 int oai_nfapi_cqi_indication(nfapi_cqi_indication_t *ind) // maybe msg 3
 {
-    ind->header.phy_id = 1; // DJP HACK TODO FIXME - need to pass this around!!!!
+    ind->header.phy_id = 1;
     ind->header.message_id = NFAPI_RX_CQI_INDICATION;
 
     uint16_t num_cqis = ind->cqi_indication_body.number_of_cqis;
@@ -4715,7 +5115,7 @@ int oai_nfapi_cqi_indication(nfapi_cqi_indication_t *ind) // maybe msg 3
 int oai_nfapi_rx_ind(nfapi_rx_indication_t *ind) // msg 3
 {
 
-    ind->header.phy_id = 1; // DJP HACK TODO FIXME - need to pass this around!!!!
+    ind->header.phy_id = 1;
     ind->header.message_id = NFAPI_RX_ULSCH_INDICATION;
 
     // pack and unpack test of aggregated packets
@@ -4766,41 +5166,56 @@ int oai_nfapi_rx_ind(nfapi_rx_indication_t *ind) // msg 3
 int oai_nfapi_sr_indication(nfapi_sr_indication_t *ind)
 {
 
-    ind->header.phy_id = 1; // DJP HACK TODO FIXME - need to pass this around!!!!
+    ind->header.phy_id = 1;
     int retval = nfapi_pnf_p7_sr_ind(p7_config_g, ind);
     return retval;
 }
 
 //NR UPLINK INDICATION
 
-int oai_nfapi_nr_rx_data_indication(nfapi_nr_rx_data_indication_t *ind) {
-  ind->header.phy_id = 1; // DJP HACK TODO FIXME - need to pass this around!!!!
+int oai_nfapi_nr_rx_data_indication(nfapi_nr_rx_data_indication_t *ind, uint16_t gnb_id) {
+  if (gnb_id == 0 || gnb_id > MAX_GNBS) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: invalid gnb_id %d\n", __FUNCTION__, gnb_id);
+    return -1;
+  }
   ind->header.message_id = NFAPI_NR_PHY_MSG_TYPE_RX_DATA_INDICATION;
-  return nfapi_pnf_p7_nr_rx_data_ind(p7_nr_config_g, ind);
+  return nfapi_pnf_p7_nr_rx_data_ind(p7_nr_config_g[gnb_id - 1], ind);
 }
 
-int oai_nfapi_nr_crc_indication(nfapi_nr_crc_indication_t *ind) {
-  ind->header.phy_id = 1; // DJP HACK TODO FIXME - need to pass this around!!!!
+int oai_nfapi_nr_crc_indication(nfapi_nr_crc_indication_t *ind, uint16_t gnb_id) {
+  if (gnb_id == 0 || gnb_id > MAX_GNBS) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: invalid gnb_id %d\n", __FUNCTION__, gnb_id);
+    return -1;
+  }
   ind->header.message_id = NFAPI_NR_PHY_MSG_TYPE_CRC_INDICATION;
-  return nfapi_pnf_p7_nr_crc_ind(p7_nr_config_g, ind);
+  return nfapi_pnf_p7_nr_crc_ind(p7_nr_config_g[gnb_id - 1], ind);
 }
 
-int oai_nfapi_nr_srs_indication(nfapi_nr_srs_indication_t *ind) {
-  ind->header.phy_id = 1; // DJP HACK TODO FIXME - need to pass this around!!!!
+int oai_nfapi_nr_srs_indication(nfapi_nr_srs_indication_t *ind, uint16_t gnb_id) {
+  if (gnb_id == 0 || gnb_id > MAX_GNBS) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: invalid gnb_id %d\n", __FUNCTION__, gnb_id);
+    return -1;
+  }
   ind->header.message_id = NFAPI_NR_PHY_MSG_TYPE_SRS_INDICATION;
-  return nfapi_pnf_p7_nr_srs_ind(p7_nr_config_g, ind);
+  return nfapi_pnf_p7_nr_srs_ind(p7_nr_config_g[gnb_id - 1], ind);
 }
 
-int oai_nfapi_nr_uci_indication(nfapi_nr_uci_indication_t *ind) {
-  ind->header.phy_id = 1; // DJP HACK TODO FIXME - need to pass this around!!!!
+int oai_nfapi_nr_uci_indication(nfapi_nr_uci_indication_t *ind, uint16_t gnb_id) {
+  if (gnb_id == 0 || gnb_id > MAX_GNBS) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: invalid gnb_id %d\n", __FUNCTION__, gnb_id);
+    return -1;
+  }
   ind->header.message_id = NFAPI_NR_PHY_MSG_TYPE_UCI_INDICATION;
-  return nfapi_pnf_p7_nr_uci_ind(p7_nr_config_g, ind);
+  return nfapi_pnf_p7_nr_uci_ind(p7_nr_config_g[gnb_id - 1], ind);
 }
 
-int oai_nfapi_nr_rach_indication(nfapi_nr_rach_indication_t *ind) {
-  ind->header.phy_id = 1; // DJP HACK TODO FIXME - need to pass this around!!!!
+int oai_nfapi_nr_rach_indication(nfapi_nr_rach_indication_t *ind, uint16_t gnb_id) {
+  if (gnb_id == 0 || gnb_id > MAX_GNBS) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: invalid gnb_id %d\n", __FUNCTION__, gnb_id);
+    return -1;
+  }
   ind->header.message_id = NFAPI_NR_PHY_MSG_TYPE_RACH_INDICATION;
-  return nfapi_pnf_p7_nr_rach_ind(p7_nr_config_g, ind);
+  return nfapi_pnf_p7_nr_rach_ind(p7_nr_config_g[gnb_id - 1], ind);
 }
 
 //DUMMY Functions to help integrate into proxy

@@ -57,7 +57,7 @@ NR_LC_SCHEDULING_INFO *get_scheduling_info_from_lcid(NR_UE_MAC_INST_t *mac, NR_L
    \param mac           mac instance */
 void nr_ue_mac_default_configs(NR_UE_MAC_INST_t *mac);
 
-void nr_ue_decode_mib(NR_UE_MAC_INST_t *mac, int cc_id);
+void nr_ue_decode_mib(NR_UE_MAC_INST_t *mac, int cc_id, uint8_t gnb_id);
 
 void release_common_ss_cset(NR_BWP_PDCCH_t *pdcch);
 
@@ -78,6 +78,13 @@ void nr_ue_decode_BCCH_DL_SCH(NR_UE_MAC_INST_t *mac,
                               int frame,
                               int slot);
 
+// Multi-gNB cell selection functions
+void nr_ue_cell_selection_start(NR_UE_MAC_INST_t *mac);
+int nr_ue_process_mib_for_gnb(NR_UE_MAC_INST_t *mac, int gnb_index, NR_MIB_t *mib);
+int nr_ue_process_sib1_for_gnb(NR_UE_MAC_INST_t *mac, int gnb_index, NR_SIB1_t *sib1);
+void nr_ue_select_cell(NR_UE_MAC_INST_t *mac, int selected_gnb_index);
+bool nr_ue_is_cell_selection_complete(NR_UE_MAC_INST_t *mac);
+
 void release_dl_BWP(NR_UE_MAC_INST_t *mac, int index);
 void release_ul_BWP(NR_UE_MAC_INST_t *mac, int index);
 void nr_release_mac_config_logicalChannelBearer(NR_UE_MAC_INST_t *mac, long channel_identity);
@@ -90,9 +97,12 @@ void nr_rrc_mac_config_req_cg(module_id_t module_id,
 void nr_rrc_mac_config_req_mib(module_id_t module_id,
                                int cc_idP,
                                NR_MIB_t *mibP,
-                               int sched_sib1);
+                               int sched_sib1,
+                               int gnb_idx, 
+                               bool cell_selection_complete);
 
-void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *sib1, bool can_start_ra);
+void nr_rrc_mac_config_req_sib1(module_id_t module_id, int cc_idP, NR_SIB1_t *sib1, bool can_start_ra, int selected_gnb_id);
+void nr_rrc_mac_start_ra_after_cell_selection(module_id_t module_id, int selected_gnb_id);
 
 struct position; /* forward declaration */
 void nr_rrc_mac_config_other_sib(module_id_t module_id, NR_SIB19_r17_t *sib19_r17, bool can_start_ra);

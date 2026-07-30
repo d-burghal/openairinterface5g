@@ -486,10 +486,13 @@ typedef struct {
 typedef struct {
   NR_BCCH_BCH_Message_t *bcch;
   int get_sib;
+  int gnb_index;
+  bool cell_selection_complete;
 } nr_mac_rrc_config_mib_t;
 typedef struct {
   NR_SIB1_t *sib1;
   bool can_start_ra;
+  int selected_gnb_id;
 } nr_mac_rrc_config_sib1_t;
 typedef struct {
   NR_SIB19_r17_t *sib19;

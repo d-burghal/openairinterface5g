@@ -2709,7 +2709,7 @@ typedef struct {
 #define NFAPI_CQI_INDICATION_REL8_TAG 0x202f
 
 // #define NFAPI_CC_MAX MAX_NUM_CCs
-#define NFAPI_CC_MAX 1  // RDF Hardcoded
+#define NFAPI_CC_MAX 1  // Hardcoded
 
 typedef struct {
 	nfapi_tl_t tl;

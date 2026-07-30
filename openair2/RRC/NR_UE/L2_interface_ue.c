@@ -92,6 +92,12 @@ void nr_mac_rrc_data_ind_ue(const module_id_t module_id,
       NR_RRC_MAC_BCCH_DATA_IND (message_p).phycellid = cellid;
       NR_RRC_MAC_BCCH_DATA_IND (message_p).ssb_arfcn = arfcn;
       NR_RRC_MAC_BCCH_DATA_IND (message_p).is_bch = (channel == NR_BCCH_BCH);
+      
+      // Extract actual RSRP/RSRQ values from MAC instance instead of hardcoding to 0
+      NR_UE_MAC_INST_t *mac = get_mac_inst(module_id);
+      NR_RRC_MAC_BCCH_DATA_IND (message_p).rsrp = (uint8_t)mac->cell_list[gNB_index].rsrp_dBm;
+      NR_RRC_MAC_BCCH_DATA_IND (message_p).rsrq = (uint8_t)mac->cell_list[gNB_index].rsrq_dBm;
+      
       itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(module_id), message_p);
       break;
     case NR_SBCCH_SL_BCH:
@@ -133,13 +139,15 @@ void process_msg_rcc_to_mac(MessageDef *msg)
       asn1cFreeStruc(asn_DEF_NR_CellGroupConfig, NR_MAC_RRC_CONFIG_CG(msg).cellGroupConfig);
       break;
     case NR_MAC_RRC_CONFIG_MIB:
-      nr_rrc_mac_config_req_mib(ue_id, 0, NR_MAC_RRC_CONFIG_MIB(msg).bcch->message.choice.mib, NR_MAC_RRC_CONFIG_MIB(msg).get_sib);
+      
+      nr_rrc_mac_config_req_mib(ue_id, 0, NR_MAC_RRC_CONFIG_MIB(msg).bcch->message.choice.mib, NR_MAC_RRC_CONFIG_MIB(msg).get_sib,NR_MAC_RRC_CONFIG_MIB(msg).gnb_index,NR_MAC_RRC_CONFIG_MIB(msg).cell_selection_complete);
       ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, NR_MAC_RRC_CONFIG_MIB(msg).bcch);
       break;
     case NR_MAC_RRC_CONFIG_SIB1: {
       NR_SIB1_t *sib1 = NR_MAC_RRC_CONFIG_SIB1(msg).sib1;
       bool can_start_ra = NR_MAC_RRC_CONFIG_SIB1(msg).can_start_ra;
-      nr_rrc_mac_config_req_sib1(ue_id, 0, sib1, can_start_ra);
+      int selected_gnb_id = NR_MAC_RRC_CONFIG_SIB1(msg).selected_gnb_id;
+      nr_rrc_mac_config_req_sib1(ue_id, 0, sib1, can_start_ra,selected_gnb_id);
       SEQUENCE_free(&asn_DEF_NR_SIB1, NR_MAC_RRC_CONFIG_SIB1(msg).sib1, ASFM_FREE_EVERYTHING);
     } break;
     case NR_MAC_RRC_CONFIG_OTHER_SIB: {

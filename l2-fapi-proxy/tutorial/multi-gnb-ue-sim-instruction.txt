@@ -1,0 +1,790 @@
+================================================================================
+  Multi-gNB / Multi-UE OAI 5G L2 Proxy Simulation — Tutorial & Instructions
+================================================================================
+
+This document provides a complete, step-by-step guide for setting up and running
+an OAI 5G simulation with multiple gNBs and multiple UEs using the L2 Proxy
+layer (no radio hardware required).
+
+
+
+================================================================================
+  Quick Start (TL;DR)
+================================================================================
+
+If you already have images built and the core network running, the full
+simulation workflow is:
+
+  # --- On the HOST machine ---
+  cd <your-workspace-path>/oai-ran/tutorial
+
+  # 1. Deploy gNBs (e.g., 3 gNBs)
+  ./scripts/start_gnb_pods.sh -c 3
+
+  # 2. Deploy UEs via Helm (e.g., 10 UEs)
+  cd <your-workspace-path>/oai-cn5g-fed
+  helm install nr-ue-multi oai-5g-ran/oai-nr-ue-multi -n oai
+
+  # --- Inside the gNB-00 container ---
+  kubectl exec -it <gNB-00-pod> -n oai -- /bin/bash
+  cd /opt/oai-ran/l2-fapi-proxy && make
+  cd /opt/oai-ran/l2-fapi-proxy && ./src/run_l2_proxy.sh 3 10
+
+  # (new terminal, same container)
+  cd /opt/oai-ran/cmake_targets/ran_build/build
+  ./nr-softmodem -O /tmp/gnb.conf --nfapi VNF
+
+  # --- Back on the HOST machine ---
+  cd <your-workspace-path>/oai-ran/tutorial
+
+  # 3. Start UEs (e.g., UE indices 0–9)
+  ./scripts/run_ue_oai.sh 0 9
+
+  # 4. Start iperf traffic (downlink)
+  ./scripts/start_ue_iperf.sh 0 9
+
+  # 5. When done — stop traffic and UEs
+  ./scripts/stop_ue_iperf.sh 0 9
+  ./scripts/stop_ue_oai.sh 0 9
+
+
+================================================================================
+  Important: Path Mapping & Directory Layout
+================================================================================
+
+Understanding how host paths map to container paths is critical.
+
+  HOST PATH                                    CONTAINER PATH
+  -------------------------------------------  ---------------------------
+  <your-workspace-path>/oai-ran/              /opt/oai-ran/
+  <your-workspace-path>/oai-cn5g-fed/          /opt/oai-gnb/  (gNB configs)
+
+  Key subdirectories inside the gNB container:
+    /opt/oai-ran/l2-fapi-proxy/               L2 proxy source & build
+    /opt/oai-ran/cmake_targets/ran_build/build/  Softmodem executables
+    /opt/oai-gnb/etc/gnb.conf                 Base gNB config (from ConfigMap)
+    /tmp/gnb.conf                             Final gNB config (auto-generated)
+
+  Key paths inside UE containers:
+    /opt/oai-nr-ue/                            UE binaries & configs
+    /opt/oai-nr-ue/etc/run_ue_l2proxy.sh       UE startup script (L2 proxy mode)
+    /opt/oai-nr-ue/etc/stop_ue.sh              UE stop script
+
+  NOTE: The host RAN repository is volume-mounted into the gNB container at
+  /opt/oai-ran. Any file you edit on the host (e.g., l2-fapi-proxy/) is
+  immediately visible inside the container — no rebuild of the image needed
+  for source code changes, just recompile inside the container.
+
+  NOTE: The tutorial/ directory in this repo contains helper scripts and the
+  trace generator. These scripts run on the HOST machine (they use kubectl to
+  interact with pods). They do NOT run inside containers.
+
+
+================================================================================
+  Tutorial Directory Structure
+================================================================================
+
+  tutorial/
+  ├── generate_dedicated_trace.py          Generate deterministic UE→gNB channel trace CSV
+  ├── multi-gnb-ue-sim-instruction.txt      This file
+  └── scripts/
+      ├── start_gnb_pods.sh                 Deploy gNB pods + configure L2 proxy IPs
+      ├── run_ue_oai.sh                     Start UE softmodem instances (L2 proxy mode)
+      ├── stop_ue_oai.sh                    Stop UE softmodem instances
+      ├── start_ue_iperf.sh                 Configure routes + start iperf3 downlink clients
+      └── stop_ue_iperf.sh                  Kill iperf3 processes on UE pods
+
+
+================================================================================
+  Phase 1: Environment Setup
+================================================================================
+
+--- 1.1 Install Prerequisites ---
+
+  WHERE TO RUN: Host machine
+
+  # Install Docker CE
+  # Follow: https://docs.docker.com/engine/install/ubuntu/ (Apt option)
+  sudo usermod -aG docker $USER
+  # Log out and back in for group changes to take effect
+  docker ps  # Test sudoless access
+
+  # Install Kubernetes (K3s recommended) and Helm
+  # Follow your distribution-specific instructions
+
+--- 1.2 Clone and Initialize Repositories ---
+
+  WHERE TO RUN: Host machine
+
+  # Clone the main repository
+  git clone <your-git-repo-url>
+  cd <your-workspace>
+
+  # Initialize submodules
+  git submodule init
+  git submodule update
+
+  # Checkout correct branches
+  cd oai-ran && git checkout develop && cd ..
+  cd oai-cn5g-fed && git checkout master && cd ..
+
+--- 1.3 Create Kubernetes Namespace ---
+
+  WHERE TO RUN: Host machine
+
+  kubectl apply -f - <<EOF
+  apiVersion: v1
+  kind: Namespace
+  metadata:
+    name: oai
+    labels:
+      pod-security.kubernetes.io/warn: "privileged"
+      pod-security.kubernetes.io/audit: "privileged"
+      pod-security.kubernetes.io/enforce: "privileged"
+  EOF
+
+
+================================================================================
+  Phase 2: Container Image Building
+================================================================================
+
+--- 2.1 Build gNB Development Container Images ---
+
+  WHERE TO RUN: Host machine
+
+  cd <your-workspace-path>/oai-ran
+
+  # Build ran-base-dev image (takes several minutes)
+  docker build --target ran-base-dev --tag ran-base-dev:latest \
+      --file docker/Dockerfile.base.Dev.ubuntu22 .
+
+  # Build ran-build-dev image
+  docker build --target ran-build-dev --tag ran-build-dev:latest \
+      --file docker/Dockerfile.build.Dev.ubuntu22 .
+
+  # Build gnb-dev target image
+  docker build --target oai-gnb-dev --tag oai-gnb-dev:latest \
+      --file docker/Dockerfile.gNB.Dev.ubuntu22 .
+
+  # Verify image was created
+  docker images | grep oai-gnb-dev
+
+  NOTE: You can save/load images to transfer between machines:
+    docker save ran-base-dev:latest -o ran-base-dev.tar
+    docker load -i ran-base-dev.tar
+
+--- 2.2 Import Image into Kubernetes ---
+
+  WHERE TO RUN: Host machine
+
+  # Save image to file and import into K3s local image repo
+  docker save oai-gnb-dev:latest | sudo k3s ctr images import -
+
+  # Confirm import
+  sudo k3s ctr images ls | grep oai-gnb-dev
+
+
+================================================================================
+  Phase 3: Core Network Deployment
+================================================================================
+
+--- 3.1 Deploy 5G Core Network ---
+
+  WHERE TO RUN: Host machine
+
+  cd <your-workspace-path>/oai-cn5g-fed/charts
+
+  # Build dependencies (first time only)
+  helm dependency build oai-5g-core/oai-5g-basic
+
+  # Install core network
+  helm install basic oai-5g-core/oai-5g-basic/ -n oai
+
+--- 3.2 Verify Core Network Deployment ---
+
+  WHERE TO RUN: Host machine
+
+  # Check pod status (should all be "Running")
+  kubectl get pods -n oai
+
+  # Check Helm charts
+  helm list -n oai
+
+  # View logs for specific components if needed
+  kubectl logs <POD_NAME> -n oai
+
+
+================================================================================
+  Phase 4: gNB Deployment
+================================================================================
+
+This phase uses the `start_gnb_pods.sh` script from the tutorial/scripts/ directory.
+
+--- 4.1 Script: start_gnb_pods.sh ---
+
+  WHERE TO RUN: Host machine (uses kubectl/helm to interact with K8s)
+
+  Arguments:
+    -n, --namespace NAME    Kubernetes namespace (default: auto-detected, prefers "oai")
+    -c, --num-gnb NUM        Number of gNBs to deploy (default: from values.yaml)
+    <positional number>      Same as -c (e.g., ./start_gnb_pods.sh 3)
+    -h, --help               Show help
+
+  What it does (step by step):
+    1. Checks prerequisites (kubectl, helm, charts directory exist)
+    2. Auto-selects namespace (prefers "oai", falls back to "default")
+    3. Updates values.yaml gnbIds array with the requested gNB count
+       (e.g., 3 gNBs → gnbIds: ["00", "01", "02"])
+    4. Cleans any existing oai-gnb-multi Helm release (uninstall + force-delete pods)
+    5. Runs: helm install oai-gnb-multi oai-5g-ran/oai-gnb-multi -n <namespace>
+    6. Waits up to 300 seconds for all gNB pods to reach 1/1 Ready state
+    7. FIXES L2 PROXY IPs:
+       a. Finds gNB-00 pod and gets its IP address
+       b. Gives gNB-00 a 5-second head start
+       c. For EVERY gNB pod, runs sed on /tmp/gnb.conf to set:
+          - local_s_if_name  = "eth0"        (was "lo:")
+          - remote_s_address = "<gNB-00-IP>" (was "127.0.0.1")
+          - local_s_address  = "<pod's-own-IP>" (was "127.0.0.2")
+       This ensures all gNBs connect to the L2 proxy server running on gNB-00.
+    8. Verifies configurations (runs check_all_gnb_configs.sh if available,
+       else does manual grep of remote_s_address in /tmp/gnb.conf)
+
+  Example usage:
+    cd <your-workspace-path>/oai-ran/tutorial
+    ./scripts/start_gnb_pods.sh -c 3          # Deploy 3 gNBs to "oai" namespace
+    ./scripts/start_gnb_pods.sh -n test -c 5  # Deploy 5 gNBs to "test" namespace
+    ./scripts/start_gnb_pods.sh 4              # Deploy 4 gNBs (positional arg)
+
+  What to expect:
+    - Colored log output showing each phase
+    - All pods reach 1/1 Ready
+    - "Enhanced gNB deployment completed successfully!" message
+    - gNB pods are deployed but NOT yet running softmodem (they sleep infinity)
+
+--- 4.2 Manual gNB Configuration (Alternative) ---
+
+  If you prefer to deploy manually without the script:
+
+  WHERE TO RUN: Host machine
+
+  cd <your-workspace-path>/oai-cn5g-fed/charts/oai-5g-ran/oai-gnb-multi
+
+  # Edit values.yaml:
+  # - Set start.gnb: false (for manual execution)
+  # - Update oaiCodePath with your actual host path
+  #   Example: oaiCodePath: /home/<your-username>/workspace/oai-ran/
+  # - Set gnbIds to the desired gNB IDs (e.g., ["00", "01", "02"])
+
+  cd <your-workspace-path>/oai-cn5g-fed/charts
+  helm install oai-gnb-multi oai-5g-ran/oai-gnb-multi --namespace oai
+
+  # Then manually fix L2 proxy IPs (see script source for the sed commands)
+
+
+================================================================================
+  Phase 5: UE Deployment
+================================================================================
+
+--- 5.1 Deploy UE Pods via Helm ---
+
+  WHERE TO RUN: Host machine
+
+  cd <your-workspace-path>/oai-cn5g-fed
+
+  # Deploy multiple UEs
+  helm install nr-ue-multi oai-5g-ran/oai-nr-ue-multi -n oai
+
+  # Verify UE pods are running
+  kubectl get pods -n oai | grep oai-nr-ue-multi
+
+  NOTE: UE pods are deployed but NOT yet running the softmodem. They wait
+  for you to trigger run_ue_oai.sh (Phase 8).
+
+
+================================================================================
+  Phase 6: Build L2 Proxy & gNB Softmodem
+================================================================================
+
+--- 6.1 Enter the gNB Container ---
+
+  WHERE TO RUN: Host machine (to exec into container)
+
+  # Find the gNB-00 pod name
+  kubectl get pods -n oai | grep oai-gnb
+
+  # Enter the gNB-00 container
+  kubectl exec -it <GNB_00_POD_NAME> -n oai -- /bin/bash
+
+  NOTE: You are now INSIDE the gNB container. The host path
+  <your-workspace-path>/oai-ran/ is mounted at /opt/oai-ran/ inside.
+
+--- 6.2 Build the L2 Proxy ---
+
+  WHERE TO RUN: Inside gNB container
+
+  cd /opt/oai-ran/l2-fapi-proxy
+  make
+
+  # The proxy binary will be at:
+  # /opt/oai-ran/l2-fapi-proxy/build/proxy
+
+--- 6.3 Build gNB Softmodem (First Time) ---
+
+  WHERE TO RUN: Inside gNB container
+
+  cd /opt/oai-ran
+  source oaienv
+  cd cmake_targets
+  mkdir -p log
+  ./build_oai -I --install-optional-packages
+
+  # Full build with debug:
+  ./build_oai -c -g Debug --ninja \
+    --gNB --RU --nrUE \
+    --build-lib "telnetsrv uescope nrscope" \
+    -t Ethernet \
+    --noavx512 \
+    --build-tool-opt -k10 \
+    --cmake-opt -DCMAKE_C_FLAGS="-Werror" --cmake-opt -DCMAKE_CXX_FLAGS="-Werror"
+
+  # Verify executables
+  ldd ran_build/build/*softmodem* ran_build/build/nr-cuup ran_build/build/oairu
+
+  NOTE: -g Debug gives maximum debug output. Remove it for production builds.
+
+  Resulting executables are in /opt/oai-ran/cmake_targets/ran_build/build/:
+    - nr-softmodem      (gNB executable)
+    - nr-cuup           (CU-UP executable)
+    - oairu              (Radio Unit executable)
+    - nr-uesoftmodem    (NR UE executable)
+
+--- 6.4 Subsequent (Incremental) Builds ---
+
+  WHERE TO RUN: Inside gNB container
+
+  cd /opt/oai-ran/cmake_targets/ran_build/build
+  cmake --build . --target nr-softmodem nr-cuup oairu nr-uesoftmodem \
+    telnetsrv uescope nrscope oai_eth_transpro params_libconfig coding \
+    rfsimulator dfts params_yaml vrtsim -- -j48 -k10
+
+  # Rebuild L2 Proxy only
+  cd /opt/oai-ran/l2-fapi-proxy
+  make
+
+
+================================================================================
+  Phase 7: Start L2 Proxy Server & gNB Softmodem
+================================================================================
+
+--- 7.1 Start L2 Proxy Server ---
+
+  WHERE TO RUN: Inside gNB-00 container (Terminal 1)
+
+  cd /opt/oai-ran/l2-fapi-proxy
+
+  # Option 1: Use the helper script (recommended)
+  #   Arguments: <NUM_GNB> <NUM_UE> [CH_TRACE_FILE]
+  ./src/run_l2_proxy.sh 3 10
+  # This starts the proxy with 3 gNBs and 10 UEs
+
+  # Option 2: Run directly with IP addresses
+  ./build/proxy --gnb <GNB_IP> --proxy <PROXY_IP> --ue <UE_IP>...
+
+  NOTE: The L2 proxy server must be running on gNB-00 (its IP was configured
+  as remote_s_address in all other gNBs' /tmp/gnb.conf by start_gnb_pods.sh).
+
+  Expected output:
+    RUNNING pack_param_response
+    [PNF] vnf p7 0.1.4.0:50611
+
+--- 7.2 Start gNB Softmodem ---
+
+  WHERE TO RUN: Inside gNB-00 container (Terminal 2 — new terminal, same container)
+
+  cd /opt/oai-ran/cmake_targets/ran_build/build
+  ./nr-softmodem -O /tmp/gnb.conf --nfapi VNF
+
+  NOTE: /tmp/gnb.conf is auto-generated during container startup by
+  /tmp/auto-config.sh (see "How /tmp/gnb.conf Gets Created" section below).
+
+  Expected output:
+    [GTPU] Configuring GTPu address : 10.42.0.220, port : 2152
+    [NGAP] Received NGSetupResponse from AMF
+    [VNF] Sent NFAPI_VNF_CONFIG_REQ num_tlv:131
+    [NR_MAC] Frame.Slot 128.0 ...
+
+
+================================================================================
+  Phase 8: Start UEs
+================================================================================
+
+--- 8.1 Script: run_ue_oai.sh ---
+
+  WHERE TO RUN: Host machine
+
+  Arguments:
+    run_ue_oai.sh <START_UE_IDX> <END_UE_IDX>
+
+  What it does (step by step):
+    1. Gets all oai-nr-ue-multi pod names via kubectl
+    2. For each UE index in the range [START_UE_IDX, END_UE_IDX]:
+       a. Selects the corresponding pod from the list
+       b. Runs: kubectl exec -n oai <POD> -- bash /opt/oai-nr-ue/etc/run_ue_l2proxy.sh
+          (in background, so UEs start in parallel)
+       c. Sleeps 0.5 seconds between UEs to stagger startup
+
+  The script run_ue_l2proxy.sh inside the UE container starts the
+  nr-uesoftmodem in L2 proxy mode, connecting to the proxy server on gNB-00.
+
+  Example usage:
+    cd <your-workspace-path>/oai-ran/tutorial
+    ./scripts/run_ue_oai.sh 0 9    # Start UEs 0 through 9 (10 UEs)
+    ./scripts/run_ue_oai.sh 0 0    # Start only UE 0
+
+  What to expect:
+    - Each UE will perform cell selection, SIB1 decode, and random access
+    - Look for "4-Step RA procedure succeeded" in UE logs
+    - UEs should connect to the gNB determined by the channel trace
+
+
+================================================================================
+  Phase 9: Generate Channel Traces
+================================================================================
+
+The L2 proxy uses a channel trace CSV to simulate radio conditions and control
+which gNB each UE connects to. The trace generator is included in the tutorial
+directory.
+
+--- 9.1 generate_dedicated_trace.py (in tutorial/) ---
+
+  WHERE TO RUN: Host machine (generate the CSV, then reference it when
+  starting the L2 proxy)
+
+  This script generates a channel trace CSV with deterministic UE→gNB mapping.
+  Each UE is assigned to exactly one gNB. The target gNB gets a strong RSRP
+  (-50 dBm) while all other gNBs get a weak RSRP (-140 dBm).
+
+  Output format (8 fields, matches the proxy parser):
+    UE_ID,Trace_Index,RSSI_dBm,SINR_dB,RSRP_dBm,gnb_id,time_index,gnb_name
+
+  Usage:
+    cd <your-workspace-path>/oai-ran/tutorial
+    python3 generate_dedicated_trace.py --num-ue 10 --num-gnb 3 -o channel_trace.csv
+
+  Arguments:
+    --output, -o            Output CSV file (default: channel_trace.csv)
+    --num-ue, -u            Number of UEs (default: 4)
+    --num-gnb, -g           Number of gNBs (default: 2, max: 8)
+    --num-iterations, -n    Trace rows per UE per gNB (default: 100)
+    --strong-rsrp           RSRP for target gNB in dBm (default: -50)
+    --weak-rsrp             RSRP for non-target gNBs in dBm (default: -140)
+    --strong-sinr          SINR for target gNB in dB (default: 30)
+    --weak-sinr            SINR for non-target gNBs in dB (default: -10)
+    --no-header             Omit CSV header line
+
+  UE→gNB mapping: UE0→gNB0, UE1→gNB1, ... wraps around.
+  Example: 10 UEs, 3 gNBs → UE0→gNB0, UE1→gNB1, UE2→gNB2, UE3→gNB0, ...
+
+  To use the trace with the L2 proxy:
+    # Inside gNB-00 container:
+    cd /opt/oai-ran/l2-fapi-proxy
+    ./src/run_l2_proxy.sh 3 10 /opt/oai-ran/tutorial/channel_trace.csv
+
+  NOTE: The trace file path must be accessible inside the container. Since the
+  host repo is mounted at /opt/oai-ran, placing the CSV in the tutorial/
+  directory makes it available at /opt/oai-ran/tutorial/channel_trace.csv.
+
+
+================================================================================
+  Phase 10: Start Traffic (iperf3)
+================================================================================
+
+--- 10.1 Script: start_ue_iperf.sh ---
+
+  WHERE TO RUN: Host machine
+
+  Arguments:
+    start_ue_iperf.sh <START_UE_IDX> <END_UE_IDX>
+
+  What it does (step by step):
+    1. Finds the oai-traffic-server pod and gets its internal IP
+    2. Finds the oai-upf pod and gets its internal IP
+    3. On the traffic server pod:
+       a. Adds route: 12.1.1.0/24 via <UPF_IP> dev eth0
+          (so the traffic server can reach the UE DNN subnet)
+       b. Assigns DNN IP: 12.1.2.1/24 to eth0
+          (the traffic server's IP on the DNN subnet)
+    4. On the UPF pod:
+       a. Adds route: 12.1.2.0/24 dev eth0
+          (so UPF forwards traffic-server subnet to the right interface)
+    5. For each UE in range [START_UE_IDX, END_UE_IDX]:
+       a. Adds route on UE pod: 12.1.2.0/24 dev oaitun_ue1
+          (so UE can reach the traffic server's DNN IP)
+    6. For each UE in range:
+       a. Extracts UE ID from pod name (e.g., oai-nr-ue-multi-5 → UE_ID=5)
+       b. Computes iperf port: 52<UE_ID> (e.g., UE 5 → port 525)
+       c. Runs: iperf3 -c 12.1.2.1 -p 52<UE_ID> -b 1M -R -t 0 --logfile /tmp/iperf.log
+          (in background)
+          -R  = reverse mode (downlink: server → UE)
+          -b 1M = 1 Mbps bandwidth
+          -t 0 = unlimited duration
+
+  Network topology:
+    UE (12.1.1.x) → oaitun_ue1 → UPF → traffic-server (12.1.2.1)
+
+  Example usage:
+    cd <your-workspace-path>/oai-ran/tutorial
+    ./scripts/start_ue_iperf.sh 0 9    # Start iperf on UEs 0–9
+
+  What to expect:
+    - "Traffic server pod: ..." and IP addresses printed
+    - "Configuring traffic server DNN IP and routes..."
+    - "Connecting UE <ID> iperf client to traffic server 12.1.2.1 port 52<ID>..."
+    - iperf runs in background, logs to /tmp/iperf.log inside each UE pod
+
+  To check iperf results:
+    kubectl exec -n oai <UE_POD> -- cat /tmp/iperf.log
+
+
+================================================================================
+  Phase 11: Stop Traffic & UEs
+================================================================================
+
+--- 11.1 Script: stop_ue_iperf.sh ---
+
+  WHERE TO RUN: Host machine
+
+  Arguments:
+    stop_ue_iperf.sh <START_UE_IDX> <END_UE_IDX>
+
+  What it does:
+    1. Gets all oai-nr-ue-multi pod names
+    2. For each UE in range:
+       a. Finds all iperf3 PIDs: ps -ef | grep iperf3 | awk '{print $2}'
+       b. Kills each PID
+
+  Example:
+    cd <your-workspace-path>/oai-ran/tutorial
+    ./scripts/stop_ue_iperf.sh 0 9
+
+--- 11.2 Script: stop_ue_oai.sh ---
+
+  WHERE TO RUN: Host machine
+
+  Arguments:
+    stop_ue_oai.sh <START_UE_IDX> <END_UE_IDX>
+
+  What it does:
+    1. Gets all oai-nr-ue-multi pod names
+    2. For each UE in range:
+       a. Runs: kubectl exec -n oai <POD> -- bash /opt/oai-nr-ue/etc/stop_ue.sh
+       This stops the UE softmodem process inside the container.
+
+  Example:
+    cd <your-workspace-path>/oai-ran/tutorial
+    ./scripts/stop_ue_oai.sh 0 9
+
+
+================================================================================
+  Phase 12: Verification & Monitoring
+================================================================================
+
+--- 12.1 Check Synchronization Status ---
+
+  gNB should show:
+    [GTPU] Configuring GTPu address : 10.42.0.220, port : 2152
+    [NGAP] Received NGSetupResponse from AMF
+    [VNF] Sent NFAPI_VNF_CONFIG_REQ num_tlv:131
+    [NR_MAC] Frame.Slot 128.0 ...
+
+  L2 Proxy should show:
+    RUNNING pack_param_response
+    [PNF] vnf p7 0.1.4.0:50611
+
+  UE should show:
+    [NR_RRC] SIB1 decoded
+    [NR_MAC] RAR PDU found for our UE with PDU index 0
+    [MAC] [UE 0][xxx.0][RAPROC] 4-Step RA procedure succeeded. CBRA: ...
+
+--- 12.2 Common Commands ---
+
+  WHERE TO RUN: Host machine
+
+  # View all pods
+  kubectl get pods -n oai
+
+  # View logs
+  kubectl logs <POD_NAME> -n oai
+
+  # Enter container shell
+  kubectl exec -it <POD_NAME> -n oai -- /bin/bash
+
+  # List Helm charts
+  helm list -n oai
+
+  # Uninstall Helm chart
+  helm uninstall <CHART_NAME> -n oai
+
+--- 12.3 ClickHouse Monitoring ---
+
+  WHERE TO RUN: Host machine
+
+  # Port-forward ClickHouse
+  kubectl port-forward -n oai <clickhouse-pod> 8123:8123 9000:9000
+
+  # Connect to ClickHouse
+  clickhouse-client --password <your-password>
+
+  # Useful queries:
+  SHOW TABLES FROM oai;
+  DESCRIBE TABLE oai.mac_stats;
+  SELECT LCID1_TX_bytes FROM oai.mac_stats
+      INTO OUTFILE '/tmp/output.csv' FORMAT CSVWithNames;
+
+--- 12.4 Grafana Monitoring ---
+
+  WHERE TO RUN: Host machine
+
+  # Port-forward Grafana
+  kubectl port-forward -n oai svc/<grafana-service> 3000:80
+
+  # Open browser: http://localhost:3000
+  # Login with your Grafana credentials
+  # Import JSON dashboard as needed
+
+
+================================================================================
+  How /tmp/gnb.conf Gets Created
+================================================================================
+
+The /tmp/gnb.conf file is the final gNB configuration used by nr-softmodem.
+It is generated automatically during container startup.
+
+--- Step 1: Helm Chart Deployment ---
+
+When you run start_gnb_pods.sh (or helm install manually), the Helm chart:
+  1. Creates a ConfigMap for each gNB instance from configmap.yaml
+     (contains base gNB config with MCC, MNC, TAC, cell IDs, etc.)
+  2. Creates an auto-config ConfigMap from auto-config-configmap.yaml
+     (contains the auto-configuration script)
+  3. Mounts the base config to /opt/oai-gnb/etc/gnb.conf inside the container
+  4. Mounts the auto-config script to /tmp/auto-config.sh
+
+--- Step 2: Container Initialization (Runtime) ---
+
+When the container starts, /tmp/auto-config.sh runs and performs:
+
+  1. Basic Network Configuration:
+     - Resolves AMF IP address (DNS or fallback to hostname)
+     - Gets container's N2/N3 interface IP addresses
+     - Uses sed to replace placeholders in the config:
+       @N2_IP_ADDRESS@, @N3_IP_ADDRESS@, @AMF_IP_ADDRESS@
+     - Copies result to /tmp/gnb.conf
+
+  2. Enhanced MACRLC Configuration (L2 Proxy):
+     - Discovers the current gNB's IP: GNB_IP=$(ip addr show eth0 ...)
+     - Extracts gNB ID from hostname
+     - For gNB 00: Sets L2_PROXY_IP to its own IP (it IS the proxy server)
+     - For other gNBs: Discovers gNB 00's IP via:
+       a. DNS: getent hosts oai-gnb-00
+       b. Ping: ping -c 1 oai-gnb-00
+       c. IP scanning fallback
+     - Updates /tmp/gnb.conf MACRLC parameters:
+       local_s_if_name  = "eth0"           (was "lo:")
+       remote_s_address = "<gNB-00-IP>"     (was "127.0.0.1")
+       local_s_address  = "<this-gNB-IP>"   (was "127.0.0.2")
+
+  3. Container Management:
+     - Either starts gNB softmodem or keeps container running with sleep infinity
+       (based on Helm chart start.gnb config value)
+
+--- Step 3: Manual Execution ---
+
+When you manually run:
+  ./nr-softmodem -O /tmp/gnb.conf --nfapi VNF
+
+The /tmp/gnb.conf is already there from the auto-configuration process,
+containing all the correct network and L2 proxy IP settings.
+
+--- Additional L2 Proxy IP Fix (by start_gnb_pods.sh) ---
+
+After pods are ready, start_gnb_pods.sh also runs sed commands on /tmp/gnb.conf
+for every gNB pod to ensure the L2 proxy IPs are correct. This is a belt-and-
+suspenders approach in case auto-config.sh didn't fully work.
+
+
+================================================================================
+  Phase 13: Cleanup & Teardown
+================================================================================
+
+  WHERE TO RUN: Host machine
+
+--- 13.1 Stop UEs and Traffic ---
+
+  cd <your-workspace-path>/oai-ran/tutorial
+  ./scripts/stop_ue_iperf.sh 0 9
+  ./scripts/stop_ue_oai.sh 0 9
+
+--- 13.2 Uninstall Helm Charts ---
+
+  # Uninstall in order
+  helm uninstall nr-ue-multi -n oai
+  helm uninstall oai-gnb-multi -n oai
+  helm uninstall basic -n oai
+
+  # Or uninstall all at once
+  helm list -n oai | awk '{print $1}' | xargs -I {} helm uninstall {} -n oai
+
+--- 13.3 Delete Namespace (Full Reset) ---
+
+  kubectl delete namespace oai
+
+  # Recreate if needed:
+  kubectl apply -f - <<EOF
+  apiVersion: v1
+  kind: Namespace
+  metadata:
+    name: oai
+    labels:
+      pod-security.kubernetes.io/warn: "privileged"
+      pod-security.kubernetes.io/audit: "privileged"
+      pod-security.kubernetes.io/enforce: "privileged"
+  EOF
+
+
+================================================================================
+  Alternative: RFSIM Mode
+================================================================================
+
+If you want to run with RFSIM instead of L2 Proxy (no proxy layer, uses
+RF simulator for over-the-air simulation):
+
+  For gNB (inside gNB container):
+    ./nr-softmodem -O /tmp/gnb.conf --sa --rfsim
+
+  For UE (inside UE container):
+    /opt/oai-nr-ue/bin/nr-uesoftmodem \
+        -O /opt/oai-nr-ue/etc/nr-ue.conf \
+        --rfsimulator.serveraddr $RFSIM_IP_ADDRESS
+
+  NOTE: RFSIM mode does not use the L2 proxy or channel traces. It simulates
+  the air interface directly. This is simpler but does not support multi-gNB
+  cell selection based on channel traces.
+
+
+================================================================================
+  Summary of Scripts
+================================================================================
+
+  Script              | Args                    | Runs On | Purpose
+  --------------------+-------------------------+---------+---------------------------
+  start_gnb_pods.sh   | [-n NS] [-c NUM]        | Host    | Deploy gNBs + fix L2 proxy IPs
+  run_ue_oai.sh       | <START> <END>           | Host    | Start UE softmodems
+  stop_ue_oai.sh      | <START> <END>           | Host    | Stop UE softmodems
+  start_ue_iperf.sh   | <START> <END>           | Host    | Configure routes + start iperf3
+  stop_ue_iperf.sh    | <START> <END>           | Host    | Kill iperf3 processes
+
+  Python Script                | Purpose
+  ----------------------------+-----------------------------------------------
+  generate_dedicated_trace.py | Generate deterministic UE→gNB channel trace CSV
+  (in tutorial/)

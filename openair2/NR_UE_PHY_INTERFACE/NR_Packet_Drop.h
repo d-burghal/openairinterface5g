@@ -44,11 +44,17 @@ typedef struct {
   uint8_t area_code;
 } nr_channel_status;
 
+typedef struct {
+  uint8_t gnb_index;
+  nr_channel_status csi[NR_NUM_LAYER];
+} nr_gnb_measurements_t;
+
 typedef struct nr_phy_channel_params_t {
   uint16_t sfn_slot;
   uint16_t message_id;
   uint16_t nb_of_csi;
-  nr_channel_status csi[NR_NUM_LAYER];
+  nr_gnb_measurements_t measurements[8];  // Up to 8 gNB measurements per UE
+  nr_channel_status csi[NR_NUM_LAYER];  // CSI for the serving cell/gNB (copy from measurements)
 } nr_phy_channel_params_t;
 
 typedef struct {

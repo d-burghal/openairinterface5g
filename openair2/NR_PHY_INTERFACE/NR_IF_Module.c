@@ -135,6 +135,7 @@ struct sfn_slot {
   int sfn;
   int slot;
 };
+
 static bool crc_sfn_slot_matcher(void *wanted, void *candidate)
 {
   nfapi_nr_p7_message_header_t *msg = candidate;

@@ -1034,6 +1034,52 @@ static void copy_dl_tti_request_pdcch_pdu(const nfapi_nr_dl_tti_pdcch_pdu_rel15_
   }
 }
 
+static void copy_dl_tti_request_pdcch_pdu_for_rnti(const nfapi_nr_dl_tti_pdcch_pdu_rel15_t *src, nfapi_nr_dl_tti_pdcch_pdu_rel15_t *dst, uint16_t rnti, int* valid_pdu_inds, int *dci_pdu_ind)
+{
+  int dl_dci_dst = 0;
+  for (int dl_dci = 0; dl_dci < src->numDlDci; ++dl_dci) {
+    const nfapi_nr_dl_dci_pdu_t *src_dci_pdu = &src->dci_pdu[dl_dci];
+    if (src_dci_pdu->RNTI == 0xFFFF || src_dci_pdu->RNTI == rnti) {
+      if (valid_pdu_inds != NULL) 
+        valid_pdu_inds[*dci_pdu_ind] = 1;
+      nfapi_nr_dl_dci_pdu_t *dst_dci_pdu = &dst->dci_pdu[dl_dci_dst++];
+      dst_dci_pdu->RNTI = src_dci_pdu->RNTI;
+      dst_dci_pdu->ScramblingId = src_dci_pdu->ScramblingId;
+      dst_dci_pdu->ScramblingRNTI = src_dci_pdu->ScramblingRNTI;
+      dst_dci_pdu->CceIndex = src_dci_pdu->CceIndex;
+      dst_dci_pdu->AggregationLevel = src_dci_pdu->AggregationLevel;
+      copy_dl_tti_beamforming(&src_dci_pdu->precodingAndBeamforming, &dst_dci_pdu->precodingAndBeamforming);
+      dst_dci_pdu->beta_PDCCH_1_0 = src_dci_pdu->beta_PDCCH_1_0;
+      dst_dci_pdu->powerControlOffsetSS = src_dci_pdu->powerControlOffsetSS;
+      dst_dci_pdu->PayloadSizeBits = src_dci_pdu->PayloadSizeBits;
+      for (int i = 0; i < 8; ++i) {
+        dst_dci_pdu->Payload[i] = src_dci_pdu->Payload[i];
+      }
+    }
+    if (valid_pdu_inds != NULL)
+      (*dci_pdu_ind)++;
+  }
+
+  dst->numDlDci = dl_dci_dst;
+  if (dl_dci_dst > 0) {
+    dst->BWPSize = src->BWPSize;
+    dst->BWPStart = src->BWPStart;
+    dst->SubcarrierSpacing = src->SubcarrierSpacing;
+    dst->CyclicPrefix = src->CyclicPrefix;
+    dst->StartSymbolIndex = src->StartSymbolIndex;
+    dst->DurationSymbols = src->DurationSymbols;
+    for (int fdr_idx = 0; fdr_idx < 6; ++fdr_idx) {
+      dst->FreqDomainResource[fdr_idx] = src->FreqDomainResource[fdr_idx];
+    }
+    dst->CceRegMappingType = src->CceRegMappingType;
+    dst->RegBundleSize = src->RegBundleSize;
+    dst->InterleaverSize = src->InterleaverSize;
+    dst->CoreSetType = src->CoreSetType;
+    dst->ShiftIndex = src->ShiftIndex;
+    dst->precoderGranularity = src->precoderGranularity;
+  }
+}
+
 static void copy_dl_tti_request_pdsch_pdu(const nfapi_nr_dl_tti_pdsch_pdu_rel15_t *src, nfapi_nr_dl_tti_pdsch_pdu_rel15_t *dst)
 {
   dst->pduBitmap = src->pduBitmap;
@@ -1162,6 +1208,73 @@ void copy_dl_tti_request(const nfapi_nr_dl_tti_request_t *src, nfapi_nr_dl_tti_r
   for (int pdu = 0; pdu < dst->dl_tti_request_body.nPDUs; ++pdu) {
     copy_dl_tti_request_pdu(&src->dl_tti_request_body.dl_tti_pdu_list[pdu], &dst->dl_tti_request_body.dl_tti_pdu_list[pdu]);
   }
+  if (dst->dl_tti_request_body.nGroup > 0) {
+    for (int nGroup = 0; nGroup < dst->dl_tti_request_body.nGroup; ++nGroup) {
+      dst->dl_tti_request_body.nUe[nGroup] = src->dl_tti_request_body.nUe[nGroup];
+      for (int UE = 0; UE < dst->dl_tti_request_body.nUe[nGroup]; ++UE) {
+        dst->dl_tti_request_body.PduIdx[nGroup][UE] = src->dl_tti_request_body.PduIdx[nGroup][UE];
+      }
+    }
+  }
+}
+
+void copy_dl_tti_request_for_rnti(const nfapi_nr_dl_tti_request_t *src, nfapi_nr_dl_tti_request_t *dst, uint16_t rnti, int* valid_pdu_inds)
+{
+  dst->header.message_id = src->header.message_id;
+  dst->header.phy_id = src->header.phy_id;
+  dst->header.message_length = src->header.message_length;
+  if (src->vendor_extension) {
+    dst->vendor_extension = calloc(1, sizeof(nfapi_vendor_extension_tlv_t));
+    dst->vendor_extension->tag = src->vendor_extension->tag;
+    dst->vendor_extension->length = src->vendor_extension->length;
+    copy_vendor_extension_value(&dst->vendor_extension, &src->vendor_extension);
+  }
+
+  dst->SFN = src->SFN;
+  dst->Slot = src->Slot;
+  // dst->dl_tti_request_body.nPDUs = src->dl_tti_request_body.nPDUs;
+  int pdu_for_rnti = 0;
+  int dci_pdu_ind = 0;
+  // int* valid_pdu_ptr = valid_pdu_inds;
+  for (int pdu = 0; pdu < src->dl_tti_request_body.nPDUs; ++pdu) {
+    // copy_dl_tti_request_pdu(&src->dl_tti_request_body.dl_tti_pdu_list[pdu], &dst->dl_tti_request_body.dl_tti_pdu_list[pdu]);
+    const nfapi_nr_dl_tti_request_pdu_t *srcPDU = &src->dl_tti_request_body.dl_tti_pdu_list[pdu];
+    nfapi_nr_dl_tti_request_pdu_t *dstPDU = &dst->dl_tti_request_body.dl_tti_pdu_list[pdu_for_rnti];
+    dstPDU->PDUType = srcPDU->PDUType;
+    dstPDU->PDUSize = srcPDU->PDUSize;
+
+    switch (srcPDU->PDUType) {
+      case NFAPI_NR_DL_TTI_PDCCH_PDU_TYPE:
+        copy_dl_tti_request_pdcch_pdu_for_rnti(&srcPDU->pdcch_pdu.pdcch_pdu_rel15, &dstPDU->pdcch_pdu.pdcch_pdu_rel15, rnti, valid_pdu_inds, &dci_pdu_ind);
+        // valid_pdu_ptr += sizeof(int)*srcPDU->pdcch_pdu.pdcch_pdu_rel15.numDlDci;
+        if (dstPDU->pdcch_pdu.pdcch_pdu_rel15.numDlDci > 0)
+          pdu_for_rnti++;
+        // printf("Selected %d DCIs out of %d for RNTI %d for frame %d slot %d\n", 
+        //     dstPDU->pdcch_pdu.pdcch_pdu_rel15.numDlDci, srcPDU->pdcch_pdu.pdcch_pdu_rel15.numDlDci, rnti, src->SFN, src->Slot);
+        break;
+      case NFAPI_NR_DL_TTI_PDSCH_PDU_TYPE:
+        if (srcPDU->pdsch_pdu.pdsch_pdu_rel15.rnti == rnti) {
+          copy_dl_tti_request_pdsch_pdu(&srcPDU->pdsch_pdu.pdsch_pdu_rel15, &dstPDU->pdsch_pdu.pdsch_pdu_rel15);
+          pdu_for_rnti++;
+        }
+        break;
+      case NFAPI_NR_DL_TTI_CSI_RS_PDU_TYPE:
+        copy_dl_tti_request_csi_rs_pdu(&srcPDU->csi_rs_pdu.csi_rs_pdu_rel15, &dstPDU->csi_rs_pdu.csi_rs_pdu_rel15);
+        pdu_for_rnti++;
+        break;
+      case NFAPI_NR_DL_TTI_SSB_PDU_TYPE:
+        copy_dl_tti_request_ssb_pdu(&srcPDU->ssb_pdu.ssb_pdu_rel15, &dstPDU->ssb_pdu.ssb_pdu_rel15);
+        pdu_for_rnti++;
+        break;
+      default:
+        // PDU Type is not any known value
+        AssertFatal(1 == 0, "PDU Type value unknown, allowed values range from 0 to 3\n");
+    }
+  }
+
+  dst->dl_tti_request_body.nPDUs = pdu_for_rnti;
+  dst->dl_tti_request_body.nGroup = src->dl_tti_request_body.nGroup;  // TODO: Check this
+
   if (dst->dl_tti_request_body.nGroup > 0) {
     for (int nGroup = 0; nGroup < dst->dl_tti_request_body.nGroup; ++nGroup) {
       dst->dl_tti_request_body.nUe[nGroup] = src->dl_tti_request_body.nUe[nGroup];
@@ -1444,6 +1557,70 @@ void copy_ul_tti_request(const nfapi_nr_ul_tti_request_t *src, nfapi_nr_ul_tti_r
   }
 }
 
+void copy_ul_tti_request_for_rnti(const nfapi_nr_ul_tti_request_t *src, nfapi_nr_ul_tti_request_t *dst, uint16_t rnti)
+{
+  dst->header.message_id = src->header.message_id;
+  dst->header.message_length = src->header.message_length;
+
+  dst->SFN = src->SFN;
+  dst->Slot = src->Slot;
+  // dst->n_pdus = src->n_pdus;
+  dst->rach_present = src->rach_present;
+  dst->n_ulsch = src->n_ulsch;
+  dst->n_ulcch = src->n_ulcch;
+  dst->n_group = src->n_group;
+
+  int pdu_for_rnti = 0;
+
+  for (int PDU = 0; PDU < src->n_pdus; ++PDU) {
+    // take the PDU at the start of loops
+    const nfapi_nr_ul_tti_request_number_of_pdus_t *src_pdu = &src->pdus_list[PDU];
+    nfapi_nr_ul_tti_request_number_of_pdus_t *dst_pdu = &dst->pdus_list[pdu_for_rnti];
+
+    dst_pdu->pdu_type = src_pdu->pdu_type;
+    dst_pdu->pdu_size = src_pdu->pdu_size;
+
+    switch (src_pdu->pdu_type) {
+      case NFAPI_NR_UL_CONFIG_PRACH_PDU_TYPE:
+        // if (rnti == 0xFFFF) {
+          copy_ul_tti_request_prach_pdu(&src_pdu->prach_pdu, &dst_pdu->prach_pdu);
+          pdu_for_rnti++;
+        // }
+        break;
+      case NFAPI_NR_UL_CONFIG_PUSCH_PDU_TYPE:
+        if (src_pdu->pusch_pdu.rnti == 0xFFFF || src_pdu->pusch_pdu.rnti == rnti) {
+          copy_ul_tti_request_pusch_pdu(&src_pdu->pusch_pdu, &dst_pdu->pusch_pdu);
+          pdu_for_rnti++;
+        }
+        break;
+      case NFAPI_NR_UL_CONFIG_PUCCH_PDU_TYPE:
+        if (src_pdu->pucch_pdu.rnti == 0xFFFF || src_pdu->pucch_pdu.rnti == rnti) {
+          copy_ul_tti_request_pucch_pdu(&src_pdu->pucch_pdu, &dst_pdu->pucch_pdu);
+          pdu_for_rnti++;
+        }
+        break;
+      case NFAPI_NR_UL_CONFIG_SRS_PDU_TYPE:
+        if (src_pdu->srs_pdu.rnti == 0xFFFF || src_pdu->srs_pdu.rnti == rnti) {
+          copy_ul_tti_request_srs_pdu(&src_pdu->srs_pdu, &dst_pdu->srs_pdu);
+          pdu_for_rnti++;
+        }
+        break;
+      default:
+        // PDU Type is not any known value
+        AssertFatal(1 == 0, "PDU Type value unknown, allowed values range from 0 to 3\n");
+    }
+  }
+
+  dst->n_pdus = pdu_for_rnti;
+
+  for (int nGroup = 0; nGroup < src->n_group; ++nGroup) {
+    dst->groups_list[nGroup].n_ue = src->groups_list[nGroup].n_ue;
+    for (int UE = 0; UE < src->groups_list[nGroup].n_ue; ++UE) {
+      dst->groups_list[nGroup].ue_list[UE].pdu_idx = src->groups_list[nGroup].ue_list[UE].pdu_idx;
+    }
+  }
+}
+
 void copy_slot_indication(const nfapi_nr_slot_indication_scf_t *src, nfapi_nr_slot_indication_scf_t *dst)
 {
   dst->header.message_id = src->header.message_id;
@@ -1476,6 +1653,32 @@ void copy_ul_dci_request(const nfapi_nr_ul_dci_request_t *src, nfapi_nr_ul_dci_r
   }
 }
 
+void copy_ul_dci_request_for_rnti(const nfapi_nr_ul_dci_request_t *src, nfapi_nr_ul_dci_request_t *dst, uint16_t rnti)
+{
+  dst->header.message_id = src->header.message_id;
+  dst->header.message_length = src->header.message_length;
+
+  dst->SFN = src->SFN;
+  dst->Slot = src->Slot;
+  // dst->numPdus = src->numPdus;
+
+  int pdu_for_rnti = 0;
+  for (int pdu_idx = 0; pdu_idx < src->numPdus; ++pdu_idx) {
+    // copy_ul_dci_request_pdu(&src->ul_dci_pdu_list[pdu_idx], &dst->ul_dci_pdu_list[pdu_idx]);
+    const nfapi_nr_ul_dci_request_pdus_t *srcPDU = &src->ul_dci_pdu_list[pdu_idx];
+    nfapi_nr_ul_dci_request_pdus_t *dstPDU = &dst->ul_dci_pdu_list[pdu_for_rnti];
+    dstPDU->PDUType = srcPDU->PDUType;
+    dstPDU->PDUSize = srcPDU->PDUSize;
+
+    // Is the same PDU as the DL_TTI.request PDCCH PDU, reuse copy function
+    copy_dl_tti_request_pdcch_pdu_for_rnti(&srcPDU->pdcch_pdu.pdcch_pdu_rel15, &dstPDU->pdcch_pdu.pdcch_pdu_rel15, rnti, NULL, NULL);
+    if (dstPDU->pdcch_pdu.pdcch_pdu_rel15.numDlDci > 0)
+      pdu_for_rnti++;
+  }
+
+  dst->numPdus = pdu_for_rnti;
+}
+
 void copy_tx_data_request_PDU(const nfapi_nr_pdu_t *src, nfapi_nr_pdu_t *dst)
 {
   dst->PDU_length = src->PDU_length;
@@ -1501,6 +1704,24 @@ void copy_tx_data_request_PDU(const nfapi_nr_pdu_t *src, nfapi_nr_pdu_t *dst)
         break;
     }
   }
+}
+
+void copy_tx_data_request_for_rnti(const nfapi_nr_tx_data_request_t *src, nfapi_nr_tx_data_request_t *dst, int *valid_pdu_inds)
+{
+  dst->header.message_id = src->header.message_id;
+  dst->header.message_length = src->header.message_length;
+
+  dst->SFN = src->SFN;
+  dst->Slot = src->Slot;
+  int pdu_idx = 0;
+  for (int i = 0; i < src->Number_of_PDUs; ++i) { 
+    if (valid_pdu_inds[i] == 1) {
+      copy_tx_data_request_PDU(&src->pdu_list[i], &dst->pdu_list[pdu_idx++]);
+    }
+  }
+  dst->Number_of_PDUs = pdu_idx;
+  memset(valid_pdu_inds, -1, 32*sizeof(int));
+  // printf("Selected %d TX Req data PDUs out of %d for frame %d slot %d\n", dst->Number_of_PDUs, src->Number_of_PDUs, src->SFN, src->Slot);
 }
 
 void copy_tx_data_request(const nfapi_nr_tx_data_request_t *src, nfapi_nr_tx_data_request_t *dst)

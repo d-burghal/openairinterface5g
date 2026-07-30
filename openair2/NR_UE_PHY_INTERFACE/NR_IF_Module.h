@@ -66,10 +66,17 @@ extern slot_rnti_mcs_s slot_rnti_mcs[NUM_NFAPI_SLOT];
 typedef struct NR_UL_TIME_ALIGNMENT NR_UL_TIME_ALIGNMENT_t;
 
 typedef struct {
+  bool rach;
+  bool rx_data;
+  bool crc;
+  bool uci;
+} slot_response_t;
+
+typedef struct {
     /// module id
   module_id_t module_id;
   /// gNB index
-  uint32_t gNB_index;
+  uint8_t gNB_index;
   /// component carrier id
   int cc_id;
   /// frame 
@@ -303,20 +310,39 @@ typedef struct nfapi_dl_tti_config_req_tx_data_req_t
     nfapi_nr_tx_data_request_t *tx_data_req_pdu_list;
 } nfapi_dl_tti_config_req_tx_data_req_t;
 
-void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id);
+void send_slot_response(uint16_t frame, uint16_t slot);
+
+void send_nsa_standalone_msg(NR_UL_IND_t *UL_INFO, uint16_t msg_id, uint16_t gnb_id);
 
 void save_nr_measurement_info(nfapi_nr_dl_tti_request_t *dl_tti_request);
 
 void check_and_process_dci(nfapi_nr_dl_tti_request_t *dl_tti_request,
                            nfapi_nr_tx_data_request_t *tx_data_request,
                            nfapi_nr_ul_dci_request_t *ul_dci_request,
-                           nfapi_nr_ul_tti_request_t *ul_tti_request);
+                           nfapi_nr_ul_tti_request_t *ul_tti_request,
+                           uint16_t dl_gnb_id);
 
 struct sfn_slot_s {
   int sfn;
   int slot;
 };
+ //PM : Struct to map using gnb_id
+struct sfn_slot_gnb_s {
+    int sfn;
+    int slot;
+    uint16_t gnb_id;  // Add gNB ID for matching
+};
+
 bool sfn_slot_matcher(void *sfn_slot_s, void *candidate);
+bool sfn_slot_gnb_matcher(void *sfn_slot_gnb_s, void *candidate);
+
+// Per-message metadata struct to carry gNB ID from wrapper through the queue
+// By packing gnb_id alongside the message pointer in the queue item,
+// gnb_id travels WITH the message across thread boundaries.
+typedef struct {
+    void     *msg;       // Pointer to the nFAPI message (e.g., nfapi_nr_dl_tti_request_t*)
+    uint16_t  gnb_id;    // gNB ID from the UDP wrapper (0 if no wrapper detected)
+} nfapi_queue_item_t;
 
 /**\brief interface between L1/L2, indicating the downlink related information, like dci_ind and rx_req
    \param dl_info including dci_ind and rx_request messages*/
@@ -329,4 +355,3 @@ void nr_ue_sl_indication(nr_sidelink_indication_t *sl_indication);
 void print_ue_mac_stats(const module_id_t mod, const int frame_rx, const int slot_rx);
 
 #endif
-
