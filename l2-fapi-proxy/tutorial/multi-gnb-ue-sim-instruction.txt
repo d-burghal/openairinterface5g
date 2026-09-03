@@ -22,7 +22,7 @@ simulation workflow is:
   ./scripts/start_gnb_pods.sh -c 3
 
   # 2. Deploy UEs via Helm (e.g., 10 UEs)
-  cd <your-workspace-path>/oai-cn5g-fed
+  cd <your-workspace-path>/oai-ran/charts/l2proxy
   helm install nr-ue-multi oai-5g-ran/oai-nr-ue-multi -n oai
 
   # --- Inside the gNB-00 container ---
@@ -267,7 +267,7 @@ This phase uses the `start_gnb_pods.sh` script from the tutorial/scripts/ direct
 
   WHERE TO RUN: Host machine
 
-  cd <your-workspace-path>/oai-cn5g-fed/charts/oai-5g-ran/oai-gnb-multi
+  cd <your-workspace-path>/oai-ran/charts/l2proxy/oai-5g-ran/oai-gnb-multi
 
   # Edit values.yaml:
   # - Set start.gnb: false (for manual execution)
@@ -275,7 +275,7 @@ This phase uses the `start_gnb_pods.sh` script from the tutorial/scripts/ direct
   #   Example: oaiCodePath: /home/<your-username>/workspace/oai-ran/
   # - Set gnbIds to the desired gNB IDs (e.g., ["00", "01", "02"])
 
-  cd <your-workspace-path>/oai-cn5g-fed/charts
+  cd <your-workspace-path>/oai-ran/charts/l2proxy
   helm install oai-gnb-multi oai-5g-ran/oai-gnb-multi --namespace oai
 
   # Then manually fix L2 proxy IPs (see script source for the sed commands)
@@ -289,7 +289,7 @@ This phase uses the `start_gnb_pods.sh` script from the tutorial/scripts/ direct
 
   WHERE TO RUN: Host machine
 
-  cd <your-workspace-path>/oai-cn5g-fed
+  cd <your-workspace-path>/oai-ran/charts/l2proxy
 
   # Deploy multiple UEs
   helm install nr-ue-multi oai-5g-ran/oai-nr-ue-multi -n oai
@@ -625,7 +625,11 @@ directory.
   # Uninstall Helm chart
   helm uninstall <CHART_NAME> -n oai
 
---- 12.3 ClickHouse Monitoring ---
+--- 12.3 ClickHouse Monitoring (Optional) ---
+
+  ClickHouse and Grafana are optional. The gNB configmap has a commented-out
+  metrics_db_url line — uncomment and configure it to point to your ClickHouse
+  instance if you want MAC-layer metric collection.
 
   WHERE TO RUN: Host machine
 

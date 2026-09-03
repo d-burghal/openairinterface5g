@@ -6,7 +6,7 @@ set -e  # Exit on any error
 
 # Get script directory to make paths relative
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHARTS_DIR_REL="../../../smi-dt-oai-cn5g-fed/charts"
+CHARTS_DIR_REL="../../../charts/l2proxy"
 SCRIPTS_DIR_REL="."
 
 # Resolve relative paths
